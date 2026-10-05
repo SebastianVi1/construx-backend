@@ -8,7 +8,10 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.andre.construx.modules.organization.model.OrganizationMembership;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -28,4 +31,9 @@ public class UserAccount {
     private String password;
 
     private String status;
+
+    @OneToMany(mappedBy = "userAccount")
+    @Builder.Default
+    private Set<OrganizationMembership> organizationMemberships = new HashSet<>();
+
 }
