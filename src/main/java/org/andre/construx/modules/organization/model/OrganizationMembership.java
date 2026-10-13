@@ -1,5 +1,6 @@
 package org.andre.construx.modules.organization.model;
 
+import org.andre.construx.shared.validation.DomainValidation;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -9,7 +10,6 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.project.model.ProjectAccess;
 
 import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,8 +45,8 @@ public class OrganizationMembership {
     private Set<ProjectAccess> projectAccesses = new HashSet<>();
 
     public OrganizationMembership(Organization organization, UserAccount userAccount, OrganizationRole role) {
-        this.organization = Objects.requireNonNull(organization, "Organization is required");
-        this.userAccount = Objects.requireNonNull(userAccount, "User is required");
+        this.organization = DomainValidation.required(organization, "Organization is required");
+        this.userAccount = DomainValidation.required(userAccount, "User is required");
         changeRole(role);
         if (role.isSystemRole() && !userAccount.sameAs(organization.getCreatedBy())) {
             throw new IllegalArgumentException("Only the organization creator can have the owner role");
@@ -54,7 +54,7 @@ public class OrganizationMembership {
     }
 
     public void changeRole(OrganizationRole role) {
-        Objects.requireNonNull(role, "Role is required");
+        DomainValidation.required(role, "Role is required");
         if (!organization.sameAs(role.getOrganization())) {
             throw new IllegalArgumentException("Role belongs to another organization");
         }

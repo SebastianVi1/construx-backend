@@ -1,5 +1,6 @@
 package org.andre.construx.modules.project.model;
 
+import org.andre.construx.shared.validation.DomainValidation;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -8,7 +9,6 @@ import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 
-import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -31,8 +31,8 @@ public class ProjectAccess {
     private Project project;
 
     public ProjectAccess(Project project, OrganizationMembership membership) {
-        this.project = Objects.requireNonNull(project, "Project is required");
-        this.organizationMembership = Objects.requireNonNull(membership, "Membership is required");
+        this.project = DomainValidation.required(project, "Project is required");
+        this.organizationMembership = DomainValidation.required(membership, "Membership is required");
         if (!project.getOrganization().sameAs(membership.getOrganization())) {
             throw new IllegalArgumentException("Membership and project belong to different organizations");
         }

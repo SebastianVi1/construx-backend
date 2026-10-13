@@ -1,5 +1,6 @@
 package org.andre.construx.modules.project.model;
 
+import org.andre.construx.shared.validation.DomainValidation;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -10,7 +11,6 @@ import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.Organization;
 
 import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,7 +38,7 @@ public class Project {
     private Set<Goal> goals = new HashSet<>();
 
     public Project(Organization organization, String name) {
-        this.organization = Objects.requireNonNull(organization, "Organization is required");
+        this.organization = DomainValidation.required(organization, "Organization is required");
         rename(name);
     }
 

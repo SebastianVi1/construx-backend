@@ -1,5 +1,6 @@
 package org.andre.construx.modules.organization.model;
 
+import org.andre.construx.shared.validation.DomainValidation;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -42,7 +43,7 @@ public class Organization {
 
     public Organization(String name, UserAccount createdBy) {
         rename(name);
-        this.createdBy = java.util.Objects.requireNonNull(createdBy, "Creator is required");
+        this.createdBy = DomainValidation.required(createdBy, "Creator is required");
         OrganizationRole ownerRole = OrganizationRole.owner(this);
         roles.add(ownerRole);
         memberships.add(new OrganizationMembership(this, createdBy, ownerRole));
