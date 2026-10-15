@@ -1,0 +1,13 @@
+# Security integration
+
+Apply `docs/security-migration.sql` to an existing PostgreSQL database before starting this version. Back up the database first. The script preserves existing accounts and creates the security tables; switch production from Hibernate `ddl-auto=update` to `validate` after confirming the complete schema matches the entities.
+
+Set `DB_PASSWORD`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET` (Base64 of at least 32 random bytes, for example `openssl rand -base64 32`), `MAIL_FROM`, `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD`. Set `FRONTEND_URL` to the browser application's origin. Configure Google's redirect URI as `{api-origin}/login/oauth2/code/google`. Use HTTPS outside local development; authentication cookies are `Secure`.
+
+For local development, put these values in `.env` at the repository root and start the app with that directory as the working directory (including in your IDE run configuration). Spring imports `.env` as properties; it does not need to be committed. If startup reports an unresolved placeholder such as `SMTP_HOST`, check the working directory and the matching key in `.env`.
+
+The browser first calls `GET /api/auth/csrf`. Send its token in the returned header on every unsafe request. Registration posts `{ "email", "password" }` to `/api/auth/register`; the user opens the emailed `/verify-email?token=...` page, which posts the token to `/api/auth/verify`. Sign in by posting credentials to `/api/auth/login` or navigating to `/oauth2/authorization/google`. Refresh with `POST /api/auth/refresh`, sign out with `POST /api/auth/logout`, and inspect the signed-in user with `GET /api/auth/me`. Change a local password with `POST /api/auth/password` and `{ "currentPassword", "newPassword" }`; this clears all sessions. To link Google to a verified password account, POST `/api/auth/google/link` with CSRF and then navigate to the returned `authorizationUrl`. All auth cookies are HttpOnly; only the CSRF cookie is readable by JavaScript.
+
+Access JWTs live 15 minutes and refresh sessions 30 days. Each protected request validates its session row, so logout and account disabling take effect immediately. A refresh token is single use; reuse revokes its session. OAuth redirects use a temporary server session for state correlation, then the application uses its own cookies. Organization roles are never copied into JWTs; apply `DomainAuthorization` at business service boundaries when those services are added.
+
+Existing password accounts remain unverified after migration. Send them through `/api/auth/resend` and email verification before login. Do not log credentials, verification links, refresh tokens, or signing keys.

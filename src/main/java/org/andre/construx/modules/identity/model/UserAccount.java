@@ -24,9 +24,11 @@ public class UserAccount {
     @Column(nullable = false, unique = true, length = 254)
     private String email;
 
-    @NotBlank
-    @Column(name = "password", nullable = false)
+    @Column(name = "password")
     private String passwordHash;
+
+    @Column(nullable = false)
+    private boolean emailVerified;
 
     @NotNull @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -41,6 +43,29 @@ public class UserAccount {
             throw new IllegalArgumentException("Password hash is required");
         }
         this.passwordHash = passwordHash;
+    }
+
+    /** Google accounts have no local password until the user explicitly sets one. */
+    public static UserAccount google(String email) {
+        UserAccount user = new UserAccount();
+        user.email = normalizeEmail(email);
+        user.emailVerified = true;
+        return user;
+    }
+
+    public void verifyEmail() {
+        this.emailVerified = true;
+    }
+
+    public void changePassword(String encodedPassword) {
+        if (encodedPassword == null || encodedPassword.isBlank()) {
+            throw new IllegalArgumentException("Password hash is required");
+        }
+        this.passwordHash = encodedPassword;
+    }
+
+    public void disable() {
+        this.status = UserStatus.DISABLED;
     }
 
     public static String normalizeEmail(String email) {
