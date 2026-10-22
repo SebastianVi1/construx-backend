@@ -18,6 +18,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
@@ -95,7 +96,7 @@ public class SecurityConfig {
     UserDetailsService userDetailsService(UserAccountRepository users) {
         return email -> {
             UserAccount account = users.findByEmail(UserAccount.normalizeEmail(email))
-                    .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException("Unknown account"));
+                    .orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
             if (account.getStatus() != UserStatus.ACTIVE || !account.isEmailVerified() || account.getPasswordHash() == null)
                 throw new DisabledException("Account unavailable");
             return User.withUsername(account.getEmail()).password(account.getPasswordHash()).authorities("USER").build();
