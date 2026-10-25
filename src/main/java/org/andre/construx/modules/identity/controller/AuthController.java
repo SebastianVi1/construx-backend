@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -40,10 +41,10 @@ public class AuthController {
     }
 
     public record Credentials(@Email @NotBlank String email, @NotBlank String password) {}
-    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12) String password) {}
+    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 8) String password) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
-    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 12) String newPassword) {}
+    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 8) String newPassword) {}
 
     @PostMapping("/register")
     public ResponseEntity<Void> register(@Valid @RequestBody Registration body) {
