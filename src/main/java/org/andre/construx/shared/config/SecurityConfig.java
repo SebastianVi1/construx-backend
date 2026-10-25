@@ -1,6 +1,7 @@
 package org.andre.construx.shared.config;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.model.UserStatus;
@@ -34,6 +35,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -59,7 +61,11 @@ public class SecurityConfig {
             @Value("${app.security.rate-limit.window-seconds:60}") long rateLimitWindowSeconds) throws Exception {
         // Resource Server normally exempts bearer tokens from CSRF. Our bearer token
         // lives in a browser cookie, so explicitly protect every unsafe API request.
-        CsrfFilter csrfFilter = new CsrfFilter(CookieCsrfTokenRepository.withHttpOnlyFalse());
+        CookieCsrfTokenRepository csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        csrfTokens.setCookieCustomizer(cookie -> cookie.secure(true).sameSite("Lax"));
+        CsrfFilter csrfFilter = new CsrfFilter(csrfTokens);
+        csrfFilter.setAccessDeniedHandler(
+                (req, res, ex) -> writeProblem(res, HttpStatus.FORBIDDEN, "Access denied", "FORBIDDEN"));
         csrfFilter.setRequireCsrfProtectionMatcher(request -> !java.util.Set.of("GET", "HEAD", "OPTIONS", "TRACE")
                 .contains(request.getMethod()));
         csrfFilter.setRequestHandler(new CsrfTokenRequestAttributeHandler());
@@ -74,16 +80,20 @@ public class SecurityConfig {
                 .addFilterBefore(new AuthRateLimitFilter(rateLimitMax, Duration.ofSeconds(rateLimitWindowSeconds),
                         Clock.systemUTC()), CsrfFilter.class)
                 .oauth2ResourceServer(o -> o.bearerTokenResolver(cookieBearerTokenResolver()).jwt(j -> {}))
-                .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
-                    res.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    res.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-                    res.getWriter().write("{\"title\":\"Authentication required\",\"status\":401,\"code\":\"UNAUTHORIZED\"}");
-                }).accessDeniedHandler((req, res, ex) -> {
-                    res.setStatus(HttpStatus.FORBIDDEN.value());
-                    res.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-                    res.getWriter().write("{\"title\":\"Access denied\",\"status\":403,\"code\":\"FORBIDDEN\"}");
-                }));
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req, res, ex) ->
+                                writeProblem(res, HttpStatus.UNAUTHORIZED, "Authentication required", "UNAUTHORIZED"))
+                        .accessDeniedHandler((req, res, ex) ->
+                                writeProblem(res, HttpStatus.FORBIDDEN, "Access denied", "FORBIDDEN")));
         return http.build();
+    }
+
+    private static void writeProblem(HttpServletResponse res, HttpStatus status, String title, String code)
+            throws IOException {
+        res.setStatus(status.value());
+        res.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        res.getWriter().write("{\"title\":\"" + title + "\",\"status\":" + status.value()
+                + ",\"code\":\"" + code + "\"}");
     }
 
     @Bean
