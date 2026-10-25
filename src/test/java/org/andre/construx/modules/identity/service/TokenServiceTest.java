@@ -83,6 +83,15 @@ class TokenServiceTest {
     }
 
     @Test
+    void secretFromTwoRotationsAgoRevokesTheSession() {
+        TokenService.Tokens first = tokens.start(user);
+        TokenService.Tokens second = tokens.refresh(first.refresh());
+        tokens.refresh(second.refresh());
+        assertThrows(BadCredentialsException.class, () -> tokens.refresh(first.refresh()));
+        assertFalse(saved.get().activeAt(Instant.now()));
+    }
+
+    @Test
     void unknownSecretRevokesTheSession() {
         TokenService.Tokens first = tokens.start(user);
         String forged = first.refresh().split("\\.")[0] + ".forged-secret";
