@@ -4,6 +4,9 @@ import org.andre.construx.modules.identity.model.*;
 import org.andre.construx.modules.identity.repository.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -35,6 +38,7 @@ public class AccountService {
     private final ObjectProvider<JavaMailSender> mail;
     private final String frontendUrl;
     private final String mailFrom;
+    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
     private final SecureRandom random = new SecureRandom();
 
     public AccountService(UserAccountRepository users, EmailVerificationRepository verifications,
@@ -171,10 +175,11 @@ public class AccountService {
      * Generates, stores, and sends a single-use verification token.
      *
      * <p>Only the token hash is persisted. The raw token is included in the
-     * verification URL sent to the account email and expires after 24 hours.</p>
+     * verification URL sent to the account email and expires after 24 hours.
+     * Mail delivery failures are logged, not propagated, so the response does
+     * not reveal whether an address was new; the user can request a resend.</p>
      *
      * @param user the account receiving the verification message
-     * @throws IllegalStateException if no mail sender is configured
      */
     private void sendVerification(UserAccount user) {
         byte[] bytes = new byte[32];
@@ -184,12 +189,19 @@ public class AccountService {
         verifications.save(new EmailVerification(user, TokenService.sha256(token),
                 Instant.now().plus(24, ChronoUnit.HOURS)));
         JavaMailSender sender = mail.getIfAvailable();
-        if (sender == null) throw new IllegalStateException("Mail sender is not configured");
+        if (sender == null) {
+            log.error("Verification email for user {} not sent: no mail sender configured", user.getId());
+            return;
+        }
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(mailFrom);
         message.setTo(user.getEmail());
         message.setSubject("Verify your Construx email");
         message.setText("Open this link to verify your email: " + frontendUrl + "/verify-email?token=" + token);
-        sender.send(message);
+        try {
+            sender.send(message);
+        } catch (MailException ex) {
+            log.error("Verification email for user {} could not be sent", user.getId(), ex);
+        }
     }
 }
