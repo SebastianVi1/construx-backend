@@ -8,9 +8,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuthCookies {
     public void write(HttpServletResponse response, TokenService.Tokens tokens) {
-        response.addHeader("Set-Cookie", cookie("access_token", tokens.access(), "/", 900));
+        response.addHeader("Set-Cookie", cookie("access_token", tokens.access(), "/", TokenService.ACCESS_LIFETIME.toSeconds()));
         if (tokens.refresh() != null) {
-            response.addHeader("Set-Cookie", cookie("refresh_token", tokens.refresh(), "/api/auth", 2_592_000));
+            response.addHeader("Set-Cookie", cookie("refresh_token", tokens.refresh(), "/api/auth",
+                    TokenService.REFRESH_LIFETIME.toSeconds()));
         }
     }
 

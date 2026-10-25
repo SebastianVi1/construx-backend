@@ -18,6 +18,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.WebUtils;
 
 import java.util.Map;
 import java.util.UUID;
@@ -93,7 +94,7 @@ public class AuthController {
     @PostMapping("/password")
     public ResponseEntity<Void> changePassword(@Valid @RequestBody PasswordChange body,
             Authentication authentication, HttpServletResponse response) {
-        accounts.changePassword(UUID.fromString(authentication.getName()),
+        accounts.changePassword(currentUserId(authentication),
                 body.currentPassword(), body.newPassword());
         cookies.clear(response);
         return ResponseEntity.noContent().build();
@@ -101,14 +102,14 @@ public class AuthController {
 
     @GetMapping("/me")
     public Map<String, String> me(Authentication authentication) {
-        UUID id = UUID.fromString(authentication.getName());
+        UUID id = currentUserId(authentication);
         UserAccount user = users.findById(id).orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
         return Map.of("id", id.toString(), "email", user.getEmail());
     }
 
     @PostMapping("/google/link")
     public Map<String, String> linkGoogle(Authentication authentication, HttpServletRequest request) {
-        UUID id = UUID.fromString(authentication.getName());
+        UUID id = currentUserId(authentication);
         HttpSession session = request.getSession(true);
         session.setAttribute("linkUserId", id);
         session.setMaxInactiveInterval(LINK_SESSION_SECONDS);
@@ -121,8 +122,11 @@ public class AuthController {
     }
 
     private String cookie(HttpServletRequest request, String name) {
-        if (request.getCookies() != null) for (Cookie cookie : request.getCookies())
-            if (name.equals(cookie.getName())) return cookie.getValue();
-        return null;
+        Cookie cookie = WebUtils.getCookie(request, name);
+        return cookie == null ? null : cookie.getValue();
+    }
+
+    private static UUID currentUserId(Authentication authentication) {
+        return UUID.fromString(authentication.getName());
     }
 }

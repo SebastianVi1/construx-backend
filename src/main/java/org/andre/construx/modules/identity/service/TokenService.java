@@ -2,7 +2,6 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.AuthSession;
 import org.andre.construx.modules.identity.model.UserAccount;
-import org.andre.construx.modules.identity.model.UserStatus;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -44,7 +43,7 @@ public class TokenService {
 
     @Transactional
     public Tokens start(UserAccount user) {
-        if (user.getStatus() != UserStatus.ACTIVE || !user.isEmailVerified()) {
+        if (!user.isActive()) {
             throw new BadCredentialsException("Account unavailable");
         }
         String secret = randomSecret();
@@ -61,8 +60,7 @@ public class TokenService {
         catch (IllegalArgumentException ex) { throw new BadCredentialsException("Invalid refresh token"); }
         AuthSession session = sessions.findWithLockById(id)
                 .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
-        if (!session.activeAt(Instant.now()) || session.getUser().getStatus() != UserStatus.ACTIVE
-                || !session.getUser().isEmailVerified()) {
+        if (!session.activeAt(Instant.now()) || !session.getUser().isActive()) {
             throw new BadCredentialsException("Invalid refresh token");
         }
         String presented = sha256(parts[1]);

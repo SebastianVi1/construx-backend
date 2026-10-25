@@ -4,7 +4,6 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.model.UserAccount;
-import org.andre.construx.modules.identity.model.UserStatus;
 import org.andre.construx.modules.identity.service.GoogleLoginHandler;
 import org.andre.construx.shared.security.AuthRateLimitFilter;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +31,7 @@ import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.util.WebUtils;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
@@ -113,11 +113,8 @@ public class SecurityConfig {
     @Bean
     BearerTokenResolver cookieBearerTokenResolver() {
         return request -> {
-            if (request.getCookies() == null) return null;
-            for (Cookie cookie : request.getCookies()) {
-                if ("access_token".equals(cookie.getName())) return cookie.getValue();
-            }
-            return null;
+            Cookie cookie = WebUtils.getCookie(request, "access_token");
+            return cookie == null ? null : cookie.getValue();
         };
     }
 
@@ -136,9 +133,9 @@ public class SecurityConfig {
         return email -> {
             UserAccount account = users.findByEmail(UserAccount.normalizeEmail(email))
                     .orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
-            if (account.getStatus() != UserStatus.ACTIVE || !account.isEmailVerified() || account.getPasswordHash() == null)
+            if (!account.isActive() || account.getPasswordHash() == null)
                 throw new DisabledException("Account unavailable");
-            return User.withUsername(account.getEmail()).password(account.getPasswordHash()).authorities("USER").build();
+            return User.withUsername(account.getEmail()).password(account.getPasswordHash()).authorities(List.of()).build();
         };
     }
 }

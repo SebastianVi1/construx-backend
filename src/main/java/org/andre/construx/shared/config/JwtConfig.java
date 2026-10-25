@@ -1,7 +1,6 @@
 package org.andre.construx.shared.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
-import org.andre.construx.modules.identity.model.UserStatus;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -46,7 +45,7 @@ public class JwtConfig {
                 UUID sessionId = UUID.fromString(jwt.getClaimAsString("sid"));
                 boolean valid = jwt.getAudience().contains(audience) && sessions.findById(sessionId)
                         .filter(s -> s.activeAt(Instant.now()) && s.getUser().getId().equals(userId)
-                                && s.getUser().getStatus() == UserStatus.ACTIVE && s.getUser().isEmailVerified())
+                                && s.getUser().isActive())
                         .isPresent();
                 if (valid) return OAuth2TokenValidatorResult.success();
             } catch (RuntimeException ignored) { /* Invalid claim values fail closed. */ }
