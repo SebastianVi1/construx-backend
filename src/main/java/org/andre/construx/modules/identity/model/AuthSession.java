@@ -28,6 +28,12 @@ public class AuthSession {
 
     private Instant revokedAt;
 
+    /** Hash replaced by the latest rotation; lets a concurrent request using it be told apart from a stolen replay. */
+    @Column(length = 64)
+    private String previousRefreshHash;
+
+    private Instant rotatedAt;
+
     public AuthSession(UserAccount user, String refreshHash, Instant expiresAt) {
         this.id = UUID.randomUUID();
         this.user = user;
@@ -39,7 +45,9 @@ public class AuthSession {
         return revokedAt == null && expiresAt.isAfter(now);
     }
 
-    public void rotate(String refreshHash) {
+    public void rotate(String refreshHash, Instant now) {
+        this.previousRefreshHash = this.refreshHash;
+        this.rotatedAt = now;
         this.refreshHash = refreshHash;
     }
 

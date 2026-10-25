@@ -4,12 +4,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
-/** Browser token transport. The refresh cookie is limited to auth endpoints. */
+/** Browser token transport. The refresh cookie is limited to auth endpoints and omitted when it was not rotated. */
 @Component
 public class AuthCookies {
     public void write(HttpServletResponse response, TokenService.Tokens tokens) {
         response.addHeader("Set-Cookie", cookie("access_token", tokens.access(), "/", 900));
-        response.addHeader("Set-Cookie", cookie("refresh_token", tokens.refresh(), "/api/auth", 2_592_000));
+        if (tokens.refresh() != null) {
+            response.addHeader("Set-Cookie", cookie("refresh_token", tokens.refresh(), "/api/auth", 2_592_000));
+        }
     }
 
     public void clear(HttpServletResponse response) {

@@ -30,6 +30,15 @@ class AuthCookiesTest {
     }
 
     @Test
+    void writeWithoutRefreshSecretLeavesTheRefreshCookieUntouched() {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        cookies.write(response, new TokenService.Tokens("access-jwt", null));
+        List<String> headers = response.getHeaders(HttpHeaders.SET_COOKIE);
+        assertEquals(1, headers.size());
+        assertTrue(headers.get(0).startsWith("access_token="), headers.get(0));
+    }
+
+    @Test
     void clearExpiresBothCookies() {
         MockHttpServletResponse response = new MockHttpServletResponse();
         cookies.clear(response);
