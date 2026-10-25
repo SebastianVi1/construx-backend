@@ -3,6 +3,7 @@ package org.andre.construx.modules.identity.controller;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -25,6 +26,9 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    /** A pending Google link must be completed quickly; an abandoned one expires with its session. */
+    private static final int LINK_SESSION_SECONDS = 600;
+
     private final AccountService accounts;
     private final TokenService tokens;
     private final AuthCookies cookies;
@@ -105,7 +109,9 @@ public class AuthController {
     @PostMapping("/google/link")
     public Map<String, String> linkGoogle(Authentication authentication, HttpServletRequest request) {
         UUID id = UUID.fromString(authentication.getName());
-        request.getSession(true).setAttribute("linkUserId", id);
+        HttpSession session = request.getSession(true);
+        session.setAttribute("linkUserId", id);
+        session.setMaxInactiveInterval(LINK_SESSION_SECONDS);
         return Map.of("authorizationUrl", "/oauth2/authorization/google");
     }
 
