@@ -5,6 +5,7 @@ import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.model.UserStatus;
 import org.andre.construx.modules.identity.service.GoogleLoginHandler;
+import org.andre.construx.shared.security.AuthRateLimitFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,6 +34,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 
 @Configuration
@@ -51,7 +54,9 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain apiChain(HttpSecurity http,
+            @Value("${app.security.rate-limit.max-requests:10}") int rateLimitMax,
+            @Value("${app.security.rate-limit.window-seconds:60}") long rateLimitWindowSeconds) throws Exception {
         // Resource Server normally exempts bearer tokens from CSRF. Our bearer token
         // lives in a browser cookie, so explicitly protect every unsafe API request.
         CsrfFilter csrfFilter = new CsrfFilter(CookieCsrfTokenRepository.withHttpOnlyFalse());
@@ -66,6 +71,8 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .addFilterBefore(csrfFilter, LogoutFilter.class)
+                .addFilterBefore(new AuthRateLimitFilter(rateLimitMax, Duration.ofSeconds(rateLimitWindowSeconds),
+                        Clock.systemUTC()), CsrfFilter.class)
                 .oauth2ResourceServer(o -> o.bearerTokenResolver(cookieBearerTokenResolver()).jwt(j -> {}))
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(HttpStatus.UNAUTHORIZED.value());

@@ -180,6 +180,7 @@ public class AccountService {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        verifications.invalidateOpenFor(user, Instant.now());
         verifications.save(new EmailVerification(user, TokenService.sha256(token),
                 Instant.now().plus(24, ChronoUnit.HOURS)));
         JavaMailSender sender = mail.getIfAvailable();

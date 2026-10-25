@@ -54,6 +54,17 @@ class AccountServiceTest {
     }
 
     @Test
+    void resendInvalidatesPreviouslyIssuedLinks() {
+        UserAccount pending = new UserAccount("person@example.com", "hash");
+        when(users.findByEmail("person@example.com")).thenReturn(Optional.of(pending));
+        service.resend("person@example.com");
+        var order = inOrder(proofs, sender);
+        order.verify(proofs).invalidateOpenFor(eq(pending), any(java.time.Instant.class));
+        order.verify(proofs).save(any(EmailVerification.class));
+        order.verify(sender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
     void matchingGoogleEmailDoesNotAutomaticallyLink() {
         when(users.findByEmail("person@example.com"))
                 .thenReturn(Optional.of(new UserAccount("person@example.com", "hash")));
