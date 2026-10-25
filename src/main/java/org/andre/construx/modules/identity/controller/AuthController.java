@@ -45,10 +45,10 @@ public class AuthController {
     }
 
     public record Credentials(@Email @NotBlank String email, @NotBlank String password) {}
-    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 8) String password) {}
+    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 8, max = 72) String password) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
-    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 8) String newPassword) {}
+    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 8, max = 72) String newPassword) {}
 
     @PostMapping("/register")
     public ResponseEntity<Void> register(@Valid @RequestBody Registration body) {

@@ -18,4 +18,8 @@ public interface EmailVerificationRepository extends JpaRepository<EmailVerifica
     @Modifying
     @Query("update EmailVerification v set v.usedAt = :now where v.user = :user and v.usedAt is null")
     void invalidateOpenFor(@Param("user") UserAccount user, @Param("now") Instant now);
+
+    @Modifying
+    @Query("delete from EmailVerification v where v.expiresAt < :cutoff or v.usedAt < :cutoff")
+    int deleteDeadBefore(@Param("cutoff") Instant cutoff);
 }

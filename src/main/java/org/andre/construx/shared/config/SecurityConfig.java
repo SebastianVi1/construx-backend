@@ -70,6 +70,7 @@ public class SecurityConfig {
                 .contains(request.getMethod()));
         csrfFilter.setRequestHandler(new CsrfTokenRequestAttributeHandler());
         http.authorizeHttpRequests(a -> a
+                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/api/auth/register", "/api/auth/verify", "/api/auth/resend",
                         "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/csrf").permitAll()
                 .anyRequest().authenticated())
