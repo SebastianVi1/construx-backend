@@ -26,19 +26,23 @@ class AccountServiceTest {
     private AccountService service;
 
     @BeforeEach
-    @SuppressWarnings("unchecked")
     void setUp() {
         users = mock(UserAccountRepository.class);
         proofs = mock(EmailVerificationRepository.class);
         google = mock(GoogleIdentityRepository.class);
         sender = mock(JavaMailSender.class);
-        ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(sender);
         service = new AccountService(users, proofs, google,
                 PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
-                provider, "https://app.example.test", "noreply@example.test");
+                mailerWith(sender), "https://app.example.test");
         when(users.save(any(UserAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(proofs.save(any(EmailVerification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static AuthMailer mailerWith(JavaMailSender sender) {
+        ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(sender);
+        return new AuthMailer(provider, "noreply@example.test");
     }
 
     @Test
@@ -73,11 +77,9 @@ class AccountServiceTest {
 
     @Test
     void registrationSucceedsWhenNoMailSenderIsConfigured() {
-        @SuppressWarnings("unchecked")
-        ObjectProvider<JavaMailSender> none = mock(ObjectProvider.class);
         AccountService withoutMail = new AccountService(users, proofs, google,
                 PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
-                none, "https://app.example.test", "noreply@example.test");
+                mailerWith(null), "https://app.example.test");
         assertDoesNotThrow(() -> withoutMail.register("person@example.com", "long-password-here"));
     }
 

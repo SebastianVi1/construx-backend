@@ -2,13 +2,7 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.*;
 import org.andre.construx.modules.identity.repository.*;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -35,25 +29,20 @@ public class AccountService {
     private final GoogleIdentityRepository google;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
-    private final ObjectProvider<JavaMailSender> mail;
+    private final AuthMailer mailer;
     private final String frontendUrl;
-    private final String mailFrom;
-    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
     private final SecureRandom random = new SecureRandom();
 
     public AccountService(UserAccountRepository users, EmailVerificationRepository verifications,
             GoogleIdentityRepository google, PasswordEncoder passwords, TokenService tokens,
-            ObjectProvider<JavaMailSender> mail,
-            @Value("${app.security.frontend-url}") String frontendUrl,
-            @Value("${app.security.mail-from}") String mailFrom) {
+            AuthMailer mailer, @Value("${app.security.frontend-url}") String frontendUrl) {
         this.users = users;
         this.verifications = verifications;
         this.google = google;
         this.passwords = passwords;
         this.tokens = tokens;
-        this.mail = mail;
+        this.mailer = mailer;
         this.frontendUrl = frontendUrl;
-        this.mailFrom = mailFrom;
     }
 
     /**
@@ -188,20 +177,7 @@ public class AccountService {
         verifications.invalidateOpenFor(user, Instant.now());
         verifications.save(new EmailVerification(user, TokenService.sha256(token),
                 Instant.now().plus(24, ChronoUnit.HOURS)));
-        JavaMailSender sender = mail.getIfAvailable();
-        if (sender == null) {
-            log.error("Verification email for user {} not sent: no mail sender configured", user.getId());
-            return;
-        }
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(mailFrom);
-        message.setTo(user.getEmail());
-        message.setSubject("Verify your Construx email");
-        message.setText("Open this link to verify your email: " + frontendUrl + "/verify-email?token=" + token);
-        try {
-            sender.send(message);
-        } catch (MailException ex) {
-            log.error("Verification email for user {} could not be sent", user.getId(), ex);
-        }
+        mailer.send(user, "Verify your Construx email",
+                "Open this link to verify your email: " + frontendUrl + "/verify-email?token=" + token);
     }
 }
