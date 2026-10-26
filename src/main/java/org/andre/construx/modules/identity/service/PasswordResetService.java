@@ -23,6 +23,7 @@ import java.util.Base64;
  */
 @Service
 public class PasswordResetService {
+    static final String SUBJECT = "Reset your Construx password / Restablece tu contraseña de Construx";
     static final Duration TOKEN_TTL = Duration.ofMinutes(60);
     static final Duration REQUEST_COOLDOWN = Duration.ofSeconds(60);
 
@@ -82,11 +83,14 @@ public class PasswordResetService {
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         resets.invalidateOpenFor(user, now);
         resets.save(new PasswordReset(user, TokenService.sha256(token), now.plus(TOKEN_TTL)));
-        mailer.send(user, "Reset your Construx password",
+        String link = frontendUrl + "/reset-password?token=" + token;
+        mailer.send(user, SUBJECT,
                 "We received a request to reset the password for this email address. "
-                        + "Open this link within 60 minutes to choose a new password: "
-                        + frontendUrl + "/reset-password?token=" + token
-                        + "\n\nIf you did not request this, ignore this email. Your password will not change.");
+                        + "Open this link within 60 minutes to choose a new password: " + link
+                        + "\n\nIf you did not request this, ignore this email. Your password will not change."
+                        + "\n\nRecibimos una solicitud para restablecer la contraseña de este correo. "
+                        + "Abre este enlace en los próximos 60 minutos para elegir una nueva contraseña: " + link
+                        + "\n\nSi no lo solicitaste, ignora este correo. Tu contraseña no cambiará.");
     }
 
     private static BadCredentialsException invalidLink() {

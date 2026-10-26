@@ -64,7 +64,7 @@ class PasswordResetServiceTest {
 
     private String sentToken() {
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(mailer).send(eq(user), eq("Reset your Construx password"), text.capture());
+        verify(mailer).send(eq(user), eq("Reset your Construx password / Restablece tu contraseña de Construx"), text.capture());
         return text.getValue().split("token=")[1].split("\\s")[0];
     }
 
@@ -88,10 +88,15 @@ class PasswordResetServiceTest {
     void unverifiedActiveAccountReceivesTheMailWithTheDocumentedWording() {
         service.requestReset(" Person@Example.test ");
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(mailer).send(eq(user), eq("Reset your Construx password"), text.capture());
+        verify(mailer).send(eq(user), eq("Reset your Construx password / Restablece tu contraseña de Construx"), text.capture());
         assertTrue(text.getValue().startsWith("We received a request to reset the password for this email address. "
                 + "Open this link within 60 minutes to choose a new password: https://app.example.test/reset-password?token="));
-        assertTrue(text.getValue().endsWith("\n\nIf you did not request this, ignore this email. Your password will not change."));
+        assertTrue(text.getValue().contains("\n\nIf you did not request this, ignore this email. Your password will not change."
+                + "\n\nRecibimos una solicitud para restablecer la contraseña de este correo. "
+                + "Abre este enlace en los próximos 60 minutos para elegir una nueva contraseña: https://app.example.test/reset-password?token="));
+        assertTrue(text.getValue().endsWith("\n\nSi no lo solicitaste, ignora este correo. Tu contraseña no cambiará."));
+        String raw = text.getValue().split("token=")[1].split("\\s")[0];
+        assertEquals(2, text.getValue().split("token=" + raw, -1).length - 1);
     }
 
     @Test
