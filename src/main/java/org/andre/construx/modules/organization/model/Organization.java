@@ -46,6 +46,7 @@ public class Organization {
         this.createdBy = DomainValidation.required(createdBy, "Creator is required");
         OrganizationRole ownerRole = OrganizationRole.owner(this);
         roles.add(ownerRole);
+        roles.addAll(SeededRoles.create(this));
         memberships.add(new OrganizationMembership(this, createdBy, ownerRole));
     }
 
