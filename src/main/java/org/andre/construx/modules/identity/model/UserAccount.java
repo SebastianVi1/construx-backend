@@ -69,6 +69,17 @@ public class UserAccount {
         this.passwordHash = encodedPassword;
     }
 
+    /** Only enabled accounts may start or finish a password recovery; email verification is not required. */
+    public boolean canRecoverPassword() {
+        return status == UserStatus.ACTIVE;
+    }
+
+    /** Sets a new password after proof of mailbox control, which also proves the email address. */
+    public void resetPassword(String encodedPassword) {
+        changePassword(encodedPassword);
+        this.emailVerified = true;
+    }
+
     public void disable() {
         this.status = UserStatus.DISABLED;
     }
