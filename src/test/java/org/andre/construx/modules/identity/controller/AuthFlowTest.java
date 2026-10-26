@@ -34,6 +34,21 @@ class AuthFlowTest {
     @MockitoBean JavaMailSender sender;
 
     @Test
+    void registrationRejectsPasswordShorterThanTwelveCharacters() throws Exception {
+        MvcResult csrfResult = mvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk()).andReturn();
+        String csrf = JsonPath.read(csrfResult.getResponse().getContentAsString(), "$.token");
+        String headerName = JsonPath.read(csrfResult.getResponse().getContentAsString(), "$.headerName");
+        Cookie csrfCookie = csrfResult.getResponse().getCookie("XSRF-TOKEN");
+
+        mvc.perform(post("/api/auth/register").cookie(csrfCookie)
+                        .header(headerName, csrf)
+                        .contentType("application/json")
+                        .content("{\"email\":\"short-" + UUID.randomUUID() + "@example.test\",\"password\":\"12345678901\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void registrationVerificationLoginRefreshAndLogout() throws Exception {
         String email = "person-" + UUID.randomUUID() + "@example.test";
         MvcResult csrfResult = mvc.perform(get("/api/auth/csrf"))
