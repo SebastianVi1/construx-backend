@@ -8,9 +8,11 @@ import java.time.Instant;
 import java.util.UUID;
 import org.andre.construx.modules.identity.model.AuthSession;
 import org.andre.construx.modules.identity.model.EmailVerification;
+import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;
 import org.andre.construx.modules.identity.repository.EmailVerificationRepository;
+import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,7 @@ class AuthDataCleanupTest {
     @Autowired UserAccountRepository users;
     @Autowired AuthSessionRepository sessions;
     @Autowired EmailVerificationRepository verifications;
+    @Autowired PasswordResetRepository resets;
 
     @Test
     void purgeRemovesOnlyLongDeadSessionsAndLinks() {
@@ -52,6 +55,29 @@ class AuthDataCleanupTest {
         assertEquals(false, sessions.existsById(revokedLongAgo.getId()));
         assertEquals(false, verifications.existsById(staleLink.getId()));
         assertTrue(verifications.existsById(openLink.getId()));
+    }
+
+    @Test
+    void purgeRemovesOnlyLongDeadPasswordResetTokens() {
+        UserAccount user = users.save(new UserAccount("cleanup-" + UUID.randomUUID() + "@example.test", "hash"));
+        Instant now = Instant.now();
+        PasswordReset expiredLongAgo = resets.save(
+                new PasswordReset(user, "stale-" + UUID.randomUUID(), now.minus(Duration.ofDays(30))));
+        PasswordReset usedLongAgo = new PasswordReset(user, "used-" + UUID.randomUUID(), now.plus(Duration.ofDays(1)));
+        usedLongAgo.use(now.minus(Duration.ofDays(30)));
+        resets.save(usedLongAgo);
+        PasswordReset usedJustNow = new PasswordReset(user, "now-" + UUID.randomUUID(), now.plus(Duration.ofDays(1)));
+        usedJustNow.use(now);
+        resets.save(usedJustNow);
+        PasswordReset open = resets.save(
+                new PasswordReset(user, "open-" + UUID.randomUUID(), now.plus(Duration.ofMinutes(60))));
+
+        cleanup.purge();
+
+        assertEquals(false, resets.existsById(expiredLongAgo.getId()));
+        assertEquals(false, resets.existsById(usedLongAgo.getId()));
+        assertTrue(resets.existsById(usedJustNow.getId()));
+        assertTrue(resets.existsById(open.getId()));
     }
 
     @Test
