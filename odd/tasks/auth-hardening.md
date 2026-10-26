@@ -7,7 +7,7 @@ Objective: fix auth/authz bugs found in review. Branch: fix/auth-hardening. Deli
 - S3: Rate limiting on `/api/auth/login|register|resend|verify|refresh` (429); `/resend` invalidates older verification tokens.
 - S4: No `ex.getMessage()` leakage for IllegalState (IllegalArgument domain messages kept by design); mail failure never changes the register response.
 - S5: CSRF failure returns the JSON 403 handler body; XSRF cookie Secure/SameSite.
-- S6: A pending Google link (`linkUserId`) expires with a 10 minute session. Pre-account hijacking (attacker-set password on a victim email) needs a product decision and is NOT done.
+- S6: A pending Google link (`linkUserId`) expires with a 10 minute session. Pre-account hijacking is NOT fixed: letting the latest registrant replace the password (tried, reverted after native review) lets an attacker who registers after the victim win. Needs a product decision: require the password at verification time.
 - S7: Refresh double-submit inside a short grace window does not revoke the session.
 - S8: Small fixes: log in GoogleLoginHandler catch, actuator health permitAll, password max length 72 bytes, expired session cleanup.
 - S9: dead `authorities("USER")` removed. `@PreAuthorize` wiring of `DomainAuthorization` deferred until org/project controllers exist (no consumer yet, YAGNI).
@@ -19,7 +19,7 @@ Objective: fix auth/authz bugs found in review. Branch: fix/auth-hardening. Deli
 - [x] T3 S3 inline (in-memory fixed-window filter, 429 + Retry-After)
 - [x] T4 S4 inline (generic 409 detail; mail failures logged)
 - [x] T5 S5 inline (forward-headers-strategy left as deployment note)
-- [x] T6 S6 inline (link session TTL; pre-account hijacking deferred: needs your decision)
+- [x] T6 S6 inline (link session TTL; pre-account hijacking deferred: naive fix reverted, needs a contract decision)
 - [x] T7 S7 inline (HIGH RISK item 1: V2 migration; 10s grace, access-token only; no sliding expiry)
 - [x] T8 S8 inline (logout-without-cookie left: access token lives max 15 min)
 - [x] T9 S9 inline
