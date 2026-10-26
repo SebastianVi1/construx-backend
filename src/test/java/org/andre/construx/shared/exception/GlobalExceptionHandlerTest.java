@@ -55,7 +55,8 @@ class GlobalExceptionHandlerTest {
     void invalidStateReturnsConflict() throws Exception {
         mvc.perform(get("/errors/state"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
+                .andExpect(jsonPath("$.code").value("STATE_CONFLICT"))
+                .andExpect(jsonPath("$.detail").value("The operation conflicts with the current state."));
     }
 
     @Test

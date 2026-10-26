@@ -3,6 +3,7 @@ package org.andre.construx.modules.identity.controller;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -10,12 +11,14 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.WebUtils;
 
 import java.util.Map;
 import java.util.UUID;
@@ -24,6 +27,9 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    /** A pending Google link must be completed quickly; an abandoned one expires with its session. */
+    private static final int LINK_SESSION_SECONDS = 600;
+
     private final AccountService accounts;
     private final TokenService tokens;
     private final AuthCookies cookies;
@@ -40,10 +46,10 @@ public class AuthController {
     }
 
     public record Credentials(@Email @NotBlank String email, @NotBlank String password) {}
-    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12) String password) {}
+    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 8, max = 72) String password) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
-    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 12) String newPassword) {}
+    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 8, max = 72) String newPassword) {}
 
     @PostMapping("/register")
     public ResponseEntity<Void> register(@Valid @RequestBody Registration body) {
@@ -88,7 +94,7 @@ public class AuthController {
     @PostMapping("/password")
     public ResponseEntity<Void> changePassword(@Valid @RequestBody PasswordChange body,
             Authentication authentication, HttpServletResponse response) {
-        accounts.changePassword(UUID.fromString(authentication.getName()),
+        accounts.changePassword(currentUserId(authentication),
                 body.currentPassword(), body.newPassword());
         cookies.clear(response);
         return ResponseEntity.noContent().build();
@@ -96,15 +102,17 @@ public class AuthController {
 
     @GetMapping("/me")
     public Map<String, String> me(Authentication authentication) {
-        UUID id = UUID.fromString(authentication.getName());
+        UUID id = currentUserId(authentication);
         UserAccount user = users.findById(id).orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
         return Map.of("id", id.toString(), "email", user.getEmail());
     }
 
     @PostMapping("/google/link")
     public Map<String, String> linkGoogle(Authentication authentication, HttpServletRequest request) {
-        UUID id = UUID.fromString(authentication.getName());
-        request.getSession(true).setAttribute("linkUserId", id);
+        UUID id = currentUserId(authentication);
+        HttpSession session = request.getSession(true);
+        session.setAttribute("linkUserId", id);
+        session.setMaxInactiveInterval(LINK_SESSION_SECONDS);
         return Map.of("authorizationUrl", "/oauth2/authorization/google");
     }
 
@@ -114,8 +122,11 @@ public class AuthController {
     }
 
     private String cookie(HttpServletRequest request, String name) {
-        if (request.getCookies() != null) for (Cookie cookie : request.getCookies())
-            if (name.equals(cookie.getName())) return cookie.getValue();
-        return null;
+        Cookie cookie = WebUtils.getCookie(request, name);
+        return cookie == null ? null : cookie.getValue();
+    }
+
+    private static UUID currentUserId(Authentication authentication) {
+        return UUID.fromString(authentication.getName());
     }
 }

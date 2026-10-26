@@ -54,6 +54,34 @@ class AccountServiceTest {
     }
 
     @Test
+    void resendInvalidatesPreviouslyIssuedLinks() {
+        UserAccount pending = new UserAccount("person@example.com", "hash");
+        when(users.findByEmail("person@example.com")).thenReturn(Optional.of(pending));
+        service.resend("person@example.com");
+        var order = inOrder(proofs, sender);
+        order.verify(proofs).invalidateOpenFor(eq(pending), any(java.time.Instant.class));
+        order.verify(proofs).save(any(EmailVerification.class));
+        order.verify(sender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void registrationSucceedsWhenTheMailServerFails() {
+        doThrow(new org.springframework.mail.MailSendException("smtp down")).when(sender).send(any(SimpleMailMessage.class));
+        assertDoesNotThrow(() -> service.register("person@example.com", "long-password-here"));
+        verify(users).save(any(UserAccount.class));
+    }
+
+    @Test
+    void registrationSucceedsWhenNoMailSenderIsConfigured() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<JavaMailSender> none = mock(ObjectProvider.class);
+        AccountService withoutMail = new AccountService(users, proofs, google,
+                PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
+                none, "https://app.example.test", "noreply@example.test");
+        assertDoesNotThrow(() -> withoutMail.register("person@example.com", "long-password-here"));
+    }
+
+    @Test
     void matchingGoogleEmailDoesNotAutomaticallyLink() {
         when(users.findByEmail("person@example.com"))
                 .thenReturn(Optional.of(new UserAccount("person@example.com", "hash")));

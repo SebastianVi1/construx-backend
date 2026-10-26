@@ -4,6 +4,9 @@ import org.andre.construx.modules.identity.model.*;
 import org.andre.construx.modules.identity.repository.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -17,7 +20,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.UUID;
 
-/** Account creation and provider linking are separate from organization membership. */
+/**
+ * Coordinates account registration, email verification, password changes, and
+ * external identity linking.
+ *
+ * <p>Account creation and provider linking are separate from organization
+ * membership. Email addresses are normalized before they are used for account
+ * lookups, and password changes revoke all existing access tokens.</p>
+ */
 @Service
 public class AccountService {
     private final UserAccountRepository users;
@@ -28,6 +38,7 @@ public class AccountService {
     private final ObjectProvider<JavaMailSender> mail;
     private final String frontendUrl;
     private final String mailFrom;
+    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
     private final SecureRandom random = new SecureRandom();
 
     public AccountService(UserAccountRepository users, EmailVerificationRepository verifications,
@@ -45,6 +56,16 @@ public class AccountService {
         this.mailFrom = mailFrom;
     }
 
+    /**
+     * Creates a password-based account and sends an email verification link.
+     *
+     * <p>Registration is idempotent for an existing email address: no new
+     * account or verification message is created when the address is already
+     * registered.</p>
+     *
+     * @param email the email address for the new account
+     * @param password the raw password to encode and store
+     */
     @Transactional
     public void register(String email, String password) {
         String normalized = UserAccount.normalizeEmail(email);
@@ -53,12 +74,29 @@ public class AccountService {
         sendVerification(user);
     }
 
+    /**
+     * Sends a new verification link when the account exists and is not yet
+     * verified.
+     *
+     * <p>Unknown addresses and already-verified accounts are intentionally
+     * ignored so this operation does not disclose account state.</p>
+     *
+     * @param email the email address associated with the account
+     */
     @Transactional
     public void resend(String email) {
         users.findByEmail(UserAccount.normalizeEmail(email))
                 .filter(u -> !u.isEmailVerified()).ifPresent(this::sendVerification);
     }
 
+    /**
+     * Validates a verification token, marks its account email as verified, and
+     * consumes the token.
+     *
+     * @param token the raw token received from the verification link
+     * @throws BadCredentialsException if the token is unknown, expired, or
+     *         already consumed
+     */
     @Transactional
     public void verify(String token) {
         EmailVerification proof = verifications.findByTokenHash(TokenService.sha256(token))
@@ -68,6 +106,16 @@ public class AccountService {
         proof.use(Instant.now());
     }
 
+    /**
+     * Replaces a user's password after validating the current password and
+     * revokes all tokens issued for the account.
+     *
+     * @param userId the account whose password is being changed
+     * @param currentPassword the user's current raw password
+     * @param newPassword the replacement raw password
+     * @throws BadCredentialsException if the account is unavailable or the
+     *         current password is invalid
+     */
     @Transactional
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
         UserAccount user = users.findById(userId)
@@ -78,6 +126,24 @@ public class AccountService {
         tokens.revokeAll(userId);
     }
 
+    /**
+     * Finds or creates the account represented by a verified Google identity.
+     *
+     * <p>When {@code linkingUserId} is provided, the Google email must match
+     * that account's verified email. Without it, an account is created only
+     * when no account already uses the Google email. An existing Google
+     * identity is returned unless it belongs to a different account than the
+     * requested linking account.</p>
+     *
+     * @param subject the stable Google identity subject
+     * @param email the email returned by Google
+     * @param verified whether Google verified the email address
+     * @param linkingUserId the existing account to link, or {@code null} to
+     *        sign up with Google
+     * @return the account associated with the Google identity
+     * @throws BadCredentialsException if the identity is invalid, already
+     *         linked elsewhere, or cannot be linked to the requested account
+     */
     @Transactional
     public UserAccount google(String subject, String email, boolean verified, UUID linkingUserId) {
         if (!verified || subject == null || subject.isBlank() || email == null)
@@ -105,19 +171,37 @@ public class AccountService {
         return user;
     }
 
+    /**
+     * Generates, stores, and sends a single-use verification token.
+     *
+     * <p>Only the token hash is persisted. The raw token is included in the
+     * verification URL sent to the account email and expires after 24 hours.
+     * Mail delivery failures are logged, not propagated, so the response does
+     * not reveal whether an address was new; the user can request a resend.</p>
+     *
+     * @param user the account receiving the verification message
+     */
     private void sendVerification(UserAccount user) {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        verifications.invalidateOpenFor(user, Instant.now());
         verifications.save(new EmailVerification(user, TokenService.sha256(token),
                 Instant.now().plus(24, ChronoUnit.HOURS)));
         JavaMailSender sender = mail.getIfAvailable();
-        if (sender == null) throw new IllegalStateException("Mail sender is not configured");
+        if (sender == null) {
+            log.error("Verification email for user {} not sent: no mail sender configured", user.getId());
+            return;
+        }
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(mailFrom);
         message.setTo(user.getEmail());
         message.setSubject("Verify your Construx email");
         message.setText("Open this link to verify your email: " + frontendUrl + "/verify-email?token=" + token);
-        sender.send(message);
+        try {
+            sender.send(message);
+        } catch (MailException ex) {
+            log.error("Verification email for user {} could not be sent", user.getId(), ex);
+        }
     }
 }

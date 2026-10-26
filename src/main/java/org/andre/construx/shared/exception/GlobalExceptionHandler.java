@@ -58,7 +58,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ProblemDetail> handleInvalidState(IllegalStateException ex, HttpServletRequest request) {
-        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), "STATE_CONFLICT", request);
+        log.warn("State conflict handling {}: {}", request.getRequestURI(), ex.getMessage());
+        return respond(HttpStatus.CONFLICT, "Conflicting state",
+                "The operation conflicts with the current state.", "STATE_CONFLICT", request);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

@@ -56,11 +56,46 @@ class TokenServiceTest {
     }
 
     @Test
-    void refreshRotatesSecretAndReplayRevokesSession() {
+    void refreshRotatesTheSecret() {
         TokenService.Tokens first = tokens.start(user);
         TokenService.Tokens second = tokens.refresh(first.refresh());
         assertNotEquals(first.refresh(), second.refresh());
+        assertTrue(saved.get().activeAt(Instant.now()));
+    }
+
+    @Test
+    void replayInsideTheGraceWindowOnlyIssuesAnAccessToken() {
+        TokenService.Tokens first = tokens.start(user);
+        tokens.refresh(first.refresh());
+        TokenService.Tokens concurrent = tokens.refresh(first.refresh());
+        assertNull(concurrent.refresh(), "the winning request already set the new refresh cookie");
+        assertEquals(user.getId().toString(), decoder.decode(concurrent.access()).getSubject());
+        assertTrue(saved.get().activeAt(Instant.now()));
+    }
+
+    @Test
+    void replayAfterTheGraceWindowRevokesTheSession() {
+        TokenService.Tokens first = tokens.start(user);
+        tokens.refresh(first.refresh());
+        ReflectionTestUtils.setField(saved.get(), "rotatedAt", Instant.now().minusSeconds(60));
         assertThrows(BadCredentialsException.class, () -> tokens.refresh(first.refresh()));
+        assertFalse(saved.get().activeAt(Instant.now()));
+    }
+
+    @Test
+    void secretFromTwoRotationsAgoRevokesTheSession() {
+        TokenService.Tokens first = tokens.start(user);
+        TokenService.Tokens second = tokens.refresh(first.refresh());
+        tokens.refresh(second.refresh());
+        assertThrows(BadCredentialsException.class, () -> tokens.refresh(first.refresh()));
+        assertFalse(saved.get().activeAt(Instant.now()));
+    }
+
+    @Test
+    void unknownSecretRevokesTheSession() {
+        TokenService.Tokens first = tokens.start(user);
+        String forged = first.refresh().split("\\.")[0] + ".forged-secret";
+        assertThrows(BadCredentialsException.class, () -> tokens.refresh(forged));
         assertFalse(saved.get().activeAt(Instant.now()));
     }
 

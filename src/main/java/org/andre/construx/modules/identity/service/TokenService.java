@@ -2,7 +2,6 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.AuthSession;
 import org.andre.construx.modules.identity.model.UserAccount;
-import org.andre.construx.modules.identity.model.UserStatus;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -23,6 +22,8 @@ import java.util.UUID;
 public class TokenService {
     public static final Duration ACCESS_LIFETIME = Duration.ofMinutes(15);
     public static final Duration REFRESH_LIFETIME = Duration.ofDays(30);
+    /** A just-rotated refresh secret may still be presented by a parallel request (for example another tab). */
+    public static final Duration REFRESH_REUSE_GRACE = Duration.ofSeconds(10);
     private final AuthSessionRepository sessions;
     private final JwtEncoder encoder;
     private final String issuer;
@@ -42,7 +43,7 @@ public class TokenService {
 
     @Transactional
     public Tokens start(UserAccount user) {
-        if (user.getStatus() != UserStatus.ACTIVE || !user.isEmailVerified()) {
+        if (!user.isActive()) {
             throw new BadCredentialsException("Account unavailable");
         }
         String secret = randomSecret();
@@ -59,17 +60,21 @@ public class TokenService {
         catch (IllegalArgumentException ex) { throw new BadCredentialsException("Invalid refresh token"); }
         AuthSession session = sessions.findWithLockById(id)
                 .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
-        if (!session.activeAt(Instant.now()) || session.getUser().getStatus() != UserStatus.ACTIVE
-                || !session.getUser().isEmailVerified()) {
+        if (!session.activeAt(Instant.now()) || !session.getUser().isActive()) {
             throw new BadCredentialsException("Invalid refresh token");
         }
-        if (!constantTimeEquals(session.getRefreshHash(), sha256(parts[1]))) {
-            session.revoke(Instant.now());
-            throw new BadCredentialsException("Invalid refresh token");
+        String presented = sha256(parts[1]);
+        if (constantTimeEquals(session.getRefreshHash(), presented)) {
+            String secret = randomSecret();
+            session.rotate(sha256(secret), Instant.now());
+            return new Tokens(access(session), session.getId() + "." + secret);
         }
-        String secret = randomSecret();
-        session.rotate(sha256(secret));
-        return new Tokens(access(session), session.getId() + "." + secret);
+        if (justRotatedFrom(session, presented)) {
+            // The winning request already delivered the new refresh cookie; only mint an access token.
+            return new Tokens(access(session), null);
+        }
+        session.revoke(Instant.now());
+        throw new BadCredentialsException("Invalid refresh token");
     }
 
     @Transactional
@@ -107,6 +112,12 @@ public class TokenService {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
             return java.util.HexFormat.of().formatHex(digest);
         } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
+    }
+
+    private boolean justRotatedFrom(AuthSession session, String presentedHash) {
+        return session.getPreviousRefreshHash() != null
+                && constantTimeEquals(session.getPreviousRefreshHash(), presentedHash)
+                && session.getRotatedAt().plus(REFRESH_REUSE_GRACE).isAfter(Instant.now());
     }
 
     private boolean constantTimeEquals(String left, String right) {

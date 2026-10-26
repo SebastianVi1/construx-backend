@@ -53,6 +53,11 @@ public class UserAccount {
         return user;
     }
 
+    /** An account may authenticate only while enabled and with a verified email. */
+    public boolean isActive() {
+        return status == UserStatus.ACTIVE && emailVerified;
+    }
+
     public void verifyEmail() {
         this.emailVerified = true;
     }

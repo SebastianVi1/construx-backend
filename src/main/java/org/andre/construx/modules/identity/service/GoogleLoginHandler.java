@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.andre.construx.modules.identity.model.UserAccount;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
@@ -22,6 +24,8 @@ import java.util.UUID;
 public class GoogleLoginHandler implements AuthenticationSuccessHandler, AuthenticationFailureHandler {
     private final AccountService accounts;
     private final TokenService tokens;
+    private static final Logger log = LoggerFactory.getLogger(GoogleLoginHandler.class);
+
     private final AuthCookies cookies;
     private final OAuth2AuthorizedClientService authorizedClients;
     private final String frontendUrl;
@@ -50,6 +54,7 @@ public class GoogleLoginHandler implements AuthenticationSuccessHandler, Authent
             if (session != null) session.invalidate();
             response.sendRedirect(frontendUrl + "/auth/complete");
         } catch (RuntimeException ex) {
+            log.warn("Google sign-in rejected: {}", ex.getMessage());
             HttpSession session = request.getSession(false);
             if (session != null) session.invalidate();
             response.sendRedirect(frontendUrl + "/login?error=google");
