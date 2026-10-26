@@ -4,15 +4,17 @@ This guide describes the current backend contract and the frontend work needed t
 
 ## How authentication works
 
-1. A password account registers, receives an email link, and verifies its address before signing in. Verification links expire after 24 hours and work once. SMTP is used for these emails; password recovery is not implemented.
+1. A password account registers, receives an email link, and verifies its address before signing in. Verification links expire after 24 hours and work once. SMTP is used for these emails. A user who forgot the password can request a reset link (see step 6).
 2. Password login or Google OpenID Connect login creates an `auth_session` database row. Both methods then issue the **application's** `access_token` JWT (15 minutes) and opaque `refresh_token` (30 days) as cookies. Google's tokens are not used to call this API.
 3. On each protected request, Spring validates the JWT and the backend checks the session row and user status. The API uses no HTTP session for normal requests, but this database lookup makes login revocable; it is not fully stateless. Google OAuth uses a temporary HTTP session to correlate the redirect.
 4. Refresh replaces both cookies and rotates the refresh secret. Reusing an old refresh secret revokes that session, with one exception: replaying the **previous** secret within 10 seconds of the rotation (for example two tabs refreshing at once) does not revoke it. That response sets only a new `access_token` cookie and no `refresh_token`, so the browser keeps the cookie from the winning request. A secret from two rotations ago always revokes the session. Logout revokes the session and clears the cookies. Changing a local password revokes **all** sessions.
-5. Expired sessions and used or expired verification rows are purged by a scheduled job (`AuthDataCleanup`).
+5. Expired sessions and used or expired verification and password reset rows are purged by a scheduled job (`AuthDataCleanup`).
+6. **Password recovery:** `POST /api/auth/password/forgot` always answers `202` with an empty body, whether or not the address belongs to an account. For an enabled account it mails a link `${FRONTEND_URL}/reset-password?token=...` (plain text, one body in English then Spanish, since accounts have no locale). The token is 32 random bytes, stored only as a SHA-256 hash, valid for 60 minutes and usable once. `POST /api/auth/password/reset` with `{ "token", "newPassword" }` consumes it atomically, sets the new password, revokes **all** sessions and clears the auth cookies, and answers `204`. It does not sign the user in. Any unusable token (unknown, expired, used, superseded, or a disabled account) gets the same generic `401`.
 
 ## Abuse controls
 
-- **Rate limiting:** `POST /api/auth/login`, `/register`, `/resend`, `/verify` and `/refresh` are limited per client and per endpoint (in memory, per application instance, fixed window). Defaults are 10 requests per 60 seconds, set with `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_SECONDS`. Over the limit the API answers `429` with a `Retry-After` header (seconds). Read-only endpoints such as `GET /api/auth/csrf` are not limited. Behind a reverse proxy, set `server.forward-headers-strategy=framework` so the client address is the real one.
+- **Rate limiting:** `POST /api/auth/login`, `/register`, `/resend`, `/verify`, `/refresh`, `/password/forgot` and `/password/reset` are limited per client and per endpoint (in memory, per application instance, fixed window). Defaults are 10 requests per 60 seconds, set with `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_SECONDS`. Over the limit the API answers `429` with a `Retry-After` header (seconds). Read-only endpoints such as `GET /api/auth/csrf` are not limited. Behind a reverse proxy, set `server.forward-headers-strategy=framework` so the client address is the real one.
+- **Password reset links:** requesting a new link invalidates every older open reset link of that account, and a successful reset invalidates the remaining ones. If an open link was issued less than 60 seconds ago, `/password/forgot` sends nothing (still `202`), so one address cannot be flooded with mail. Unverified accounts may recover their password: following the link proves control of the mailbox, so a successful reset also marks the email as verified. Google-only accounts may set a first local password the same way. Mail failures are logged with the user id only and the link is never logged.
 - **Verification links:** requesting a new link with `/resend` invalidates every older open link for that account.
 - **Mail failures:** if SMTP fails or no mail sender is configured, the error is logged and the response is still `202`, so the API never reveals whether an address is new. The user can use resend.
 - **Password length:** passwords must be 12 to 72 characters (BCrypt ignores bytes beyond 72).
@@ -37,6 +39,8 @@ All paths below are on the **backend**. JSON requests use `Content-Type: applica
 | Get CSRF | `GET /api/auth/csrf` | `200` with `{ "headerName", "token" }` and `XSRF-TOKEN` cookie |
 | Register | `POST /api/auth/register` with `{ "email", "password" }` | `202`; password must have at least 12 characters |
 | Resend verification | `POST /api/auth/resend` with `{ "email" }` | `202` |
+| Forgot password | `POST /api/auth/password/forgot` with `{ "email" }` | `202` with an empty body, always |
+| Reset password | `POST /api/auth/password/reset` with `{ "token", "newPassword" }` (12 to 72 characters) | `204` and cleared auth cookies; sign in again afterward |
 | Verify email | `POST /api/auth/verify` with `{ "token" }` | `204` |
 | Password login | `POST /api/auth/login` with `{ "email", "password" }` | `204` and auth cookies |
 | Current user | `GET /api/auth/me` | `200` with `{ "id", "email" }` |

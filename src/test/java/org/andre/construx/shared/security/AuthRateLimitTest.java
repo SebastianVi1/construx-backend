@@ -49,4 +49,17 @@ class AuthRateLimitTest {
             mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk());
         }
     }
+
+    @Test
+    void passwordRecoveryEndpointsAreThrottledWithTheirOwnBudgets() throws Exception {
+        for (String path : new String[] {"/api/auth/password/forgot", "/api/auth/password/reset"}) {
+            for (int i = 0; i < 3; i++) {
+                mvc.perform(post(path).contentType("application/json").content("{}"))
+                        .andExpect(status().isForbidden());
+            }
+            mvc.perform(post(path).contentType("application/json").content("{}"))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(header().exists("Retry-After"));
+        }
+    }
 }

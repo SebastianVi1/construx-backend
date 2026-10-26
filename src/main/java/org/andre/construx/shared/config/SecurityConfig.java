@@ -72,7 +72,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(a -> a
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/api/auth/register", "/api/auth/verify", "/api/auth/resend",
-                        "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/csrf").permitAll()
+                        "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/csrf",
+                        "/api/auth/password/forgot", "/api/auth/password/reset").permitAll()
                 .anyRequest().authenticated())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .cors(Customizer.withDefaults())
