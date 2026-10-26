@@ -43,4 +43,23 @@ class EndpointAccessTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
+
+    @Test
+    void passwordRecoveryEndpointsArePublicButPasswordChangeStillNeedsAuthentication() throws Exception {
+        MvcResult csrf = mvc.perform(get("/api/auth/csrf")).andReturn();
+        String token = JsonPath.read(csrf.getResponse().getContentAsString(), "$.token");
+        Cookie cookie = csrf.getResponse().getCookie("XSRF-TOKEN");
+        mvc.perform(post("/api/auth/password/forgot").cookie(cookie).header("X-XSRF-TOKEN", token)
+                        .contentType("application/json").content("{\"email\":\"nobody@example.test\"}"))
+                .andExpect(status().isAccepted());
+        mvc.perform(post("/api/auth/password/reset").cookie(cookie).header("X-XSRF-TOKEN", token)
+                        .contentType("application/json")
+                        .content("{\"token\":\"unknown\",\"newPassword\":\"brand-new-password\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mvc.perform(post("/api/auth/password").cookie(cookie).header("X-XSRF-TOKEN", token)
+                        .contentType("application/json")
+                        .content("{\"currentPassword\":\"old-password-123\",\"newPassword\":\"brand-new-password\"}"))
+                .andExpect(status().isUnauthorized());
+    }
 }

@@ -31,14 +31,16 @@ public class AuthController {
     private static final int LINK_SESSION_SECONDS = 600;
 
     private final AccountService accounts;
+    private final PasswordResetService passwordResets;
     private final TokenService tokens;
     private final AuthCookies cookies;
     private final AuthenticationManager auth;
     private final UserAccountRepository users;
 
-    public AuthController(AccountService accounts, TokenService tokens, AuthCookies cookies,
+    public AuthController(AccountService accounts, PasswordResetService passwordResets, TokenService tokens, AuthCookies cookies,
             AuthenticationManager auth, UserAccountRepository users) {
         this.accounts = accounts;
+        this.passwordResets = passwordResets;
         this.tokens = tokens;
         this.cookies = cookies;
         this.auth = auth;
@@ -49,6 +51,7 @@ public class AuthController {
     public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12, max = 72) String password) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
+    public record ResetRequest(@NotBlank String token, @NotBlank @Size(min = 12, max = 72) String newPassword) {}
     public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 12, max = 72) String newPassword) {}
 
     @PostMapping("/register")
@@ -96,6 +99,19 @@ public class AuthController {
             Authentication authentication, HttpServletResponse response) {
         accounts.changePassword(currentUserId(authentication),
                 body.currentPassword(), body.newPassword());
+        cookies.clear(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password/forgot")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody EmailInput body) {
+        passwordResets.requestReset(body.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password/reset")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetRequest body, HttpServletResponse response) {
+        passwordResets.reset(body.token(), body.newPassword());
         cookies.clear(response);
         return ResponseEntity.noContent().build();
     }

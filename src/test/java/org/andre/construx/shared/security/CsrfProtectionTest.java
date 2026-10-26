@@ -51,4 +51,13 @@ class CsrfProtectionTest {
         assertEquals("Lax", cookie.getAttribute("SameSite"));
         assertTrue(!cookie.isHttpOnly(), "the SPA must be able to read the CSRF cookie");
     }
+
+    @Test
+    void passwordRecoveryEndpointsRequireTheCsrfToken() throws Exception {
+        for (String path : new String[] {"/api/auth/password/forgot", "/api/auth/password/reset"}) {
+            mvc.perform(post(path).contentType("application/json").content("{}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
 }
