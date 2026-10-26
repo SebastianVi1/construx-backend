@@ -82,6 +82,31 @@ class AccountServiceTest {
     }
 
     @Test
+    void registeringAgainReplacesThePasswordOfAnUnverifiedAccount() {
+        UserAccount squatted = new UserAccount("person@example.com", "{bcrypt}attacker-hash");
+        when(users.findByEmail("person@example.com")).thenReturn(Optional.of(squatted));
+        service.register("person@example.com", "owner-password-here");
+        assertTrue(passwordsMatch("owner-password-here", squatted.getPasswordHash()));
+        assertFalse(squatted.isEmailVerified());
+        verify(proofs).invalidateOpenFor(eq(squatted), any(java.time.Instant.class));
+        verify(sender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void registeringAgainNeverTouchesAVerifiedAccount() {
+        UserAccount owner = new UserAccount("person@example.com", "{bcrypt}owner-hash");
+        owner.verifyEmail();
+        when(users.findByEmail("person@example.com")).thenReturn(Optional.of(owner));
+        service.register("person@example.com", "attacker-password");
+        assertEquals("{bcrypt}owner-hash", owner.getPasswordHash());
+        verifyNoInteractions(sender);
+    }
+
+    private static boolean passwordsMatch(String raw, String hash) {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder().matches(raw, hash);
+    }
+
+    @Test
     void matchingGoogleEmailDoesNotAutomaticallyLink() {
         when(users.findByEmail("person@example.com"))
                 .thenReturn(Optional.of(new UserAccount("person@example.com", "hash")));

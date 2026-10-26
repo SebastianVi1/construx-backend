@@ -18,6 +18,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -59,9 +60,9 @@ public class AccountService {
     /**
      * Creates a password-based account and sends an email verification link.
      *
-     * <p>Registration is idempotent for an existing email address: no new
-     * account or verification message is created when the address is already
-     * registered.</p>
+     * <p>Registration never reveals whether an address exists. A verified
+     * account is left untouched; an unverified one takes the new password and
+     * receives a fresh link, which voids any earlier link and password.</p>
      *
      * @param email the email address for the new account
      * @param password the raw password to encode and store
@@ -69,9 +70,24 @@ public class AccountService {
     @Transactional
     public void register(String email, String password) {
         String normalized = UserAccount.normalizeEmail(email);
-        if (users.findByEmail(normalized).isPresent()) return;
+        Optional<UserAccount> existing = users.findByEmail(normalized);
+        if (existing.isPresent()) {
+            claimUnverifiedAccount(existing.get(), password);
+            return;
+        }
         UserAccount user = users.save(new UserAccount(normalized, passwords.encode(password)));
         sendVerification(user);
+    }
+
+    /**
+     * Lets the latest registrant of a still-unverified address replace the stored password, so a
+     * password planted before the real owner signed up (pre-account hijacking) stops working.
+     * Verified or disabled accounts are never modified.
+     */
+    private void claimUnverifiedAccount(UserAccount account, String password) {
+        if (account.isEmailVerified() || account.getStatus() != UserStatus.ACTIVE) return;
+        account.changePassword(passwords.encode(password));
+        sendVerification(account);
     }
 
     /**
