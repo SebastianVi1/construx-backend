@@ -2,7 +2,9 @@ package org.andre.construx.modules.organization.repository;
 
 import org.andre.construx.modules.organization.model.InvitationStatus;
 import org.andre.construx.modules.organization.model.OrganizationInvitation;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -18,4 +20,9 @@ public interface OrganizationInvitationRepository extends JpaRepository<Organiza
                                                                        InvitationStatus status);
 
     Optional<OrganizationInvitation> findByIdAndOrganizationId(UUID id, UUID organizationId);
+
+    /** Row lock so two simultaneous accepts of one token cannot both create a membership. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from OrganizationInvitation i where i.tokenHash = :tokenHash")
+    Optional<OrganizationInvitation> findByTokenHashForUpdate(String tokenHash);
 }
