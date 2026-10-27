@@ -62,4 +62,19 @@ class AuthRateLimitTest {
                     .andExpect(header().exists("Retry-After"));
         }
     }
+
+    @Test
+    void invitationTokenGuessingIsThrottledAndOtherInvitationRoutesAreNot() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mvc.perform(post("/api/invitations/accept").contentType("application/json").content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+        mvc.perform(post("/api/invitations/accept").contentType("application/json").content("{}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"));
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(post("/api/organizations/00000000-0000-0000-0000-000000000001/invitations")
+                    .contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        }
+    }
 }

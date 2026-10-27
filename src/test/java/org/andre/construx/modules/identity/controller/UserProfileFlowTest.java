@@ -62,7 +62,8 @@ class UserProfileFlowTest {
                         .content("{\"fullName\":\"Ada Byron\",\"phoneNumber\":\"+14155552671\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fullName").value("Ada Byron"));
-        assertEquals(1, profiles.count());
+        assertEquals(1L, jdbc.queryForObject("select count(*) from user_profile where user_account_id = ?",
+                Long.class, user.getId()));
         assertEquals("Ada Byron", profiles.findById(user.getId()).orElseThrow().getFullName());
         assertEquals(organizationsBefore, jdbc.queryForObject("select count(*) from organization", Long.class));
         assertEquals(membershipsBefore,
@@ -114,6 +115,40 @@ class UserProfileFlowTest {
                         .content("{\"fullName\":\"Ada\",\"phoneNumber\":\"+14155552671\"}"))
                 .andExpect(status().isNotFound());
         assertTrue(profiles.findById(other.getId()).isEmpty());
+    }
+
+    @Test
+    void tradeIsOptionalKeptWhenOmittedAndClearedWhenBlank() throws Exception {
+        Cookie access = access(account());
+        Csrf csrf = csrf();
+        mvc.perform(put("/api/profile").cookie(access, csrf.cookie()).header(csrf.header(), csrf.token())
+                        .contentType("application/json")
+                        .content("{\"fullName\":\"Ana\",\"phoneNumber\":\"+14155552671\",\"trade\":\"  electrician  \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trade").value("electrician"));
+        mvc.perform(put("/api/profile").cookie(access, csrf.cookie()).header(csrf.header(), csrf.token())
+                        .contentType("application/json")
+                        .content("{\"fullName\":\"Ana P\",\"phoneNumber\":\"+14155552671\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fullName").value("Ana P"))
+                .andExpect(jsonPath("$.trade").value("electrician"));
+        mvc.perform(get("/api/profile").cookie(access)).andExpect(jsonPath("$.trade").value("electrician"));
+        mvc.perform(put("/api/profile").cookie(access, csrf.cookie()).header(csrf.header(), csrf.token())
+                        .contentType("application/json")
+                        .content("{\"fullName\":\"Ana P\",\"phoneNumber\":\"+14155552671\",\"trade\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trade").isEmpty());
+        mvc.perform(put("/api/profile").cookie(access, csrf.cookie()).header(csrf.header(), csrf.token())
+                        .contentType("application/json")
+                        .content("{\"fullName\":\"Ana\",\"phoneNumber\":\"+14155552671\",\"trade\":\"" + "x".repeat(81) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.trade").isArray());
+    }
+
+    @Test
+    void newProfileWithoutTradeHasNullTrade() throws Exception {
+        Cookie access = access(account());
+        mvc.perform(get("/api/profile").cookie(access)).andExpect(jsonPath("$.trade").isEmpty());
     }
 
     private UserAccount account() {

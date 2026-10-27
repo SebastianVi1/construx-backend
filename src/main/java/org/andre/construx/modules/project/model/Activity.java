@@ -46,16 +46,25 @@ public class Activity {
 
     public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
+        rename(name);
+        reschedule(dueAt);
+        assignTo(assigneeAccess);
+        goal.addActivity(this);
+    }
+
+    public void rename(String name) {
         if (name == null || name.isBlank() || name.strip().length() > 160) {
             throw new IllegalArgumentException("Activity name must have 1 to 160 characters");
         }
         this.name = name.strip();
-        this.dueAt = DomainValidation.required(dueAt, "Activity deadline is required");
+    }
+
+    public void reschedule(Instant dueAt) {
+        DomainValidation.required(dueAt, "Activity deadline is required");
         if (dueAt.isAfter(goal.getDueAt())) {
             throw new IllegalArgumentException("Activity cannot end after its goal");
         }
-        assignTo(assigneeAccess);
-        goal.addActivity(this);
+        this.dueAt = dueAt;
     }
 
     public void assignTo(ProjectAccess assigneeAccess) {

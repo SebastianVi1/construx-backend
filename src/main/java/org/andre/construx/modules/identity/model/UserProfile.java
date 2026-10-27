@@ -37,6 +37,10 @@ public class UserProfile {
     @Column(name = "phone_number", nullable = false, length = 16)
     private String phoneNumber;
 
+    /** Free-text specialty such as "electrician". Profile data, never a permission. */
+    @Column(length = 80)
+    private String trade;
+
     public UserProfile(UserAccount account, String fullName, String phoneNumber) {
         this.account = account;
         update(fullName, phoneNumber);
@@ -52,5 +56,14 @@ public class UserProfile {
         }
         this.fullName = fullName.strip();
         this.phoneNumber = normalizedPhone;
+    }
+
+    /** A blank trade clears it. */
+    public void changeTrade(String trade) {
+        String normalized = trade == null || trade.isBlank() ? null : trade.strip();
+        if (normalized != null && normalized.length() > 80) {
+            throw new IllegalArgumentException("Trade must have at most 80 characters");
+        }
+        this.trade = normalized;
     }
 }

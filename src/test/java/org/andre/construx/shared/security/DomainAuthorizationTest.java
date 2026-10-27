@@ -67,10 +67,55 @@ class DomainAuthorizationTest {
     }
 
     @Test
+    void ownScopeRequiresTheCallersOwnMembershipAsAssignee() {
+        when(permission.getScope()).thenReturn(PermissionScope.OWN);
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.require(userId, orgId, null, null, PermissionAction.VIEW_PROJECT));
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.require(userId, orgId, null, UUID.randomUUID(), PermissionAction.VIEW_PROJECT));
+        assertDoesNotThrow(() -> authorization.require(userId, orgId, null, memberId, PermissionAction.VIEW_PROJECT));
+    }
+
+    @Test
+    void missingPermissionIsDenied() {
+        when(permission.getScope()).thenReturn(PermissionScope.ORGANIZATION);
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.require(userId, orgId, null, null, PermissionAction.MANAGE_ORGANIZATION));
+    }
+
+    @Test
+    void missingMembershipIsDenied() {
+        when(memberships.findByOrganizationIdAndUserAccountId(orgId, userId)).thenReturn(Optional.empty());
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.require(userId, orgId, null, null, PermissionAction.VIEW_PROJECT));
+    }
+
+    @Test
     void organizationPermissionStillRejectsAnotherOrganizationsProject() {
         when(permission.getScope()).thenReturn(PermissionScope.ORGANIZATION);
         when(project.getOrganization().getId()).thenReturn(UUID.randomUUID());
         assertThrows(AccessDeniedException.class,
                 () -> authorization.require(userId, orgId, projectId, null, PermissionAction.VIEW_PROJECT));
+    }
+
+    @Test
+    void scopeOfReturnsTheGrantedScopeForTheAction() {
+        when(permission.getScope()).thenReturn(PermissionScope.PROJECT);
+        assertEquals(Optional.of(PermissionScope.PROJECT),
+                authorization.scopeOf(userId, orgId, PermissionAction.VIEW_PROJECT));
+    }
+
+    @Test
+    void scopeOfIsEmptyWhenTheRoleLacksTheAction() {
+        assertEquals(Optional.empty(), authorization.scopeOf(userId, orgId, PermissionAction.MANAGE_ROLES));
+    }
+
+    @Test
+    void scopeOfDeniesNonMembersAndInactiveMembers() {
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.scopeOf(UUID.randomUUID(), orgId, PermissionAction.VIEW_PROJECT));
+        when(member.getStatus()).thenReturn(MembershipStatus.SUSPENDED);
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.scopeOf(userId, orgId, PermissionAction.VIEW_PROJECT));
     }
 }

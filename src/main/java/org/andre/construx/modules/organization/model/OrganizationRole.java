@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.HashSet;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -41,12 +42,15 @@ public class OrganizationRole {
     @Column(nullable = false)
     private boolean systemRole;
 
+    @Column(nullable = false)
+    private boolean seeded;
+
     @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Permission> permissions = new HashSet<>();
 
     public OrganizationRole(Organization organization, String code, String name) {
         this.organization = DomainValidation.required(organization, "Organization is required");
-        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || "OWNER".equals(code)) {
+        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || "OWNER".equals(code) || SeededRoles.isSeededCode(code)) {
             throw new IllegalArgumentException("Invalid or reserved role code");
         }
         this.code = code;
@@ -65,8 +69,23 @@ public class OrganizationRole {
         return role;
     }
 
+    /** Built-in role created with every organization; like the owner role it cannot be edited. */
+    public static OrganizationRole seeded(Organization organization, String code, String name,
+                                          Map<PermissionAction, PermissionScope> grants) {
+        OrganizationRole role = new OrganizationRole();
+        role.organization = DomainValidation.required(organization, "Organization is required");
+        if (code == null || !SeededRoles.isSeededCode(code)) {
+            throw new IllegalArgumentException("Invalid seeded role code");
+        }
+        role.code = code;
+        role.name = name;
+        role.seeded = true;
+        grants.forEach((action, scope) -> role.permissions.add(new Permission(role, action, scope)));
+        return role;
+    }
+
     public void rename(String name) {
-        if (systemRole) {
+        if (systemRole || seeded) {
             throw new IllegalStateException("System role cannot be renamed");
         }
         if (name == null || name.isBlank() || name.strip().length() > 100) {
@@ -76,7 +95,7 @@ public class OrganizationRole {
     }
 
     public void grant(PermissionAction action, PermissionScope scope) {
-        if (systemRole) {
+        if (systemRole || seeded) {
             throw new IllegalStateException("System role permissions cannot be changed");
         }
         for (Permission permission : permissions) {
@@ -89,7 +108,7 @@ public class OrganizationRole {
     }
 
     public void revoke(PermissionAction action) {
-        if (systemRole) {
+        if (systemRole || seeded) {
             throw new IllegalStateException("System role permissions cannot be changed");
         }
         permissions.removeIf(permission -> permission.getAction() == action);

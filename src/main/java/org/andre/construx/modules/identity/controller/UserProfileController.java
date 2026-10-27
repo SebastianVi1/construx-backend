@@ -27,11 +27,12 @@ public class UserProfileController {
     public record ProfileUpdate(
             @NotBlank @Size(max = 160) String fullName,
             @NotBlank @Size(max = 64) @Pattern(regexp = "\\s*\\+[1-9][0-9]{1,14}\\s*",
-                    message = "must use international E.164 format") String phoneNumber) {}
+                    message = "must use international E.164 format") String phoneNumber,
+            @Size(max = 80) String trade) {}
 
-    public record ProfileResponse(String fullName, String phoneNumber) {
+    public record ProfileResponse(String fullName, String phoneNumber, String trade) {
         static ProfileResponse from(UserProfileService.ProfileData data) {
-            return new ProfileResponse(data.fullName(), data.phoneNumber());
+            return new ProfileResponse(data.fullName(), data.phoneNumber(), data.trade());
         }
     }
 
@@ -43,6 +44,6 @@ public class UserProfileController {
     @PutMapping
     public ProfileResponse update(@Valid @RequestBody ProfileUpdate body, Authentication authentication) {
         return ProfileResponse.from(profiles.update(UUID.fromString(authentication.getName()),
-                body.fullName(), body.phoneNumber()));
+                body.fullName(), body.phoneNumber(), body.trade()));
     }
 }

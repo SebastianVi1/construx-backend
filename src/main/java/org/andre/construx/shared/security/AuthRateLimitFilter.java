@@ -18,12 +18,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Fixed-window, per-client limit for the unauthenticated auth endpoints that can be abused for
- * credential stuffing or mail flooding. State is in memory, so it is per application instance.
+ * credential stuffing, mail flooding or invitation token guessing. State is in memory, so it is per application instance.
  */
 public class AuthRateLimitFilter extends OncePerRequestFilter {
     private static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register",
             "/api/auth/resend", "/api/auth/verify", "/api/auth/refresh",
-            "/api/auth/password/forgot", "/api/auth/password/reset");
+            "/api/auth/password/forgot", "/api/auth/password/reset",
+            "/api/invitations/accept");
     private static final int PRUNE_THRESHOLD = 10_000;
 
     private record Window(long startMillis, int count) {}
