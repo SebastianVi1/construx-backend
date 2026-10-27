@@ -10,6 +10,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.andre.construx.modules.identity.model.UserAccount;
+import org.andre.construx.modules.project.model.Project;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -46,6 +47,11 @@ public class OrganizationInvitation {
     @JoinColumn(name = "invited_by_membership_id", nullable = false)
     private OrganizationMembership invitedBy;
 
+    /** Site the invitee gets access to on acceptance; null for an organization-only invitation. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id")
+    private Project project;
+
     @NotNull @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private InvitationStatus status = InvitationStatus.PENDING;
@@ -58,6 +64,12 @@ public class OrganizationInvitation {
 
     public OrganizationInvitation(Organization organization, String email, String tokenHash,
                                   OrganizationRole role, OrganizationMembership invitedBy, Instant expiresAt) {
+        this(organization, email, tokenHash, role, invitedBy, expiresAt, null);
+    }
+
+    public OrganizationInvitation(Organization organization, String email, String tokenHash,
+                                  OrganizationRole role, OrganizationMembership invitedBy, Instant expiresAt,
+                                  Project project) {
         this.organization = DomainValidation.required(organization, "Organization is required");
         this.email = UserAccount.normalizeEmail(email);
         if (tokenHash == null || tokenHash.isBlank()) {
@@ -70,6 +82,13 @@ public class OrganizationInvitation {
                 || !organization.sameAs(invitedBy.getOrganization())) {
             throw new IllegalArgumentException("Invitation relations must belong to the same organization");
         }
+        if (role.isSystemRole()) {
+            throw new IllegalArgumentException("The owner role cannot be granted by invitation");
+        }
+        if (project != null && !organization.sameAs(project.getOrganization())) {
+            throw new IllegalArgumentException("Invitation relations must belong to the same organization");
+        }
+        this.project = project;
         if (invitedBy.getStatus() != MembershipStatus.ACTIVE) {
             throw new IllegalArgumentException("Inviter must be an active member");
         }
