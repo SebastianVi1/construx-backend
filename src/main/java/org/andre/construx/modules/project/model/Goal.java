@@ -40,6 +40,10 @@ public class Goal {
     @Column(nullable = false)
     private Instant dueAt;
 
+    /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
+    @Column(length = 7)
+    private String color;
+
     @OneToMany(mappedBy = "goal")
     private Set<Activity> activities = new HashSet<>();
 
@@ -90,6 +94,11 @@ public class Goal {
         startAt = startAt.plus(offset);
         dueAt = dueAt.plus(offset);
         activities.forEach(activity -> activity.shiftBy(offset));
+    }
+
+    /** Null clears the custom color. */
+    public void changeColor(String color) {
+        this.color = BarColor.normalize(color);
     }
 
     public boolean isCompleted() {

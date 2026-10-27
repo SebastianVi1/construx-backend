@@ -52,6 +52,17 @@ Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST
 | DELETE | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
 | GET | `/activities/mine?status=` | any `VIEW_ACTIVITY` or `MANAGE_ACTIVITY` |
 
-POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt" }` only, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
+POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
 
 Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+
+
+## Gantt bar colors
+
+Phases and tasks accept an optional `color` on POST and PATCH. Use a six-digit
+hex color such as `#3b82f6`; responses return lowercase hex or `null` for the default.
+On PATCH, omission or `null` keeps the existing color, while `""` resets it.
+Invalid colors return 400. Color edits use the existing phase/task edit permissions.
+Each record stores its own color, shared by every viewer of the project; changes
+to phase colors do not recolor tasks. Migration `V10__bar_colors.sql` adds nullable
+columns without changing existing records' default appearance.

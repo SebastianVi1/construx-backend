@@ -110,4 +110,14 @@ class ActivityTest {
         ProjectAccess foreign = new ProjectAccess(other, organization.getMemberships().iterator().next());
         assertThrows(IllegalArgumentException.class, () -> activity.assignTo(foreign));
     }
+
+    @Test
+    void colorIsAHexValueAndCanBeCleared() {
+        assertNull(activity.getColor());
+        activity.changeColor("#FF8800");
+        assertEquals("#ff8800", activity.getColor());
+        activity.changeColor(null);
+        assertNull(activity.getColor());
+        assertThrows(IllegalArgumentException.class, () -> activity.changeColor("#ff88001"));
+    }
 }

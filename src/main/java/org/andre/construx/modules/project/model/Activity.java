@@ -49,6 +49,10 @@ public class Activity {
 
     private Instant completedAt;
 
+    /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
+    @Column(length = 7)
+    private String color;
+
     public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant startAt, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
         rename(name);
@@ -93,6 +97,11 @@ public class Activity {
     void shiftBy(Duration offset) {
         startAt = startAt.plus(offset);
         dueAt = dueAt.plus(offset);
+    }
+
+    /** Null clears the custom color. */
+    public void changeColor(String color) {
+        this.color = BarColor.normalize(color);
     }
 
     public void assignTo(ProjectAccess assigneeAccess) {

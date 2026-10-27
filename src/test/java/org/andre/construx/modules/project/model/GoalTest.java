@@ -126,4 +126,16 @@ class GoalTest {
         activity.complete(Instant.now());
         assertTrue(goal.isCompleted());
     }
+
+    @Test
+    void colorIsAHexValueAndCanBeCleared() {
+        assertNull(goal.getColor());
+        goal.changeColor("#1E90FF");
+        assertEquals("#1e90ff", goal.getColor());
+        goal.changeColor(null);
+        assertNull(goal.getColor());
+        assertThrows(IllegalArgumentException.class, () -> goal.changeColor("blue"));
+        assertThrows(IllegalArgumentException.class, () -> goal.changeColor("#12345"));
+        assertThrows(IllegalArgumentException.class, () -> goal.changeColor("#gggggg"));
+    }
 }

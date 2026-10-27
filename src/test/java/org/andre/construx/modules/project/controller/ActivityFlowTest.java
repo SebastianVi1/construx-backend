@@ -269,4 +269,18 @@ class ActivityFlowTest {
         assertEquals(1, ((java.util.List<?>) JsonPath.read(api.get(ana, tasks).andReturn().getResponse()
                 .getContentAsString(), "$")).size());
     }
+
+    @Test
+    void colorIsOptionalSharedAndResettable() throws Exception {
+        String task = create(member, "Pour", anaAccess);
+        api.get(owner, tasks + "/" + task).andExpect(jsonPath("$.color").isEmpty());
+        api.patch(member, tasks + "/" + task, "{\"color\":\"#FF8800\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.color").value("#ff8800"));
+        api.get(ana, tasks).andExpect(jsonPath("$[0].color").value("#ff8800"));
+        api.patch(ana, tasks + "/" + task, "{\"color\":\"#000000\"}").andExpect(status().isForbidden());
+        api.patch(member, tasks + "/" + task, "{\"color\":\"#ff88\"}").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        api.patch(member, tasks + "/" + task, "{\"color\":\"\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.color").isEmpty());
+    }
 }

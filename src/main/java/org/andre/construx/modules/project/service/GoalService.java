@@ -38,16 +38,18 @@ public class GoalService {
     }
 
     /** Counts are null when the caller cannot view the site's tasks. */
-    public record GoalData(UUID id, UUID projectId, String name, Instant startAt, Instant dueAt, Long activityCount, Long doneCount,
+    public record GoalData(UUID id, UUID projectId, String name, Instant startAt, Instant dueAt, String color, Long activityCount, Long doneCount,
                            boolean completed) {}
 
     @Transactional
     public GoalData create(UUID userId, UUID organizationId, UUID projectId, String name, Instant startAt,
-                           Instant dueAt) {
+                           Instant dueAt, String color) {
         OrganizationMembership member = guard.requireActive(userId, organizationId);
         Project project = projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
-        Goal goal = goals.save(new Goal(project, name, startAt, dueAt));
+        Goal goal = new Goal(project, name, startAt, dueAt);
+        goal.changeColor(blankAsNull(color));
+        goals.save(goal);
         return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
     }
 
@@ -67,10 +69,10 @@ public class GoalService {
         return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
     }
 
-    /** Null arguments keep the stored value. */
+    /** Null arguments keep the stored value; an empty color goes back to the default. */
     @Transactional
     public GoalData update(UUID userId, UUID organizationId, UUID projectId, UUID goalId, String name,
-                           Instant startAt, Instant dueAt) {
+                           Instant startAt, Instant dueAt, String color) {
         OrganizationMembership member = guard.requireActive(userId, organizationId);
         Goal goal = load(organizationId, projectId, goalId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
@@ -79,6 +81,9 @@ public class GoalService {
         }
         if (startAt != null || dueAt != null) {
             goal.changeDates(startAt != null ? startAt : goal.getStartAt(), dueAt != null ? dueAt : goal.getDueAt());
+        }
+        if (color != null) {
+            goal.changeColor(blankAsNull(color));
         }
         return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
     }
@@ -104,6 +109,10 @@ public class GoalService {
         goals.delete(goal);
     }
 
+    static String blankAsNull(String color) {
+        return color == null || color.isEmpty() ? null : color;
+    }
+
     /** Resolves a phase inside the tenant and site. */
     public Goal load(UUID organizationId, UUID projectId, UUID goalId) {
         projects.load(organizationId, projectId);
@@ -120,7 +129,7 @@ public class GoalService {
         boolean visible = projects.canViewActivities(userId, organizationId, member.getId(), projectId);
         return list.stream().map(goal -> {
             long[] c = counts.getOrDefault(goal.getId(), new long[] {0, 0});
-            return new GoalData(goal.getId(), projectId, goal.getName(), goal.getStartAt(), goal.getDueAt(),
+            return new GoalData(goal.getId(), projectId, goal.getName(), goal.getStartAt(), goal.getDueAt(), goal.getColor(),
                     visible ? c[0] : null, visible ? c[1] : null, c[0] > 0 && c[0] == c[1]);
         }).toList();
     }

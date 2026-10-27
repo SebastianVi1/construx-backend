@@ -244,4 +244,20 @@ class GoalFlowTest {
                 id, goal, access, due, due, status);
         return id;
     }
+
+    @Test
+    void colorIsOptionalSharedAndResettable() throws Exception {
+        String id = Api.id(api.post(owner, goals, "{\"name\":\"Phase\",\"startAt\":\"2027-01-01T00:00:00Z\",\"dueAt\":\"2027-03-01T00:00:00Z\"}")
+                .andExpect(jsonPath("$.color").isEmpty()));
+        api.patch(owner, goals + "/" + id, "{\"color\":\"#1E90FF\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.color").value("#1e90ff"));
+        api.patch(owner, goals + "/" + id, "{\"name\":\"Renamed\"}").andExpect(jsonPath("$.color").value("#1e90ff"));
+        api.patch(owner, goals + "/" + id, "{\"color\":\"blue\"}").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        api.get(owner, goals).andExpect(jsonPath("$[0].color").value("#1e90ff"));
+        api.patch(owner, goals + "/" + id, "{\"color\":\"\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.color").isEmpty());
+        api.post(owner, goals, "{\"name\":\"Tinted\",\"startAt\":\"2027-01-01T00:00:00Z\",\"dueAt\":\"2027-03-01T00:00:00Z\",\"color\":\"#00AA55\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.color").value("#00aa55"));
+    }
 }

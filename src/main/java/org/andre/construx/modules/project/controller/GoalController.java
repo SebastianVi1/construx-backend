@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.service.GoalService;
 import org.springframework.http.HttpStatus;
@@ -28,13 +29,17 @@ import java.util.UUID;
 public class GoalController {
     private final GoalService goals;
 
+    /** A #rrggbb color, or "" to go back to the default. */
+    static final String COLOR = "^(#[0-9a-fA-F]{6})?$";
+
     public GoalController(GoalService goals) {
         this.goals = goals;
     }
 
-    public record GoalCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant startAt, @NotNull Instant dueAt) {}
+    public record GoalCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant startAt, @NotNull Instant dueAt,
+                             @Pattern(regexp = COLOR) String color) {}
 
-    public record GoalPatch(@Size(max = 160) String name, Instant startAt, Instant dueAt) {}
+    public record GoalPatch(@Size(max = 160) String name, Instant startAt, Instant dueAt, @Pattern(regexp = COLOR) String color) {}
 
     /** Bounded so an absurd offset is a 400, not an overflow. */
     public record GoalShift(@NotNull @Min(-3650) @Max(3650) Integer days) {}
@@ -43,7 +48,8 @@ public class GoalController {
     @ResponseStatus(HttpStatus.CREATED)
     public GoalService.GoalData create(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                        @Valid @RequestBody GoalCreate body, Authentication authentication) {
-        return goals.create(userId(authentication), organizationId, projectId, body.name(), body.startAt(), body.dueAt());
+        return goals.create(userId(authentication), organizationId, projectId, body.name(), body.startAt(), body.dueAt(),
+                body.color());
     }
 
     @GetMapping
@@ -63,7 +69,7 @@ public class GoalController {
                                        @PathVariable UUID goalId, @Valid @RequestBody GoalPatch body,
                                        Authentication authentication) {
         return goals.update(userId(authentication), organizationId, projectId, goalId, body.name(), body.startAt(),
-                body.dueAt());
+                body.dueAt(), body.color());
     }
 
     /** Moves the phase and all its tasks by whole days. */
