@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -33,16 +34,17 @@ public class ProjectController {
     public record ProjectCreate(@NotBlank @Size(max = 160) String name, @Size(max = 255) String address,
                                 LocalDate startDate, LocalDate expectedEndDate, ProjectStatus status) {}
 
-    /** Every field optional; an empty address clears it. */
+    /** Every field optional; an empty address clears it, and {@code clear} removes the named dates. */
     public record ProjectPatch(@Size(max = 160) String name, @Size(max = 255) String address,
-                               LocalDate startDate, LocalDate expectedEndDate, ProjectStatus status) {}
+                               LocalDate startDate, LocalDate expectedEndDate, ProjectStatus status,
+                               Set<String> clear) {}
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectService.ProjectData create(@PathVariable UUID organizationId, @Valid @RequestBody ProjectCreate body,
                                              Authentication authentication) {
         return projects.create(userId(authentication), organizationId, new ProjectService.ProjectInput(
-                body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status()));
+                body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status(), null));
     }
 
     @GetMapping
@@ -62,7 +64,8 @@ public class ProjectController {
     public ProjectService.ProjectData update(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                              @Valid @RequestBody ProjectPatch body, Authentication authentication) {
         return projects.update(userId(authentication), organizationId, projectId, new ProjectService.ProjectInput(
-                body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status()));
+                body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status(),
+                body.clear()));
     }
 
     private static UUID userId(Authentication authentication) {

@@ -11,7 +11,7 @@ Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`,
 | GET | `/projects/{projectId}` | `VIEW_PROJECT` on the site |
 | PATCH | `/projects/{projectId}` | `MANAGE_PROJECT` on the site |
 
-Body: `{ "name", "address", "startDate", "expectedEndDate", "status" }`; only `name` is required on POST. `status` is `PLANNED` (default), `ACTIVE`, `ON_HOLD`, `COMPLETED` or `ARCHIVED`. There is no delete: archive the site. The list hides `ARCHIVED` unless `?status=ARCHIVED`. PATCH changes only the fields sent; send `"address": ""` to clear the address. An end date before the start date returns `400 INVALID_ARGUMENT`. Responses include `activityCount` and `doneCount`, which are `null` when the caller cannot view that site's tasks.
+Body: `{ "name", "address", "startDate", "expectedEndDate", "status" }`; only `name` is required on POST. PATCH also accepts `"clear": ["startDate", "expectedEndDate"]` to remove a date (null or a missing date keeps it; clearing and setting the same date returns `400`). `status` is `PLANNED` (default), `ACTIVE`, `ON_HOLD`, `COMPLETED` or `ARCHIVED`. There is no delete: archive the site. The list hides `ARCHIVED` unless `?status=ARCHIVED`. PATCH changes only the fields sent; send `"address": ""` to clear the address. An end date before the start date returns `400 INVALID_ARGUMENT`. Responses include `activityCount` and `doneCount`, which are `null` when the caller cannot view that site's tasks.
 
 ## People on a site
 

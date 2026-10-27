@@ -44,9 +44,18 @@ public class ProjectService {
         this.authorization = authorization;
     }
 
-    /** Null fields mean "not sent": on update they keep the stored value. */
+    /** Optional dates a PATCH may remove; JSON cannot tell "not sent" from null. */
+    private static final Set<String> CLEARABLE = Set.of("startDate", "expectedEndDate");
+
+    /**
+     * Null fields mean "not sent": on update they keep the stored value. {@code clear} names dates to remove.
+     */
     public record ProjectInput(String name, String address, LocalDate startDate, LocalDate expectedEndDate,
-                               ProjectStatus status) {}
+                               ProjectStatus status, Set<String> clear) {
+        public ProjectInput {
+            clear = clear == null ? Set.of() : Set.copyOf(clear);
+        }
+    }
 
     /** Counts are null when the caller cannot view this site's tasks. */
     public record ProjectData(UUID id, String name, String address, LocalDate startDate, LocalDate expectedEndDate,
@@ -92,9 +101,19 @@ public class ProjectService {
         if (input.name() != null) {
             project.rename(input.name());
         }
+        for (String field : input.clear()) {
+            if (!CLEARABLE.contains(field)) {
+                throw new IllegalArgumentException("Only startDate and expectedEndDate can be cleared");
+            }
+        }
+        boolean clearStart = input.clear().contains("startDate");
+        boolean clearEnd = input.clear().contains("expectedEndDate");
+        if ((clearStart && input.startDate() != null) || (clearEnd && input.expectedEndDate() != null)) {
+            throw new IllegalArgumentException("A date cannot be set and cleared in the same request");
+        }
         project.describe(input.address() != null ? input.address() : project.getAddress(),
-                input.startDate() != null ? input.startDate() : project.getStartDate(),
-                input.expectedEndDate() != null ? input.expectedEndDate() : project.getExpectedEndDate());
+                clearStart ? null : input.startDate() != null ? input.startDate() : project.getStartDate(),
+                clearEnd ? null : input.expectedEndDate() != null ? input.expectedEndDate() : project.getExpectedEndDate());
         if (input.status() != null) {
             project.changeStatus(input.status());
         }

@@ -110,6 +110,24 @@ class ProjectFlowTest {
     }
 
     @Test
+    void patchClearsDatesOnlyWhenAskedExplicitly() throws Exception {
+        String id = Api.id(api.post(owner, base, "{\"name\":\"Dated\",\"startDate\":\"2026-11-01\","
+                + "\"expectedEndDate\":\"2027-05-30\"}"));
+        api.patch(owner, base + "/" + id, "{\"startDate\":null}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.startDate").value("2026-11-01"));
+        api.patch(owner, base + "/" + id, "{\"clear\":[\"startDate\"]}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.startDate").isEmpty())
+                .andExpect(jsonPath("$.expectedEndDate").value("2027-05-30"));
+        api.patch(owner, base + "/" + id, "{\"clear\":[\"expectedEndDate\"],\"name\":\"Undated\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expectedEndDate").isEmpty())
+                .andExpect(jsonPath("$.name").value("Undated"));
+        api.patch(owner, base + "/" + id, "{\"clear\":[\"name\"]}").andExpect(status().isBadRequest());
+        api.patch(owner, base + "/" + id, "{\"clear\":[\"startDate\"],\"startDate\":\"2026-01-01\"}")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+    }
+
+    @Test
     void workerSeesOnlyAssignedSitesAndCannotManage() throws Exception {
         String assigned = Api.id(api.post(owner, base, "{\"name\":\"Assigned\"}"));
         String other = Api.id(api.post(owner, base, "{\"name\":\"Other\"}"));
