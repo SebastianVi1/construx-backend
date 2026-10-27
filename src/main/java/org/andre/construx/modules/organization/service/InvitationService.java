@@ -4,7 +4,6 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.organization.model.InvitationStatus;
-import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationInvitation;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
@@ -45,12 +44,14 @@ public class InvitationService {
     private final DomainAuthorization authorization;
     private final InvitationMailer mailer;
     private final Duration ttl;
+    private final MembershipGuard guard;
 
     public InvitationService(OrganizationInvitationRepository invitations, OrganizationMembershipRepository memberships,
                              OrganizationRoleRepository roles, ProjectRepository projects,
                              ProjectAccessRepository accesses, UserAccountRepository users,
-                             DomainAuthorization authorization, InvitationMailer mailer,
+                             DomainAuthorization authorization, InvitationMailer mailer, MembershipGuard guard,
                              @Value("${app.invitations.ttl:7d}") Duration ttl) {
+        this.guard = guard;
         this.invitations = invitations;
         this.memberships = memberships;
         this.roles = roles;
@@ -74,7 +75,7 @@ public class InvitationService {
 
     @Transactional
     public InvitationData create(UUID userId, UUID organizationId, String email, String roleCode, UUID projectId) {
-        OrganizationMembership inviter = requireActiveMember(userId, organizationId);
+        OrganizationMembership inviter = guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
         OrganizationRole role = roles.findByOrganizationIdAndCode(organizationId, roleCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
@@ -128,7 +129,7 @@ public class InvitationService {
 
     @Transactional(readOnly = true)
     public List<InvitationData> list(UUID userId, UUID organizationId, InvitationStatus status) {
-        requireActiveMember(userId, organizationId);
+        guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
         return invitations.findByOrganizationAndStatus(organizationId, status).stream()
                 .map(InvitationData::from).toList();
@@ -136,7 +137,7 @@ public class InvitationService {
 
     @Transactional
     public void revoke(UUID userId, UUID organizationId, UUID invitationId) {
-        requireActiveMember(userId, organizationId);
+        guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
         invitations.findByIdAndOrganizationId(invitationId, organizationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"))
@@ -160,12 +161,5 @@ public class InvitationService {
                 action.run();
             }
         });
-    }
-
-    /** Non-members get the same 404 as a missing organization, so identifiers cannot be enumerated. */
-    private OrganizationMembership requireActiveMember(UUID userId, UUID organizationId) {
-        return memberships.findByOrganizationIdAndUserAccountId(organizationId, userId)
-                .filter(membership -> membership.getStatus() == MembershipStatus.ACTIVE)
-                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
     }
 }

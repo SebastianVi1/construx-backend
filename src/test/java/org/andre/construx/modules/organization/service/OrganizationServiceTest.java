@@ -36,7 +36,8 @@ class OrganizationServiceTest {
         organizations = mock(OrganizationRepository.class);
         memberships = mock(OrganizationMembershipRepository.class);
         authorization = mock(DomainAuthorization.class);
-        service = new OrganizationService(mock(UserAccountRepository.class), organizations, memberships, authorization);
+        service = new OrganizationService(mock(UserAccountRepository.class), organizations, memberships, authorization,
+                new MembershipGuard(memberships));
         userId = UUID.randomUUID();
         orgId = UUID.randomUUID();
         organization = mock(Organization.class);

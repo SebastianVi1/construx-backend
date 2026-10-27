@@ -23,13 +23,16 @@ public class OrganizationService {
     private final OrganizationRepository organizations;
     private final OrganizationMembershipRepository memberships;
     private final DomainAuthorization authorization;
+    private final MembershipGuard guard;
 
     public OrganizationService(UserAccountRepository users, OrganizationRepository organizations,
-                               OrganizationMembershipRepository memberships, DomainAuthorization authorization) {
+                               OrganizationMembershipRepository memberships, DomainAuthorization authorization,
+                               MembershipGuard guard) {
         this.users = users;
         this.organizations = organizations;
         this.memberships = memberships;
         this.authorization = authorization;
+        this.guard = guard;
     }
 
     public record OrganizationData(UUID id, String name, OrganizationStatus status) {
@@ -54,27 +57,17 @@ public class OrganizationService {
 
     @Transactional(readOnly = true)
     public OrganizationData get(UUID userId, UUID organizationId) {
-        requireActiveMember(userId, organizationId);
+        guard.requireActive(userId, organizationId);
         return OrganizationData.from(load(organizationId));
     }
 
     @Transactional
     public OrganizationData rename(UUID userId, UUID organizationId, String name) {
-        requireActiveMember(userId, organizationId);
+        guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_ORGANIZATION);
         Organization organization = load(organizationId);
         organization.rename(name);
         return OrganizationData.from(organization);
-    }
-
-    /** Non-members get the same 404 as a missing organization, so identifiers cannot be enumerated. */
-    private void requireActiveMember(UUID userId, UUID organizationId) {
-        boolean member = memberships.findByOrganizationIdAndUserAccountId(organizationId, userId)
-                .filter(membership -> membership.getStatus() == MembershipStatus.ACTIVE)
-                .isPresent();
-        if (!member) {
-            throw new ResourceNotFoundException("Organization not found");
-        }
     }
 
     private Organization load(UUID organizationId) {
