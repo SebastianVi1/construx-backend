@@ -1,0 +1,2 @@
+create table user_onboarding (updated_at timestamp(6) with time zone not null, user_account_id uuid not null, intent varchar(30) not null check ((intent in ('RUN_COMPANY','WORKER_OR_INVITED'))), business_type varchar(30) check ((business_type in ('OWNER_DEVELOPER','GENERAL_CONTRACTOR','ARCHITECT_ENGINEER','SUBCONTRACTOR'))), primary key (user_account_id));
+alter table if exists user_onboarding add constraint fk_user_onboarding_user foreign key (user_account_id) references "user-account" on delete cascade;
