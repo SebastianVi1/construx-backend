@@ -97,4 +97,25 @@ class DomainAuthorizationTest {
         assertThrows(AccessDeniedException.class,
                 () -> authorization.require(userId, orgId, projectId, null, PermissionAction.VIEW_PROJECT));
     }
+
+    @Test
+    void scopeOfReturnsTheGrantedScopeForTheAction() {
+        when(permission.getScope()).thenReturn(PermissionScope.PROJECT);
+        assertEquals(Optional.of(PermissionScope.PROJECT),
+                authorization.scopeOf(userId, orgId, PermissionAction.VIEW_PROJECT));
+    }
+
+    @Test
+    void scopeOfIsEmptyWhenTheRoleLacksTheAction() {
+        assertEquals(Optional.empty(), authorization.scopeOf(userId, orgId, PermissionAction.MANAGE_ROLES));
+    }
+
+    @Test
+    void scopeOfDeniesNonMembersAndInactiveMembers() {
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.scopeOf(UUID.randomUUID(), orgId, PermissionAction.VIEW_PROJECT));
+        when(member.getStatus()).thenReturn(MembershipStatus.SUSPENDED);
+        assertThrows(AccessDeniedException.class,
+                () -> authorization.scopeOf(userId, orgId, PermissionAction.VIEW_PROJECT));
+    }
 }

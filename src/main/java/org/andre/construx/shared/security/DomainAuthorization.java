@@ -8,6 +8,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /** Evaluate current membership permissions, never stale authorities from a JWT. */
@@ -28,9 +29,7 @@ public class DomainAuthorization {
     @Transactional(readOnly = true)
     public void require(UUID userId, UUID organizationId, UUID projectId,
             UUID assigneeMembershipId, PermissionAction action) {
-        OrganizationMembership member = memberships.findByOrganizationIdAndUserAccountId(organizationId, userId)
-                .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
-                .orElseThrow(() -> new AccessDeniedException("Membership required"));
+        OrganizationMembership member = activeMember(userId, organizationId);
         if (projectId != null && projects.findById(projectId)
                 .filter(p -> p.getOrganization().getId().equals(organizationId)).isEmpty())
             throw new AccessDeniedException("Project unavailable");
@@ -43,5 +42,23 @@ public class DomainAuthorization {
             case OWN -> assigneeMembershipId != null && assigneeMembershipId.equals(member.getId());
         };
         if (!allowed) throw new AccessDeniedException("Permission scope denied");
+    }
+
+    /**
+     * Scope the caller holds for an action in an organization, empty if the role lacks it.
+     * Lists use this to filter rows (ORGANIZATION: all, PROJECT: assigned sites, OWN: own rows).
+     */
+    @Transactional(readOnly = true)
+    public Optional<PermissionScope> scopeOf(UUID userId, UUID organizationId, PermissionAction action) {
+        return activeMember(userId, organizationId).getRole().getPermissions().stream()
+                .filter(p -> p.getAction() == action)
+                .map(Permission::getScope)
+                .findFirst();
+    }
+
+    private OrganizationMembership activeMember(UUID userId, UUID organizationId) {
+        return memberships.findByOrganizationIdAndUserAccountId(organizationId, userId)
+                .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
+                .orElseThrow(() -> new AccessDeniedException("Membership required"));
     }
 }
