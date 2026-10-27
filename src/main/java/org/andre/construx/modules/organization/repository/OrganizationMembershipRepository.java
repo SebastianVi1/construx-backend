@@ -14,6 +14,8 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
 
     boolean existsByOrganizationIdAndUserAccountEmail(UUID organizationId, String email);
 
+    Optional<OrganizationMembership> findByIdAndOrganizationId(UUID id, UUID organizationId);
+
     @Query("select m from OrganizationMembership m join fetch m.organization "
             + "where m.userAccount.id = :userId and m.status = :status order by m.organization.name")
     List<OrganizationMembership> findByUserWithOrganization(UUID userId, MembershipStatus status);
