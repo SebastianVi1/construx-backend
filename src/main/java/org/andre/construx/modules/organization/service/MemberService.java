@@ -4,11 +4,14 @@ import org.andre.construx.modules.identity.model.UserProfile;
 import org.andre.construx.modules.identity.repository.UserProfileRepository;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.organization.model.OrganizationRole;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
+import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.security.DomainAuthorization;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,5 +78,29 @@ public class MemberService {
         return list.stream().map(m -> new MemberData(m.getId(), m.getUserAccount().getId(),
                 m.getUserAccount().getEmail(), names.get(m.getUserAccount().getId()), m.getRole().getCode(),
                 m.getRole().getName(), m.getStatus())).toList();
+    }
+
+    /**
+     * Give another member a different non-owner role. The owner role cannot be granted or
+     * replaced here, and nobody changes their own role.
+     */
+    @Transactional
+    public MemberData changeRole(UUID userId, UUID organizationId, UUID membershipId, String roleCode) {
+        OrganizationMembership caller = guard.requireActive(userId, organizationId);
+        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
+        OrganizationMembership member = memberships.findByIdAndOrganizationId(membershipId, organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (member.getId().equals(caller.getId())) {
+            throw new AccessDeniedException("You cannot change your own role");
+        }
+        OrganizationRole role = roles.findByOrganizationIdAndCode(organizationId, roleCode)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown role"));
+        if (role.isSystemRole()) {
+            throw new IllegalArgumentException("The owner role cannot be granted");
+        }
+        member.changeRole(role);
+        String fullName = profiles.findById(member.getUserAccount().getId()).map(UserProfile::getFullName).orElse(null);
+        return new MemberData(member.getId(), member.getUserAccount().getId(), member.getUserAccount().getEmail(),
+                fullName, role.getCode(), role.getName(), member.getStatus());
     }
 }

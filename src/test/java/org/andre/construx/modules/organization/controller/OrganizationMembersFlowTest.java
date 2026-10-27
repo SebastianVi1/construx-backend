@@ -123,4 +123,49 @@ class OrganizationMembersFlowTest {
         api.get(member, org + "/members").andExpect(status().isForbidden());
         api.get(api.signUp(), org + "/members").andExpect(status().isNotFound());
     }
+
+    @Test
+    void ownerCanUpdateMemberRoleButRegularMemberCannot() throws Exception {
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"ADMINISTRATOR\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipId").value(workerMembership.toString()))
+                .andExpect(jsonPath("$.role.code").value("ADMINISTRATOR"));
+        api.patch(worker, org + "/members/" + workerMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isForbidden());
+        api.patch(owner, org + "/members/" + UUID.randomUUID(), "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void roleChangeCannotGrantOrReplaceOwnerNorChangeYourOwnRole() throws Exception {
+        Session admin = api.signUp();
+        UUID adminMembership = members.add(orgId, admin.user(), "ADMINISTRATOR");
+        UUID ownerMembership = memberships.findByOrganizationIdAndUserAccountId(orgId, owner.user().getId())
+                .orElseThrow().getId();
+
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"OWNER\"}")
+                .andExpect(status().isBadRequest());
+        api.patch(admin, org + "/members/" + ownerMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isConflict());
+        api.patch(admin, org + "/members/" + adminMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isForbidden());
+        api.patch(owner, org + "/members/" + ownerMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isForbidden());
+        api.get(owner, org + "/members")
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.code").value(hasItem("WORKER")))
+                .andExpect(jsonPath("$[?(@.membershipId == '" + ownerMembership + "')].role.code").value(hasItem("OWNER")))
+                .andExpect(jsonPath("$[?(@.membershipId == '" + adminMembership + "')].role.code")
+                        .value(hasItem("ADMINISTRATOR")));
+    }
+
+    @Test
+    void roleChangeRejectsUnknownOrMissingRolesAndHidesOrganizationFromOutsiders() throws Exception {
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"NOPE\"}")
+                .andExpect(status().isBadRequest());
+        api.patch(owner, org + "/members/" + workerMembership, "{}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        api.patch(api.signUp(), org + "/members/" + workerMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(status().isNotFound());
+    }
 }
