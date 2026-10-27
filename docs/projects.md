@@ -34,7 +34,7 @@ POST body: `{ "membershipId" }` of a member of this organization. A response row
 | DELETE | `/projects/{projectId}/goals/{goalId}` | `MANAGE_GOAL` on the site |
 | POST | `/projects/{projectId}/goals/{goalId}/shift` | `MANAGE_GOAL` on the site |
 
-Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST and optional on PATCH. `startAt` cannot be after `dueAt`, cannot move after its earliest task start, and `dueAt` cannot move before its latest task (`400 INVALID_ARGUMENT`); when PATCH sends both dates they are checked as a pair. `POST .../shift` with `{ "days": n }` (non-zero, -3650..3650) moves the phase and all its tasks by `n` days in one transaction and returns the phase; `days: 0` is `400 INVALID_ARGUMENT`. Deleting a phase that still has tasks returns `409 STATE_CONFLICT`. Responses include `activityCount`, `doneCount` (null without task visibility) and `completed` (has tasks and all are done).
+Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST and optional on PATCH. `startAt` cannot be after `dueAt`, cannot move after its earliest task start, and `dueAt` cannot move before its latest task (`400 INVALID_ARGUMENT`); when PATCH sends both dates they are checked as a pair. `POST .../shift` with `{ "days": n }` (non-zero, -3650..3650) moves the phase and all its tasks by `n` days in one transaction and returns the phase; `days: 0` is `400 INVALID_ARGUMENT`. Deleting a phase that still has tasks returns `409 STATE_CONFLICT`. Responses include `activityCount`, `doneCount` (null without task visibility) and `completed` (has tasks and all are done). Phases and tasks also take an optional `color` (`#rrggbb`, stored lowercase, `null` = default) on POST and PATCH; PATCH `"color": ""` resets it, any other value is `400 VALIDATION_FAILED`.
 
 ## Tasks
 
@@ -54,7 +54,7 @@ Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST
 
 POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
 
-Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
 
 
 ## Gantt bar colors
