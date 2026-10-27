@@ -32,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class ActivityFlowTest {
+    private static final String GOAL_START = "2027-01-01T00:00:00Z";
     private static final String GOAL_DUE = "2027-03-01T00:00:00Z";
 
     @Autowired MockMvc mvc;
@@ -60,7 +61,7 @@ class ActivityFlowTest {
         org = "/api/organizations/" + orgId;
         projectId = UUID.fromString(Api.id(api.post(owner, org + "/projects", "{\"name\":\"Tower\"}")));
         String goalId = Api.id(api.post(owner, org + "/projects/" + projectId + "/goals",
-                "{\"name\":\"Phase\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
+                "{\"name\":\"Phase\",\"startAt\":\"" + GOAL_START + "\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
         tasks = org + "/projects/" + projectId + "/goals/" + goalId + "/activities";
 
         member = api.signUp();
@@ -77,7 +78,45 @@ class ActivityFlowTest {
     }
 
     private static String body(String name, String dueAt, UUID assignee) {
-        return "{\"name\":\"" + name + "\",\"dueAt\":\"" + dueAt + "\",\"assigneeAccessId\":\"" + assignee + "\"}";
+        return body(name, GOAL_START, dueAt, assignee);
+    }
+
+    private static String body(String name, String startAt, String dueAt, UUID assignee) {
+        return "{\"name\":\"" + name + "\",\"startAt\":\"" + startAt + "\",\"dueAt\":\"" + dueAt
+                + "\",\"assigneeAccessId\":\"" + assignee + "\"}";
+    }
+
+    @Test
+    void createRequiresAStartInsideThePhase() throws Exception {
+        api.post(member, tasks, "{\"name\":\"No start\",\"dueAt\":\"2027-02-01T18:00:00Z\",\"assigneeAccessId\":\"" + anaAccess + "\"}")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        api.post(member, tasks, body("Too early", "2026-12-31T23:59:59Z", "2027-02-01T18:00:00Z", anaAccess))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+        api.post(member, tasks, body("Backwards", "2027-02-02T00:00:00Z", "2027-02-01T18:00:00Z", anaAccess))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+        api.post(member, tasks, body("Pour", "2027-01-20T08:00:00Z", "2027-02-01T18:00:00Z", anaAccess))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.startAt").value("2027-01-20T08:00:00Z"))
+                .andExpect(jsonPath("$.dueAt").value("2027-02-01T18:00:00Z"));
+        api.get(owner, tasks).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].startAt").value("2027-01-20T08:00:00Z"));
+    }
+
+    @Test
+    void patchMovesBothDatesAsAPair() throws Exception {
+        String task = Api.id(api.post(member, tasks, body("Pour", "2027-01-02T00:00:00Z", "2027-01-03T00:00:00Z", anaAccess)));
+        api.patch(member, tasks + "/" + task, "{\"startAt\":\"2027-02-20T00:00:00Z\",\"dueAt\":\"2027-02-25T00:00:00Z\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.startAt").value("2027-02-20T00:00:00Z"))
+                .andExpect(jsonPath("$.dueAt").value("2027-02-25T00:00:00Z"));
+        api.patch(member, tasks + "/" + task, "{\"startAt\":\"2027-02-21T00:00:00Z\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.startAt").value("2027-02-21T00:00:00Z"));
+        api.patch(member, tasks + "/" + task, "{\"startAt\":\"2026-12-01T00:00:00Z\",\"dueAt\":\"2027-01-05T00:00:00Z\"}")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+        api.patch(member, tasks + "/" + task, "{\"startAt\":\"2027-02-26T00:00:00Z\"}")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+        api.get(owner, tasks + "/" + task).andExpect(jsonPath("$.startAt").value("2027-02-21T00:00:00Z"))
+                .andExpect(jsonPath("$.dueAt").value("2027-02-25T00:00:00Z"));
     }
 
     @Test
@@ -182,7 +221,7 @@ class ActivityFlowTest {
         UUID anaMembership = memberships.findByOrganizationIdAndUserAccountId(orgId, ana.user().getId()).orElseThrow().getId();
         UUID anaOther = members.grantSite(UUID.fromString(otherSite), anaMembership);
         String otherGoal = Api.id(api.post(owner, org + "/projects/" + otherSite + "/goals",
-                "{\"name\":\"G\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
+                "{\"name\":\"G\",\"startAt\":\"" + GOAL_START + "\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
         String done = Api.id(api.post(owner, org + "/projects/" + otherSite + "/goals/" + otherGoal + "/activities",
                 body("Other task", "2027-01-01T00:00:00Z", anaOther)));
         api.post(ana, org + "/projects/" + otherSite + "/goals/" + otherGoal + "/activities/" + done + "/complete", null)
@@ -215,7 +254,7 @@ class ActivityFlowTest {
         api.get(stranger, "/api/organizations/" + strangerOrg + "/activities/mine")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
         String otherGoal = Api.id(api.post(owner, org + "/projects/" + projectId + "/goals",
-                "{\"name\":\"Other phase\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
+                "{\"name\":\"Other phase\",\"startAt\":\"" + GOAL_START + "\",\"dueAt\":\"" + GOAL_DUE + "\"}"));
         api.get(owner, org + "/projects/" + projectId + "/goals/" + otherGoal + "/activities/" + task)
                 .andExpect(status().isNotFound());
     }

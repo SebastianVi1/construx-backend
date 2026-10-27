@@ -37,10 +37,10 @@ public class ActivityController {
         this.activities = activities;
     }
 
-    public record ActivityCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant dueAt,
+    public record ActivityCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant startAt, @NotNull Instant dueAt,
                                  @NotNull UUID assigneeAccessId) {}
 
-    public record ActivityPatch(@Size(max = 160) String name, Instant dueAt) {}
+    public record ActivityPatch(@Size(max = 160) String name, Instant startAt, Instant dueAt) {}
 
     public record AssigneeInput(@NotNull UUID assigneeAccessId) {}
 
@@ -50,7 +50,7 @@ public class ActivityController {
                                @PathVariable UUID goalId, @Valid @RequestBody ActivityCreate body,
                                Authentication authentication) {
         return activities.create(userId(authentication), organizationId, projectId, goalId,
-                body.name(), body.dueAt(), body.assigneeAccessId());
+                body.name(), body.startAt(), body.dueAt(), body.assigneeAccessId());
     }
 
     @GetMapping(TASKS)
@@ -72,7 +72,7 @@ public class ActivityController {
                                @PathVariable UUID goalId, @PathVariable UUID activityId,
                                @Valid @RequestBody ActivityPatch body, Authentication authentication) {
         return activities.update(userId(authentication), organizationId, projectId, goalId, activityId,
-                body.name(), body.dueAt());
+                body.name(), body.startAt(), body.dueAt());
     }
 
     @PutMapping(TASK + "/assignee")

@@ -51,18 +51,18 @@ public class ActivityService {
 
     /** Site and phase names let cross-site lists (my tasks) label rows without extra calls. */
     public record ActivityData(UUID id, UUID goalId, String goalName, UUID projectId, String projectName,
-                               String name, Instant dueAt, ActivityStatus status, Instant completedAt,
+                               String name, Instant startAt, Instant dueAt, ActivityStatus status, Instant completedAt,
                                AssigneeData assignee) {}
 
     @Transactional
     public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
-                               String name, Instant dueAt, UUID assigneeAccessId) {
+                               String name, Instant startAt, Instant dueAt, UUID assigneeAccessId) {
         guard.requireActive(userId, organizationId);
         Goal goal = goals.load(organizationId, projectId, goalId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
         ProjectAccess assignee = accesses.load(projectId, assigneeAccessId);
-        return toData(List.of(activities.save(new Activity(goal, name, assignee, goal.getStartAt(), dueAt)))).get(0);
+        return toData(List.of(activities.save(new Activity(goal, name, assignee, startAt, dueAt)))).get(0);
     }
 
     @Transactional(readOnly = true)
@@ -94,15 +94,16 @@ public class ActivityService {
     /** Null arguments keep the stored value. Not for status or assignee. */
     @Transactional
     public ActivityData update(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
-                               String name, Instant dueAt) {
+                               String name, Instant startAt, Instant dueAt) {
         guard.requireActive(userId, organizationId);
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
         if (name != null) {
             activity.rename(name);
         }
-        if (dueAt != null) {
-            activity.reschedule(dueAt);
+        if (startAt != null || dueAt != null) {
+            activity.changeDates(startAt != null ? startAt : activity.getStartAt(),
+                    dueAt != null ? dueAt : activity.getDueAt());
         }
         return toData(List.of(activity)).get(0);
     }
@@ -178,7 +179,7 @@ public class ActivityService {
             OrganizationMembership membership = access.getOrganizationMembership();
             return new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getName(),
                     a.getGoal().getProject().getId(), a.getGoal().getProject().getName(), a.getName(),
-                    a.getDueAt(), a.getStatus(), a.getCompletedAt(), new AssigneeData(access.getId(),
+                    a.getStartAt(), a.getDueAt(), a.getStatus(), a.getCompletedAt(), new AssigneeData(access.getId(),
                     membership.getId(), names.get(membership.getUserAccount().getId())));
         }).toList();
     }
