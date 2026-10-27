@@ -163,8 +163,9 @@ class GoalFlowTest {
                         UUID.class, projectId, members.ownerMembership(orgId, owner.user()))
                 : members.grantSite(projectId, members.ownerMembership(orgId, owner.user()));
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, due_at, status) values (?, ?, 'T', ?, ?, ?)",
-                id, goal, access, Timestamp.from(Instant.parse(dueAt)), status);
+        Timestamp due = Timestamp.from(Instant.parse(dueAt));
+        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'T', ?, ?, ?, ?)",
+                id, goal, access, due, due, status);
         return id;
     }
 }

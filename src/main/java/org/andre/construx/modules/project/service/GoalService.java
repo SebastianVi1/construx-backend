@@ -45,7 +45,7 @@ public class GoalService {
         OrganizationMembership member = guard.requireActive(userId, organizationId);
         Project project = projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
-        Goal goal = goals.save(new Goal(project, name, dueAt));
+        Goal goal = goals.save(new Goal(project, name, dueAt.isBefore(Instant.now()) ? dueAt : Instant.now(), dueAt));
         return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
     }
 

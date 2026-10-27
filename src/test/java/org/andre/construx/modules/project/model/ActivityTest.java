@@ -11,17 +11,25 @@ import java.time.temporal.ChronoUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ActivityTest {
-    private final Instant goalDue = Instant.now().plus(10, ChronoUnit.DAYS);
+    private final Instant goalStart = Instant.now();
+    private final Instant goalDue = goalStart.plus(10, ChronoUnit.DAYS);
     private Activity activity;
     private Organization organization;
     private Project project;
+    private Goal goal;
+    private ProjectAccess access;
 
     @BeforeEach
     void setUp() {
         organization = new Organization("Acme", new UserAccount("o@acme.com", "hash"));
         project = new Project(organization, "Tower");
-        ProjectAccess access = new ProjectAccess(project, organization.getMemberships().iterator().next());
-        activity = new Activity(new Goal(project, "Phase", goalDue), "Pour", access, goalDue.minus(1, ChronoUnit.DAYS));
+        access = new ProjectAccess(project, organization.getMemberships().iterator().next());
+        goal = new Goal(project, "Phase", goalStart, goalDue);
+        activity = new Activity(goal, "Pour", access, day(1), goalDue.minus(1, ChronoUnit.DAYS));
+    }
+
+    private Instant day(int days) {
+        return goalStart.plus(days, ChronoUnit.DAYS);
     }
 
     @Test
@@ -32,11 +40,56 @@ class ActivityTest {
     }
 
     @Test
+    void startIsRequiredAndCannotBeAfterDue() {
+        assertEquals(day(1), activity.getStartAt());
+        assertThrows(IllegalArgumentException.class, () -> new Activity(goal, "Late", access, day(3), day(2)));
+        assertThrows(IllegalArgumentException.class, () -> new Activity(goal, "Late", access, null, day(2)));
+    }
+
+    @Test
+    void startCannotBeBeforeTheGoalStart() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new Activity(goal, "Early", access, goalStart.minusSeconds(1), day(2)));
+        new Activity(goal, "On time", access, goalStart, day(2));
+    }
+
+    @Test
     void rescheduleStaysWithinTheGoal() {
         activity.reschedule(goalDue);
         assertEquals(goalDue, activity.getDueAt());
         assertThrows(IllegalArgumentException.class, () -> activity.reschedule(goalDue.plusSeconds(1)));
         assertThrows(IllegalArgumentException.class, () -> activity.reschedule(null));
+    }
+
+    @Test
+    void rescheduleCannotEndBeforeTheStart() {
+        assertThrows(IllegalArgumentException.class, () -> activity.reschedule(day(1).minusSeconds(1)));
+        activity.reschedule(day(1));
+        assertEquals(day(1), activity.getDueAt());
+    }
+
+    @Test
+    void changeStartAtStaysWithinTheGoalAndBeforeTheDue() {
+        activity.changeStartAt(goalStart);
+        assertEquals(goalStart, activity.getStartAt());
+        assertThrows(IllegalArgumentException.class, () -> activity.changeStartAt(goalStart.minusSeconds(1)));
+        assertThrows(IllegalArgumentException.class, () -> activity.changeStartAt(day(9).plusSeconds(1)));
+        assertThrows(IllegalArgumentException.class, () -> activity.changeStartAt(null));
+    }
+
+    @Test
+    void changeDatesAcceptsAMoveThatIsOnlyValidAsAPair() {
+        activity.changeDates(day(1), day(2));
+        activity.changeDates(day(8), day(9));
+        assertEquals(day(8), activity.getStartAt());
+        assertEquals(day(9), activity.getDueAt());
+        activity.changeDates(day(1), day(2));
+        assertEquals(day(1), activity.getStartAt());
+        assertThrows(IllegalArgumentException.class, () -> activity.changeDates(day(3), day(2)));
+        assertThrows(IllegalArgumentException.class, () -> activity.changeDates(day(-1), day(2)));
+        assertThrows(IllegalArgumentException.class, () -> activity.changeDates(day(1), day(11)));
+        assertEquals(day(1), activity.getStartAt());
+        assertEquals(day(2), activity.getDueAt());
     }
 
     @Test

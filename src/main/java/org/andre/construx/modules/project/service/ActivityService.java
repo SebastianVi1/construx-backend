@@ -62,7 +62,7 @@ public class ActivityService {
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
         ProjectAccess assignee = accesses.load(projectId, assigneeAccessId);
-        return toData(List.of(activities.save(new Activity(goal, name, assignee, dueAt)))).get(0);
+        return toData(List.of(activities.save(new Activity(goal, name, assignee, goal.getStartAt(), dueAt)))).get(0);
     }
 
     @Transactional(readOnly = true)

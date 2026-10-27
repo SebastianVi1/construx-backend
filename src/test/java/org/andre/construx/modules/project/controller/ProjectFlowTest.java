@@ -172,11 +172,11 @@ class ProjectFlowTest {
         UUID access = members.grantSite(projectId, members.ownerMembership(orgId, owner.user()));
         UUID goal = UUID.randomUUID();
         Timestamp due = Timestamp.from(Instant.now().plusSeconds(86_400));
-        jdbc.update("insert into goal (id, project_id, name, due_at) values (?, ?, 'Foundations', ?)", goal, projectId, due);
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, due_at, status) values (?, ?, 'Dig', ?, ?, 'DONE')",
-                UUID.randomUUID(), goal, access, due);
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, due_at, status) values (?, ?, 'Pour', ?, ?, 'TODO')",
-                UUID.randomUUID(), goal, access, due);
+        jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'Foundations', ?, ?)", goal, projectId, due, due);
+        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'Dig', ?, ?, ?, 'DONE')",
+                UUID.randomUUID(), goal, access, due, due);
+        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'Pour', ?, ?, ?, 'TODO')",
+                UUID.randomUUID(), goal, access, due, due);
         api.get(owner, base + "/" + id).andExpect(jsonPath("$.activityCount").value(2))
                 .andExpect(jsonPath("$.doneCount").value(1));
     }

@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -33,15 +34,19 @@ public class Goal {
 
     @NotNull
     @Column(nullable = false)
+    private Instant startAt;
+
+    @NotNull
+    @Column(nullable = false)
     private Instant dueAt;
 
     @OneToMany(mappedBy = "goal")
     private Set<Activity> activities = new HashSet<>();
 
-    public Goal(Project project, String name, Instant dueAt) {
+    public Goal(Project project, String name, Instant startAt, Instant dueAt) {
         this.project = DomainValidation.required(project, "Project is required");
         rename(name);
-        this.dueAt = DomainValidation.required(dueAt, "Goal deadline is required");
+        changeDates(startAt, dueAt);
     }
 
     public void rename(String name) {
@@ -51,13 +56,40 @@ public class Goal {
         this.name = name.strip();
     }
 
-    /** A phase cannot end before the tasks inside it. */
+    public void changeStartAt(Instant startAt) {
+        changeDates(startAt, dueAt);
+    }
+
     public void changeDueAt(Instant dueAt) {
+        changeDates(startAt, dueAt);
+    }
+
+    /** A phase cannot cut through the tasks inside it; both dates are checked as a pair. */
+    public void changeDates(Instant startAt, Instant dueAt) {
+        DomainValidation.required(startAt, "Goal start is required");
         DomainValidation.required(dueAt, "Goal deadline is required");
+        if (startAt.isAfter(dueAt)) {
+            throw new IllegalArgumentException("Goal cannot start after it ends");
+        }
+        if (activities.stream().anyMatch(activity -> activity.getStartAt().isBefore(startAt))) {
+            throw new IllegalArgumentException("Goal cannot start after its activities");
+        }
         if (activities.stream().anyMatch(activity -> activity.getDueAt().isAfter(dueAt))) {
             throw new IllegalArgumentException("Goal cannot end before its activities");
         }
+        this.startAt = startAt;
         this.dueAt = dueAt;
+    }
+
+    /** Moves the phase and every task inside it by the same offset. */
+    public void shift(Duration offset) {
+        DomainValidation.required(offset, "Shift is required");
+        if (offset.isZero()) {
+            throw new IllegalArgumentException("Shift must move the goal");
+        }
+        startAt = startAt.plus(offset);
+        dueAt = dueAt.plus(offset);
+        activities.forEach(activity -> activity.shiftBy(offset));
     }
 
     public boolean isCompleted() {
