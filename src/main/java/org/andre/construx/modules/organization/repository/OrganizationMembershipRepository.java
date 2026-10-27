@@ -19,4 +19,8 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     @Query("select m from OrganizationMembership m join fetch m.organization "
             + "where m.userAccount.id = :userId and m.status = :status order by m.organization.name")
     List<OrganizationMembership> findByUserWithOrganization(UUID userId, MembershipStatus status);
+
+    @Query("select m from OrganizationMembership m join fetch m.userAccount join fetch m.role "
+            + "where m.organization.id = :organizationId and m.status = :status order by m.userAccount.email")
+    List<OrganizationMembership> findByOrganizationWithUserAndRole(UUID organizationId, MembershipStatus status);
 }

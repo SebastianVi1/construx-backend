@@ -30,9 +30,12 @@ public class OrganizationController {
 
     public record OrganizationInput(@NotBlank @Size(max = 160) String name) {}
 
-    public record OrganizationResponse(UUID id, String name, OrganizationStatus status) {
+    public record RoleSummary(String code, String name) {}
+
+    public record OrganizationResponse(UUID id, String name, OrganizationStatus status, RoleSummary myRole) {
         static OrganizationResponse from(OrganizationService.OrganizationData data) {
-            return new OrganizationResponse(data.id(), data.name(), data.status());
+            return new OrganizationResponse(data.id(), data.name(), data.status(),
+                    new RoleSummary(data.myRoleCode(), data.myRoleName()));
         }
     }
 

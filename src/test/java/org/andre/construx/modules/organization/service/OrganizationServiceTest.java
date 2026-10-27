@@ -4,6 +4,7 @@ import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.organization.model.OrganizationRole;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
@@ -43,6 +44,8 @@ class OrganizationServiceTest {
         organization = mock(Organization.class);
         membership = mock(OrganizationMembership.class);
         when(membership.getStatus()).thenReturn(MembershipStatus.ACTIVE);
+        when(membership.getOrganization()).thenReturn(organization);
+        when(membership.getRole()).thenReturn(mock(OrganizationRole.class));
         when(memberships.findByOrganizationIdAndUserAccountId(orgId, userId)).thenReturn(Optional.of(membership));
         when(organizations.findById(orgId)).thenReturn(Optional.of(organization));
     }

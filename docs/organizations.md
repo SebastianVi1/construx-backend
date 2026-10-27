@@ -39,3 +39,13 @@ Every new organization gets `OWNER` plus the roles defined in `src/main/resource
 Create body: `{ "email", "roleCode", "projectId" (optional) }`. `OWNER` cannot be invited. Inviting an address that is already a member returns `409 STATE_CONFLICT`; inviting an address with a pending invitation revokes the old one (this is how to resend). The raw token is only emailed (`/invitations/accept?token=...`); only its SHA-256 hash is stored and it never appears in a response. Invitations expire after `app.invitations.ttl` (default `7d`).
 
 Accept body: `{ "token" }`. The signed-in account's email must equal the invited email; any other account, or an unknown token, gets `404`. Used, revoked or expired tokens and existing members get `409 STATE_CONFLICT`. Accepting creates the membership and, when the invitation names a site, the site access, in one transaction; concurrent accepts of one token produce one membership. The route is rate limited like the other token endpoints.
+
+## My role, roles and members
+
+Every organization response includes `myRole: { code, name }`, the caller's role there.
+
+| Method | Path | Permission | Result |
+|---|---|---|---|
+| GET | `/api/organizations/{organizationId}/me` | active membership | `{ membershipId, role, permissions: [{ action, scope }] }` for gating the UI; the server still checks every request |
+| GET | `/api/organizations/{organizationId}/roles` | `MANAGE_MEMBERS` | `[{ id, code, name, system }]`, for the invite form |
+| GET | `/api/organizations/{organizationId}/members?status=ACTIVE` | `MANAGE_MEMBERS` | `[{ membershipId, userId, email, fullName, role, status }]`; `fullName` is null without a profile |

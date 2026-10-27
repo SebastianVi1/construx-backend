@@ -4,6 +4,7 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
+import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationStatus;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
@@ -35,9 +36,13 @@ public class OrganizationService {
         this.guard = guard;
     }
 
-    public record OrganizationData(UUID id, String name, OrganizationStatus status) {
-        static OrganizationData from(Organization organization) {
-            return new OrganizationData(organization.getId(), organization.getName(), organization.getStatus());
+    /** {@code myRole*} is the caller's role in this organization. */
+    public record OrganizationData(UUID id, String name, OrganizationStatus status, String myRoleCode,
+                                   String myRoleName) {
+        static OrganizationData from(OrganizationMembership membership) {
+            Organization organization = membership.getOrganization();
+            return new OrganizationData(organization.getId(), organization.getName(), organization.getStatus(),
+                    membership.getRole().getCode(), membership.getRole().getName());
         }
     }
 
@@ -45,29 +50,28 @@ public class OrganizationService {
     public OrganizationData create(UUID userId, String name) {
         UserAccount creator = users.findById(userId)
                 .orElseThrow(() -> new BadCredentialsException("Account unavailable"));
-        return OrganizationData.from(organizations.save(new Organization(name, creator)));
+        Organization organization = organizations.save(new Organization(name, creator));
+        return OrganizationData.from(organization.getMemberships().iterator().next());
     }
 
     @Transactional(readOnly = true)
     public List<OrganizationData> listMine(UUID userId) {
         return memberships.findByUserWithOrganization(userId, MembershipStatus.ACTIVE).stream()
-                .map(membership -> OrganizationData.from(membership.getOrganization()))
+                .map(OrganizationData::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public OrganizationData get(UUID userId, UUID organizationId) {
-        guard.requireActive(userId, organizationId);
-        return OrganizationData.from(load(organizationId));
+        return OrganizationData.from(guard.requireActive(userId, organizationId));
     }
 
     @Transactional
     public OrganizationData rename(UUID userId, UUID organizationId, String name) {
-        guard.requireActive(userId, organizationId);
+        OrganizationMembership member = guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_ORGANIZATION);
-        Organization organization = load(organizationId);
-        organization.rename(name);
-        return OrganizationData.from(organization);
+        load(organizationId).rename(name);
+        return OrganizationData.from(member);
     }
 
     private Organization load(UUID organizationId) {
