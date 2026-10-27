@@ -3,17 +3,23 @@ package org.andre.construx.modules.pricing.controller;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.andre.construx.modules.pricing.service.PriceImportService;
+import org.andre.construx.modules.pricing.service.PriceImportService.ImportReport;
 import org.andre.construx.modules.pricing.service.PriceObservationService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -23,9 +29,11 @@ import java.util.UUID;
 @RequestMapping("/api/organizations/{organizationId}/price-observations")
 public class PriceObservationController {
     private final PriceObservationService observations;
+    private final PriceImportService imports;
 
-    public PriceObservationController(PriceObservationService observations) {
+    public PriceObservationController(PriceObservationService observations, PriceImportService imports) {
         this.observations = observations;
+        this.imports = imports;
     }
 
     /** {@code price} accepts a JSON number or a decimal string. */
@@ -39,6 +47,20 @@ public class PriceObservationController {
                                                     Authentication authentication) {
         return observations.record(userId(authentication), organizationId, body.materialId(), body.supplierId(),
                 body.price(), body.observedOn(), body.sku());
+    }
+
+    /**
+     * CSV import; a dry run only previews. A real import with any invalid row answers 422 with the same
+     * report and writes nothing.
+     */
+    @PostMapping("/import")
+    public ResponseEntity<ImportReport> importCsv(@PathVariable UUID organizationId,
+                                                  @RequestParam("file") MultipartFile file,
+                                                  @RequestParam(defaultValue = "true") boolean dryRun,
+                                                  Authentication authentication) throws IOException {
+        ImportReport report = imports.importCsv(userId(authentication), organizationId, file.getBytes(), dryRun);
+        HttpStatus status = report.valid() || dryRun ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT;
+        return ResponseEntity.status(status).body(report);
     }
 
     @DeleteMapping("/{observationId}")

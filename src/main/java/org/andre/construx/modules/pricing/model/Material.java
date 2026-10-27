@@ -55,8 +55,8 @@ public class Material {
     }
 
     public void describe(String name, MaterialUnit unit, MaterialCategory category, String brand) {
-        String cleanName = PricingText.required(name, NAME_MAX, "Material name");
-        String cleanBrand = PricingText.optional(brand, BRAND_MAX, "Brand");
+        String cleanName = PricingText.required(name, NAME_MAX, "Material name", "name");
+        String cleanBrand = PricingText.optional(brand, BRAND_MAX, "Brand", "brand");
         this.unit = DomainValidation.required(unit, "Unit is required");
         this.category = DomainValidation.required(category, "Category is required");
         this.name = cleanName;

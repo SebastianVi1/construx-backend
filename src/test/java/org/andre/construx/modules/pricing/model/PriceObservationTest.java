@@ -50,6 +50,28 @@ class PriceObservationTest {
     }
 
     @Test
+    void ruleFailuresCarryTheFieldAndAStableCode() {
+        assertRule("price", "INVALID", () -> observe("0", today));
+        assertRule("price", "INVALID", () -> observe("-1", today));
+        assertRule("price", "INVALID", () -> observe("10000000000", today));
+        assertRule("price", "TOO_MANY_DECIMALS", () -> observe("1.234", today));
+        assertRule("price", "REQUIRED", () -> observe(null, today));
+        assertRule("observedOn", "FUTURE_DATE", () -> observe("1", today.plusDays(1)));
+        assertRule("observedOn", "REQUIRED", () -> observe("1", null));
+        assertRule("sku", "INVALID", () -> new PriceObservation(material, supplier, BigDecimal.ONE, today,
+                "s".repeat(65), PriceSource.MANUAL, today, now));
+        assertEquals(new BigDecimal("10.00"), PriceObservation.checkPrice(new BigDecimal("10.000")));
+        assertEquals(today, PriceObservation.checkObservedOn(today, today));
+        assertEquals("SKU", PriceObservation.checkSku(" SKU "));
+    }
+
+    static void assertRule(String field, String code, org.junit.jupiter.api.function.Executable action) {
+        PricingRuleException e = assertThrows(PricingRuleException.class, action);
+        assertEquals(field, e.getField());
+        assertEquals(code, e.getCode());
+    }
+
+    @Test
     void observedOnIsRequiredAndCannotBeInTheFuture() {
         assertThrows(IllegalArgumentException.class, () -> observe("1", today.plusDays(1)));
         assertThrows(IllegalArgumentException.class, () -> observe("1", null));

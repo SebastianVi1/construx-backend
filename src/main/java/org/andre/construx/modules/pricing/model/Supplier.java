@@ -52,8 +52,8 @@ public class Supplier {
     }
 
     public void describe(String name, String branch, String website) {
-        String cleanName = PricingText.required(name, NAME_MAX, "Supplier name");
-        String cleanBranch = PricingText.optional(branch, BRANCH_MAX, "Branch");
+        String cleanName = PricingText.required(name, NAME_MAX, "Supplier name", "name");
+        String cleanBranch = PricingText.optional(branch, BRANCH_MAX, "Branch", "branch");
         String cleanWebsite = website(website);
         this.name = cleanName;
         this.branch = cleanBranch;

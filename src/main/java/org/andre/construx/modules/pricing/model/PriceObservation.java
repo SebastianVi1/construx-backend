@@ -76,29 +76,43 @@ public class PriceObservation {
             throw new PricingConflictException("ARCHIVED_SUPPLIER", "Archived suppliers cannot receive new prices");
         }
         this.organization = material.getOrganization();
-        this.price = price(price);
-        DomainValidation.required(observedOn, "Observation date is required");
-        if (observedOn.isAfter(DomainValidation.required(today, "Today is required"))) {
-            throw new IllegalArgumentException("Observation date cannot be in the future");
-        }
-        this.observedOn = observedOn;
-        this.sku = PricingText.optional(sku, SKU_MAX, "SKU");
+        this.price = checkPrice(price);
+        this.observedOn = checkObservedOn(observedOn, today);
+        this.sku = checkSku(sku);
         this.source = DomainValidation.required(source, "Source is required");
         this.createdAt = DomainValidation.required(createdAt, "Creation time is required");
     }
 
-    private static BigDecimal price(BigDecimal value) {
-        DomainValidation.required(value, "Price is required");
+    /** The price rule on its own, so an import can check a row before its material exists. */
+    public static BigDecimal checkPrice(BigDecimal value) {
+        if (value == null) {
+            throw new PricingRuleException("price", "REQUIRED", "Price is required");
+        }
         if (value.signum() <= 0) {
-            throw new IllegalArgumentException("Price must be greater than zero");
+            throw new PricingRuleException("price", "INVALID", "Price must be greater than zero");
         }
         if (value.stripTrailingZeros().scale() > 2) {
-            throw new IllegalArgumentException("Price must have at most two decimals");
+            throw new PricingRuleException("price", "TOO_MANY_DECIMALS", "Price must have at most two decimals");
         }
         if (value.compareTo(PRICE_LIMIT) >= 0) {
-            throw new IllegalArgumentException("Price is too large");
+            throw new PricingRuleException("price", "INVALID", "Price is too large");
         }
         return value.setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    /** {@code today} is the latest allowed observation day. */
+    public static LocalDate checkObservedOn(LocalDate observedOn, LocalDate today) {
+        if (observedOn == null) {
+            throw new PricingRuleException("observedOn", "REQUIRED", "Observation date is required");
+        }
+        if (observedOn.isAfter(DomainValidation.required(today, "Today is required"))) {
+            throw new PricingRuleException("observedOn", "FUTURE_DATE", "Observation date cannot be in the future");
+        }
+        return observedOn;
+    }
+
+    public static String checkSku(String sku) {
+        return PricingText.optional(sku, SKU_MAX, "SKU", "sku");
     }
 
     private static boolean sameOrganization(Organization a, Organization b) {

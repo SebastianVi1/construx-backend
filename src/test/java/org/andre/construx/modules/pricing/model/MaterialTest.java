@@ -42,6 +42,19 @@ class MaterialTest {
     }
 
     @Test
+    void textRuleFailuresCarryTheFieldAndAStableCode() {
+        PriceObservationTest.assertRule("name", "REQUIRED",
+                () -> new Material(organization, " ", MaterialUnit.BAG, MaterialCategory.STEEL, null));
+        PriceObservationTest.assertRule("name", "INVALID",
+                () -> new Material(organization, "x".repeat(161), MaterialUnit.BAG, MaterialCategory.STEEL, null));
+        PriceObservationTest.assertRule("brand", "INVALID",
+                () -> new Material(organization, "V", MaterialUnit.BAG, MaterialCategory.STEEL, "b".repeat(81)));
+        PriceObservationTest.assertRule("name", "REQUIRED", () -> new Supplier(organization, "", null, null));
+        PriceObservationTest.assertRule("branch", "INVALID",
+                () -> new Supplier(organization, "A", "b".repeat(121), null));
+    }
+
+    @Test
     void requiredFieldsAndLengthsAreEnforced() {
         assertThrows(IllegalArgumentException.class,
                 () -> new Material(organization, " ", MaterialUnit.BAG, MaterialCategory.STEEL, null));

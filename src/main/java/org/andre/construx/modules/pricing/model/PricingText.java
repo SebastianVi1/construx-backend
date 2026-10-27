@@ -25,18 +25,19 @@ public final class PricingText {
         return cleaned == null ? "" : cleaned.toLowerCase(Locale.ROOT);
     }
 
-    static String required(String value, int max, String label) {
+    static String required(String value, int max, String label, String field) {
         String cleaned = clean(value);
         if (cleaned == null || cleaned.length() > max) {
-            throw new IllegalArgumentException(label + " must have 1 to " + max + " characters");
+            throw new PricingRuleException(field, cleaned == null ? "REQUIRED" : "INVALID",
+                    label + " must have 1 to " + max + " characters");
         }
         return cleaned;
     }
 
-    static String optional(String value, int max, String label) {
+    static String optional(String value, int max, String label, String field) {
         String cleaned = clean(value);
         if (cleaned != null && cleaned.length() > max) {
-            throw new IllegalArgumentException(label + " must have at most " + max + " characters");
+            throw new PricingRuleException(field, "INVALID", label + " must have at most " + max + " characters");
         }
         return cleaned;
     }
