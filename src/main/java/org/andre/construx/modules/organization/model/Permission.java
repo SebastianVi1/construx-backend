@@ -60,5 +60,9 @@ public class Permission {
         if (action == PermissionAction.ASSIGN_ACTIVITY && scope == PermissionScope.OWN) {
             throw new IllegalArgumentException("Activity assignment requires project or organization scope");
         }
+        if ((action == PermissionAction.VIEW_PRICES || action == PermissionAction.MANAGE_PRICES)
+                && scope != PermissionScope.ORGANIZATION) {
+            throw new IllegalArgumentException("Material prices belong to the whole organization");
+        }
     }
 }

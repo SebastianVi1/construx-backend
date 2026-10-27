@@ -42,4 +42,13 @@ class SeededRolesDefinitionTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Permission.validate(PermissionAction.MANAGE_ROLES, PermissionScope.PROJECT));
     }
+
+    @Test
+    void materialPricesRequireOrganizationScope() {
+        for (PermissionAction action : new PermissionAction[] {PermissionAction.VIEW_PRICES, PermissionAction.MANAGE_PRICES}) {
+            assertThrows(IllegalArgumentException.class, () -> Permission.validate(action, PermissionScope.PROJECT));
+            assertThrows(IllegalArgumentException.class, () -> Permission.validate(action, PermissionScope.OWN));
+            assertDoesNotThrow(() -> Permission.validate(action, PermissionScope.ORGANIZATION));
+        }
+    }
 }
