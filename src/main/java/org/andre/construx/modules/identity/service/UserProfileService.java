@@ -20,18 +20,24 @@ public class UserProfileService {
         this.profiles = profiles;
     }
 
-    public record ProfileData(String fullName, String phoneNumber) {}
+    public record ProfileData(String fullName, String phoneNumber, String trade) {}
 
     @Transactional(readOnly = true)
     public ProfileData get(UUID accountId) {
         requireAccount(accountId);
         return profiles.findById(accountId)
-                .map(profile -> new ProfileData(profile.getFullName(), profile.getPhoneNumber()))
-                .orElse(new ProfileData(null, null));
+                .map(profile -> new ProfileData(profile.getFullName(), profile.getPhoneNumber(), profile.getTrade()))
+                .orElse(new ProfileData(null, null, null));
     }
 
     @Transactional
     public ProfileData update(UUID accountId, String fullName, String phoneNumber) {
+        return update(accountId, fullName, phoneNumber, null);
+    }
+
+    /** A null trade keeps the stored value, so clients that do not send it cannot erase it. */
+    @Transactional
+    public ProfileData update(UUID accountId, String fullName, String phoneNumber, String trade) {
         UserAccount account = requireAccount(accountId);
         UserProfile profile = profiles.findById(accountId).orElse(null);
         if (profile == null) {
@@ -39,8 +45,11 @@ public class UserProfileService {
         } else {
             profile.update(fullName, phoneNumber);
         }
+        if (trade != null) {
+            profile.changeTrade(trade);
+        }
         UserProfile saved = profiles.save(profile);
-        return new ProfileData(saved.getFullName(), saved.getPhoneNumber());
+        return new ProfileData(saved.getFullName(), saved.getPhoneNumber(), saved.getTrade());
     }
 
     private UserAccount requireAccount(UUID id) {

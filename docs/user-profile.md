@@ -7,3 +7,7 @@ The relationship is one profile per account, keyed by `user_account_id`; that co
 `GET /api/profile` returns `fullName` and `phoneNumber`, both `null` until completion. `PUT /api/profile` replaces both fields for the authenticated account; the API accepts no account UUID, and responses contain no JPA entity or credential. Full names are trimmed. Phone input must have a `+` country code and E.164 syntax (2–15 digits after `+`); surrounding whitespace is trimmed. The syntax rule does not prove that a number is assigned or reachable.
 
 No Flyway migration is added, per the requested scope. Hibernate's existing `ddl-auto=update` setting is expected to add the optional table. The H2 upgrade test checks an existing account survives this additive change, but a PostgreSQL upgrade and rollback still require a disposable database rehearsal before deployment.
+
+## Trade
+
+The profile also has an optional `trade` (free text, at most 80 characters, e.g. `"electrician"`), returned by `GET` and accepted by `PUT /api/profile`. It describes what the person does and grants no permission. A `PUT` without `trade` keeps the stored value, so existing clients cannot erase it; send `"trade": ""` to clear it. Migration: `V8__profile_trade.sql`.

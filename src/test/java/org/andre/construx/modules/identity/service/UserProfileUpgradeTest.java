@@ -53,6 +53,8 @@ class UserProfileUpgradeTest {
                 statement.execute("create table organization_role (id uuid primary key)");
                 statement.execute("create table organization_invitation (id uuid primary key)");
                 statement.execute("create table project (id uuid primary key)");
+                statement.execute("create table user_profile (user_account_id uuid primary key, "
+                        + "full_name varchar(160) not null, phone_number varchar(16) not null)");
                 statement.execute("insert into \"user-account\" "
                         + "(id,email,password,email_verified,status) values "
                         + "('" + EXISTING_ID + "','legacy@example.test','hash',true,'ACTIVE')");
