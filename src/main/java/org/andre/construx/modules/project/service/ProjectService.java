@@ -107,6 +107,14 @@ public class ProjectService {
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
     }
 
+    /** Whether the caller's VIEW_ACTIVITY scope covers this site's tasks. */
+    public boolean canViewActivities(UUID userId, UUID organizationId, UUID membershipId, UUID projectId) {
+        PermissionScope scope = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_ACTIVITY)
+                .orElse(null);
+        return scope == PermissionScope.ORGANIZATION || (scope == PermissionScope.PROJECT
+                && accesses.existsByProjectIdAndOrganizationMembershipId(projectId, membershipId));
+    }
+
     private List<ProjectData> withCounts(UUID userId, UUID organizationId, OrganizationMembership member,
                                          List<Project> list) {
         PermissionScope activityScope = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_ACTIVITY)

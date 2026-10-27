@@ -16,4 +16,12 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     List<Object[]> countByProject(Collection<UUID> projectIds);
 
     boolean existsByAssigneeAccessId(UUID accessId);
+
+    /** Rows of [goalId, activityCount, doneCount] for one site; goals without activities are absent. */
+    @Query("select a.goal.id, count(a), "
+            + "sum(case when a.status = org.andre.construx.modules.project.model.ActivityStatus.DONE then 1 else 0 end) "
+            + "from Activity a where a.goal.project.id = :projectId group by a.goal.id")
+    List<Object[]> countByGoal(UUID projectId);
+
+    boolean existsByGoalId(UUID goalId);
 }
