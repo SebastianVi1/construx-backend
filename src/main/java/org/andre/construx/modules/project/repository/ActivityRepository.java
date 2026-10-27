@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ActivityRepository extends JpaRepository<Activity, UUID> {
@@ -24,4 +25,16 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     List<Object[]> countByGoal(UUID projectId);
 
     boolean existsByGoalId(UUID goalId);
+
+    @Query("select a from Activity a join fetch a.assigneeAccess acc join fetch acc.organizationMembership "
+            + "where a.goal.id = :goalId order by a.dueAt, a.name")
+    List<Activity> findByGoalWithAssignee(UUID goalId);
+
+    Optional<Activity> findByIdAndGoalId(UUID id, UUID goalId);
+
+    /** The membership's assigned tasks across every site of its organization. */
+    @Query("select a from Activity a join fetch a.goal g join fetch a.assigneeAccess acc "
+            + "join fetch acc.organizationMembership m where m.id = :membershipId "
+            + "and g.project.organization.id = :organizationId order by a.dueAt, a.name")
+    List<Activity> findAssignedTo(UUID organizationId, UUID membershipId);
 }
