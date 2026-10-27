@@ -40,11 +40,24 @@ public class Goal {
 
     public Goal(Project project, String name, Instant dueAt) {
         this.project = DomainValidation.required(project, "Project is required");
+        rename(name);
+        this.dueAt = DomainValidation.required(dueAt, "Goal deadline is required");
+    }
+
+    public void rename(String name) {
         if (name == null || name.isBlank() || name.strip().length() > 160) {
             throw new IllegalArgumentException("Goal name must have 1 to 160 characters");
         }
         this.name = name.strip();
-        this.dueAt = DomainValidation.required(dueAt, "Goal deadline is required");
+    }
+
+    /** A phase cannot end before the tasks inside it. */
+    public void changeDueAt(Instant dueAt) {
+        DomainValidation.required(dueAt, "Goal deadline is required");
+        if (activities.stream().anyMatch(activity -> activity.getDueAt().isAfter(dueAt))) {
+            throw new IllegalArgumentException("Goal cannot end before its activities");
+        }
+        this.dueAt = dueAt;
     }
 
     public boolean isCompleted() {
