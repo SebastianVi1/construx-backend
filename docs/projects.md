@@ -53,4 +53,4 @@ Body: `{ "name", "dueAt" }` (ISO-8601 instant), both required on POST. A phase's
 
 POST body: `{ "name", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task's `dueAt` cannot be after its phase's (`400`). PATCH accepts `{ "name", "dueAt" }` only; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
 
-Response: `{ id, goalId, projectId, name, dueAt, status, completedAt, assignee: { accessId, membershipId, fullName } }`.
+Response: `{ id, goalId, goalName, projectId, projectName, name, dueAt, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.

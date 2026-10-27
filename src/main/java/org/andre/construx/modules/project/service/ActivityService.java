@@ -49,8 +49,10 @@ public class ActivityService {
 
     public record AssigneeData(UUID accessId, UUID membershipId, String fullName) {}
 
-    public record ActivityData(UUID id, UUID goalId, UUID projectId, String name, Instant dueAt,
-                               ActivityStatus status, Instant completedAt, AssigneeData assignee) {}
+    /** Site and phase names let cross-site lists (my tasks) label rows without extra calls. */
+    public record ActivityData(UUID id, UUID goalId, String goalName, UUID projectId, String projectName,
+                               String name, Instant dueAt, ActivityStatus status, Instant completedAt,
+                               AssigneeData assignee) {}
 
     @Transactional
     public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
@@ -174,7 +176,8 @@ public class ActivityService {
         return list.stream().map(a -> {
             ProjectAccess access = a.getAssigneeAccess();
             OrganizationMembership membership = access.getOrganizationMembership();
-            return new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getProject().getId(), a.getName(),
+            return new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getName(),
+                    a.getGoal().getProject().getId(), a.getGoal().getProject().getName(), a.getName(),
                     a.getDueAt(), a.getStatus(), a.getCompletedAt(), new AssigneeData(access.getId(),
                     membership.getId(), names.get(membership.getUserAccount().getId())));
         }).toList();

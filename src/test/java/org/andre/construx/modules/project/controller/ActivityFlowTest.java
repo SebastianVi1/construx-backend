@@ -191,7 +191,11 @@ class ActivityFlowTest {
         api.get(ana, org + "/activities/mine").andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("Other task"))
-                .andExpect(jsonPath("$[1].name").value("Tower task"));
+                .andExpect(jsonPath("$[0].projectName").value("Other"))
+                .andExpect(jsonPath("$[0].goalName").value("G"))
+                .andExpect(jsonPath("$[1].name").value("Tower task"))
+                .andExpect(jsonPath("$[1].projectName").value("Tower"))
+                .andExpect(jsonPath("$[1].goalName").value("Phase"));
         api.get(ana, org + "/activities/mine?status=TODO").andExpect(jsonPath("$.length()").value(1));
     }
 
