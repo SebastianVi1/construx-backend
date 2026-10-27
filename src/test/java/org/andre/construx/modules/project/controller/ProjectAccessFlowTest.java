@@ -127,10 +127,10 @@ class ProjectAccessFlowTest {
         UUID projectId = UUID.fromString(site.substring(site.lastIndexOf('/') + 1));
         UUID goal = UUID.randomUUID();
         Timestamp due = Timestamp.from(Instant.now().plusSeconds(86_400));
-        jdbc.update("insert into goal (id, project_id, name, due_at) values (?, ?, 'G', ?)", goal, projectId, due);
+        jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'G', ?, ?)", goal, projectId, due, due);
         UUID task = UUID.randomUUID();
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, due_at, status) values (?, ?, 'T', ?, ?, 'DONE')",
-                task, goal, UUID.fromString(accessId), due);
+        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'T', ?, ?, ?, 'DONE')",
+                task, goal, UUID.fromString(accessId), due, due);
         api.delete(owner, access + "/" + accessId).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
 

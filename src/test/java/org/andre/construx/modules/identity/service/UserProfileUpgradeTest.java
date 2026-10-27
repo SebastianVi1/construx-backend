@@ -53,6 +53,9 @@ class UserProfileUpgradeTest {
                 statement.execute("create table organization_role (id uuid primary key)");
                 statement.execute("create table organization_invitation (id uuid primary key)");
                 statement.execute("create table project (id uuid primary key)");
+                statement.execute("create table goal (id uuid primary key, due_at timestamp(6) with time zone not null)");
+                statement.execute("create table activity (id uuid primary key, goal_id uuid not null, "
+                        + "due_at timestamp(6) with time zone not null)");
                 statement.execute("create table user_profile (user_account_id uuid primary key, "
                         + "full_name varchar(160) not null, phone_number varchar(16) not null)");
                 statement.execute("insert into \"user-account\" "

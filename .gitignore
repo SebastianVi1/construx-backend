@@ -34,6 +34,10 @@ build/
 
 ##iA
 .codex
+# Agent tooling: skills and instructions are tracked; plans, local settings and the registry are not.
+.agents/specs/
+.atl/
+.claude/settings.local.json
 
 .env
 

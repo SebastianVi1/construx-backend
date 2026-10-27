@@ -32,8 +32,9 @@ POST body: `{ "membershipId" }` of a member of this organization. A response row
 | GET | `/projects/{projectId}/goals/{goalId}` | `VIEW_GOAL` on the site |
 | PATCH | `/projects/{projectId}/goals/{goalId}` | `MANAGE_GOAL` on the site |
 | DELETE | `/projects/{projectId}/goals/{goalId}` | `MANAGE_GOAL` on the site |
+| POST | `/projects/{projectId}/goals/{goalId}/shift` | `MANAGE_GOAL` on the site |
 
-Body: `{ "name", "dueAt" }` (ISO-8601 instant), both required on POST. A phase's `dueAt` cannot move before its latest task (`400 INVALID_ARGUMENT`). Deleting a phase that still has tasks returns `409 STATE_CONFLICT`. Responses include `activityCount`, `doneCount` (null without task visibility) and `completed` (has tasks and all are done).
+Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST and optional on PATCH. `startAt` cannot be after `dueAt`, cannot move after its earliest task start, and `dueAt` cannot move before its latest task (`400 INVALID_ARGUMENT`); when PATCH sends both dates they are checked as a pair. `POST .../shift` with `{ "days": n }` (non-zero, -3650..3650) moves the phase and all its tasks by `n` days in one transaction and returns the phase; `days: 0` is `400 INVALID_ARGUMENT`. Deleting a phase that still has tasks returns `409 STATE_CONFLICT`. Responses include `activityCount`, `doneCount` (null without task visibility) and `completed` (has tasks and all are done). Phases and tasks also take an optional `color` (`#rrggbb`, stored lowercase, `null` = default) on POST and PATCH; PATCH `"color": ""` resets it, any other value is `400 VALIDATION_FAILED`.
 
 ## Tasks
 
@@ -51,6 +52,17 @@ Body: `{ "name", "dueAt" }` (ISO-8601 instant), both required on POST. A phase's
 | DELETE | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
 | GET | `/activities/mine?status=` | any `VIEW_ACTIVITY` or `MANAGE_ACTIVITY` |
 
-POST body: `{ "name", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task's `dueAt` cannot be after its phase's (`400`). PATCH accepts `{ "name", "dueAt" }` only; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
+POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
 
-Response: `{ id, goalId, goalName, projectId, projectName, name, dueAt, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+
+
+## Gantt bar colors
+
+Phases and tasks accept an optional `color` on POST and PATCH. Use a six-digit
+hex color such as `#3b82f6`; responses return lowercase hex or `null` for the default.
+On PATCH, omission or `null` keeps the existing color, while `""` resets it.
+Invalid colors return 400. Color edits use the existing phase/task edit permissions.
+Each record stores its own color, shared by every viewer of the project; changes
+to phase colors do not recolor tasks. Migration `V10__bar_colors.sql` adds nullable
+columns without changing existing records' default appearance.

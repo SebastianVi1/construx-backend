@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -36,6 +37,10 @@ public class Activity {
 
     @NotNull
     @Column(nullable = false)
+    private Instant startAt;
+
+    @NotNull
+    @Column(nullable = false)
     private Instant dueAt;
 
     @NotNull @Enumerated(EnumType.STRING)
@@ -44,10 +49,14 @@ public class Activity {
 
     private Instant completedAt;
 
-    public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant dueAt) {
+    /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
+    @Column(length = 7)
+    private String color;
+
+    public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant startAt, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
         rename(name);
-        reschedule(dueAt);
+        changeDates(startAt, dueAt);
         assignTo(assigneeAccess);
         goal.addActivity(this);
     }
@@ -60,11 +69,39 @@ public class Activity {
     }
 
     public void reschedule(Instant dueAt) {
+        changeDates(startAt, dueAt);
+    }
+
+    public void changeStartAt(Instant startAt) {
+        changeDates(startAt, dueAt);
+    }
+
+    /** A task lies inside its phase; both dates are checked as a pair so a move is accepted whole. */
+    public void changeDates(Instant startAt, Instant dueAt) {
+        DomainValidation.required(startAt, "Activity start is required");
         DomainValidation.required(dueAt, "Activity deadline is required");
+        if (startAt.isAfter(dueAt)) {
+            throw new IllegalArgumentException("Activity cannot start after it ends");
+        }
+        if (startAt.isBefore(goal.getStartAt())) {
+            throw new IllegalArgumentException("Activity cannot start before its goal");
+        }
         if (dueAt.isAfter(goal.getDueAt())) {
             throw new IllegalArgumentException("Activity cannot end after its goal");
         }
+        this.startAt = startAt;
         this.dueAt = dueAt;
+    }
+
+    /** Only the goal moves its tasks, after moving itself by the same offset. */
+    void shiftBy(Duration offset) {
+        startAt = startAt.plus(offset);
+        dueAt = dueAt.plus(offset);
+    }
+
+    /** Null clears the custom color. */
+    public void changeColor(String color) {
+        this.color = BarColor.normalize(color);
     }
 
     public void assignTo(ProjectAccess assigneeAccess) {

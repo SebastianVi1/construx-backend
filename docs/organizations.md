@@ -49,3 +49,6 @@ Every organization response includes `myRole: { code, name }`, the caller's role
 | GET | `/api/organizations/{organizationId}/me` | active membership | `{ membershipId, role, permissions: [{ action, scope }] }` for gating the UI; the server still checks every request |
 | GET | `/api/organizations/{organizationId}/roles` | `MANAGE_MEMBERS` | `[{ id, code, name, system }]`, for the invite form |
 | GET | `/api/organizations/{organizationId}/members?status=ACTIVE` | `MANAGE_MEMBERS` | `[{ membershipId, userId, email, fullName, role, status }]`; `fullName` is null without a profile |
+| PATCH | `/api/organizations/{organizationId}/members/{membershipId}` | `MANAGE_MEMBERS` | 200, the member with the new role |
+
+PATCH body: `{"roleCode": "ADMINISTRATOR"}`. The owner role cannot be granted (`400`), and the owner's membership cannot get another role (`409`). Changing your own role returns `403`; an unknown or missing role returns `400`, and an unknown membership returns `404`.
