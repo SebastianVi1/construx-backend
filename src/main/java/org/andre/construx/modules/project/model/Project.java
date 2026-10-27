@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.Organization;
 
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -31,6 +32,18 @@ public class Project {
     @Column(nullable = false, length = 160)
     private String name;
 
+    @Size(max = 255)
+    @Column(length = 255)
+    private String address;
+
+    private LocalDate startDate;
+
+    private LocalDate expectedEndDate;
+
+    @NotNull @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ProjectStatus status = ProjectStatus.PLANNED;
+
     @OneToMany(mappedBy = "project")
     private Set<ProjectAccess> accesses = new HashSet<>();
 
@@ -47,6 +60,24 @@ public class Project {
             throw new IllegalArgumentException("Project name must have 1 to 160 characters");
         }
         this.name = name.strip();
+    }
+
+    /** Optional site details; a blank address is stored as null. */
+    public void describe(String address, LocalDate startDate, LocalDate expectedEndDate) {
+        String normalized = address == null || address.isBlank() ? null : address.strip();
+        if (normalized != null && normalized.length() > 255) {
+            throw new IllegalArgumentException("Address must have at most 255 characters");
+        }
+        if (startDate != null && expectedEndDate != null && expectedEndDate.isBefore(startDate)) {
+            throw new IllegalArgumentException("Expected end date cannot be before the start date");
+        }
+        this.address = normalized;
+        this.startDate = startDate;
+        this.expectedEndDate = expectedEndDate;
+    }
+
+    public void changeStatus(ProjectStatus status) {
+        this.status = DomainValidation.required(status, "Project status is required");
     }
 
     public boolean sameAs(Project other) {
