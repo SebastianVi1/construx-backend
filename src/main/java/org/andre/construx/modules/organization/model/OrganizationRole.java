@@ -23,8 +23,6 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OrganizationRole {
-    private static final Set<String> RESERVED_CODES = Set.of("OWNER", "ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE");
-
     @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
@@ -52,7 +50,7 @@ public class OrganizationRole {
 
     public OrganizationRole(Organization organization, String code, String name) {
         this.organization = DomainValidation.required(organization, "Organization is required");
-        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || RESERVED_CODES.contains(code)) {
+        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || "OWNER".equals(code) || SeededRoles.isSeededCode(code)) {
             throw new IllegalArgumentException("Invalid or reserved role code");
         }
         this.code = code;
@@ -76,7 +74,7 @@ public class OrganizationRole {
                                           Map<PermissionAction, PermissionScope> grants) {
         OrganizationRole role = new OrganizationRole();
         role.organization = DomainValidation.required(organization, "Organization is required");
-        if (code == null || !RESERVED_CODES.contains(code) || "OWNER".equals(code)) {
+        if (code == null || !SeededRoles.isSeededCode(code)) {
             throw new IllegalArgumentException("Invalid seeded role code");
         }
         role.code = code;

@@ -39,6 +39,11 @@ public class Permission {
 
     void changeScope(PermissionScope scope) {
         this.scope = DomainValidation.required(scope, "Scope is required");
+        validate(action, scope);
+    }
+
+    /** Rejects action and scope pairs that make no sense, e.g. a project-scoped role management. */
+    static void validate(PermissionAction action, PermissionScope scope) {
         if ((action == PermissionAction.MANAGE_ORGANIZATION
                 || action == PermissionAction.MANAGE_ROLES
                 || action == PermissionAction.MANAGE_MEMBERS)
