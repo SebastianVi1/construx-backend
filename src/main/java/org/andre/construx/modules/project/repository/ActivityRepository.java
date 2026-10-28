@@ -36,6 +36,10 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     @Query("select coalesce(sum(a.allocatedBudget), 0) from Activity a where a.goal.id = :goalId")
     BigDecimal sumBudgetOfGoal(UUID goalId);
 
+    /** Sum of the budgets of the phase's other tasks, read after the phase lock so it is current. */
+    @Query("select coalesce(sum(a.allocatedBudget), 0) from Activity a where a.goal.id = :goalId and a.id <> :activityId")
+    BigDecimal sumBudgetOfOtherActivities(UUID goalId, UUID activityId);
+
     @Query("select a from Activity a join fetch a.assigneeAccess acc join fetch acc.organizationMembership "
             + "where a.goal.id = :goalId order by a.dueAt, a.name")
     List<Activity> findByGoalWithAssignee(UUID goalId);

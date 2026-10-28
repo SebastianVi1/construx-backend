@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.ActivityData;
+import org.andre.construx.shared.validation.BudgetUpdate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -75,6 +76,15 @@ public class ActivityController {
                                @Valid @RequestBody ActivityPatch body, Authentication authentication) {
         return activities.update(userId(authentication), organizationId, projectId, goalId, activityId,
                 body.name(), body.startAt(), body.dueAt(), body.color());
+    }
+
+    /** Owner and Finance carve the task budget out of its phase budget; null clears it. */
+    @PutMapping(TASK + "/budget")
+    public ActivityData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                     @PathVariable UUID goalId, @PathVariable UUID activityId,
+                                     @Valid @RequestBody BudgetUpdate body, Authentication authentication) {
+        return activities.assignBudget(userId(authentication), organizationId, projectId, goalId, activityId,
+                body.requireAllocatedBudget());
     }
 
     @PutMapping(TASK + "/assignee")

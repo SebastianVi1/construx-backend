@@ -17,6 +17,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -32,15 +33,18 @@ import java.util.stream.Collectors;
 public class ActivityService {
     private final ActivityRepository activities;
     private final GoalService goals;
+    private final ProjectService projects;
     private final ProjectAccessService accesses;
     private final UserProfileRepository profiles;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
 
-    public ActivityService(ActivityRepository activities, GoalService goals, ProjectAccessService accesses,
-                           UserProfileRepository profiles, MembershipGuard guard, DomainAuthorization authorization) {
+    public ActivityService(ActivityRepository activities, GoalService goals, ProjectService projects,
+                           ProjectAccessService accesses, UserProfileRepository profiles, MembershipGuard guard,
+                           DomainAuthorization authorization) {
         this.activities = activities;
         this.goals = goals;
+        this.projects = projects;
         this.accesses = accesses;
         this.profiles = profiles;
         this.guard = guard;
@@ -49,10 +53,13 @@ public class ActivityService {
 
     public record AssigneeData(UUID accessId, UUID membershipId, String fullName) {}
 
-    /** Site and phase names let cross-site lists (my tasks) label rows without extra calls. */
+    /**
+     * Site and phase names let cross-site lists (my tasks) label rows without extra calls. {@code allocatedBudget}
+     * is null without VIEW_BUDGET.
+     */
     public record ActivityData(UUID id, UUID goalId, String goalName, UUID projectId, String projectName,
                                String name, Instant startAt, Instant dueAt, String color, ActivityStatus status, Instant completedAt,
-                               AssigneeData assignee) {}
+                               AssigneeData assignee, BigDecimal allocatedBudget) {}
 
     @Transactional
     public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
@@ -64,7 +71,7 @@ public class ActivityService {
         ProjectAccess assignee = accesses.load(projectId, assigneeAccessId);
         Activity activity = new Activity(goal, name, assignee, startAt, dueAt);
         activity.changeColor(GoalService.blankAsNull(color));
-        return toData(List.of(activities.save(activity))).get(0);
+        return toData(userId, organizationId, List.of(activities.save(activity))).get(0);
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +84,7 @@ public class ActivityService {
         if (scope != PermissionScope.OWN) {
             authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_ACTIVITY);
         }
-        return toData(activities.findByGoalWithAssignee(goalId).stream()
+        return toData(userId, organizationId, activities.findByGoalWithAssignee(goalId).stream()
                 .filter(a -> scope != PermissionScope.OWN || assigneeMembership(a).equals(member.getId()))
                 .filter(a -> status == null || a.getStatus() == status)
                 .filter(a -> assigneeAccessId == null || a.getAssigneeAccess().getId().equals(assigneeAccessId))
@@ -90,7 +97,7 @@ public class ActivityService {
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, assigneeMembership(activity),
                 PermissionAction.VIEW_ACTIVITY);
-        return toData(List.of(activity)).get(0);
+        return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
     /** Null arguments keep the stored value; an empty color goes back to the default. Not for status or assignee. */
@@ -110,7 +117,7 @@ public class ActivityService {
         if (color != null) {
             activity.changeColor(GoalService.blankAsNull(color));
         }
-        return toData(List.of(activity)).get(0);
+        return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
     @Transactional
@@ -120,7 +127,7 @@ public class ActivityService {
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
         activity.assignTo(accesses.load(projectId, assigneeAccessId));
-        return toData(List.of(activity)).get(0);
+        return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
     @Transactional
@@ -130,7 +137,7 @@ public class ActivityService {
         authorization.require(userId, organizationId, projectId, assigneeMembership(activity),
                 PermissionAction.MANAGE_ACTIVITY);
         activity.start();
-        return toData(List.of(activity)).get(0);
+        return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
     @Transactional
@@ -140,7 +147,19 @@ public class ActivityService {
         authorization.require(userId, organizationId, projectId, assigneeMembership(activity),
                 PermissionAction.MANAGE_ACTIVITY);
         activity.complete(Instant.now());
-        return toData(List.of(activity)).get(0);
+        return toData(userId, organizationId, List.of(activity)).get(0);
+    }
+
+    /** Sets or, with null, clears the task budget. Requires MANAGE_BUDGET; the phase row lock serializes changes. */
+    @Transactional
+    public ActivityData assignBudget(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
+                                     BigDecimal amount) {
+        guard.requireActive(userId, organizationId);
+        Activity activity = load(organizationId, projectId, goalId, activityId);
+        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_BUDGET);
+        goals.lockForBudget(organizationId, projectId, goalId);
+        activity.assignBudget(amount, activities.sumBudgetOfOtherActivities(goalId, activityId));
+        return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
     @Transactional
@@ -159,7 +178,7 @@ public class ActivityService {
                 && authorization.scopeOf(userId, organizationId, PermissionAction.MANAGE_ACTIVITY).isEmpty()) {
             throw new AccessDeniedException("Permission required");
         }
-        return toData(activities.findAssignedTo(organizationId, member.getId()).stream()
+        return toData(userId, organizationId, activities.findAssignedTo(organizationId, member.getId()).stream()
                 .filter(a -> status == null || a.getStatus() == status)
                 .toList());
     }
@@ -174,7 +193,8 @@ public class ActivityService {
         return activity.getAssigneeAccess().getOrganizationMembership().getId();
     }
 
-    private List<ActivityData> toData(List<Activity> list) {
+    private List<ActivityData> toData(UUID userId, UUID organizationId, List<Activity> list) {
+        boolean budgetVisible = projects.canViewBudget(userId, organizationId);
         Map<UUID, String> names = profiles.findAllById(list.stream()
                         .map(a -> a.getAssigneeAccess().getOrganizationMembership().getUserAccount().getId())
                         .distinct().toList()).stream()
@@ -185,7 +205,8 @@ public class ActivityService {
             return new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getName(),
                     a.getGoal().getProject().getId(), a.getGoal().getProject().getName(), a.getName(),
                     a.getStartAt(), a.getDueAt(), a.getColor(), a.getStatus(), a.getCompletedAt(), new AssigneeData(access.getId(),
-                    membership.getId(), names.get(membership.getUserAccount().getId())));
+                    membership.getId(), names.get(membership.getUserAccount().getId())),
+                    budgetVisible ? a.getAllocatedBudget() : null);
         }).toList();
     }
 }
