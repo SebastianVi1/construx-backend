@@ -7,9 +7,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.validation.DomainValidation;
+import org.andre.construx.shared.validation.MoneyAmount;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -68,17 +68,7 @@ public class Expense {
     }
 
     private static BigDecimal checkedAmount(BigDecimal amount) {
-        if (amount == null || amount.signum() <= 0) {
-            throw new IllegalArgumentException("Expense amount must be greater than 0");
-        }
-        if (amount.stripTrailingZeros().scale() > 2) {
-            throw new IllegalArgumentException("Expense amount allows at most 2 decimals");
-        }
-        BigDecimal scaled = amount.setScale(2, RoundingMode.UNNECESSARY);
-        if (scaled.precision() > 14) {
-            throw new IllegalArgumentException("Expense amount is too large");
-        }
-        return scaled;
+        return MoneyAmount.positive(amount, "Expense amount");
     }
 
     private static String checkedDescription(String description) {
