@@ -1,5 +1,6 @@
 package org.andre.construx.modules.project.model;
 
+import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.shared.validation.DomainValidation;
 import org.andre.construx.shared.validation.MoneyAmount;
 import jakarta.persistence.*;
@@ -14,6 +15,11 @@ import org.hibernate.annotations.DynamicUpdate;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** Dynamic updates write only changed columns, so a budget change and a concurrent edit never undo each other. */
@@ -35,10 +41,8 @@ public class Activity {
     @Column(nullable = false, length = 160)
     private String name;
 
-    @NotNull
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "assignee_access_id", nullable = false)
-    private ProjectAccess assigneeAccess;
+    @OneToMany(mappedBy = "activity", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ActivityAssignee> team = new ArrayList<>();
 
     @NotNull
     @Column(nullable = false)
@@ -62,12 +66,21 @@ public class Activity {
     @Column(precision = 14, scale = 2)
     private BigDecimal allocatedBudget;
 
-    public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant startAt, Instant dueAt) {
+    public Activity(Goal goal, String name, List<TeamMember> team, Instant startAt, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
         rename(name);
         changeDates(startAt, dueAt);
-        assignTo(assigneeAccess);
+        assignTeam(team);
         goal.addActivity(this);
+    }
+
+    /** A task whose team is only its Lead. */
+    public Activity(Goal goal, String name, ProjectAccess lead, Instant startAt, Instant dueAt) {
+        this(goal, name, List.of(new TeamMember(lead, TaskRole.LEAD)), startAt, dueAt);
+    }
+
+    public List<ActivityAssignee> getTeam() {
+        return Collections.unmodifiableList(team);
     }
 
     public void rename(String name) {
@@ -120,16 +133,57 @@ public class Activity {
         this.allocatedBudget = checked;
     }
 
-    public void assignTo(ProjectAccess assigneeAccess) {
-        DomainValidation.required(assigneeAccess, "Assignee access is required");
-        if (!goal.getProject().sameAs(assigneeAccess.getProject())) {
-            throw new IllegalArgumentException("Assignee has no access to this project");
+    /**
+     * Replaces the whole team: at least one person, exactly one Lead, nobody twice, every member an active
+     * person of this site. Members who stay keep their row and only change role, so the unique pair
+     * (task, person) is never inserted twice in one flush.
+     */
+    public void assignTeam(List<TeamMember> members) {
+        if (members == null || members.isEmpty()) {
+            throw new IllegalArgumentException("A task needs at least one assignee");
         }
-        if (assigneeAccess.getOrganizationMembership().getStatus()
-                != org.andre.construx.modules.organization.model.MembershipStatus.ACTIVE) {
-            throw new IllegalArgumentException("Assignee must be an active member");
+        Set<Object> seen = new HashSet<>();
+        int leads = 0;
+        for (TeamMember member : members) {
+            DomainValidation.required(member, "Assignee is required");
+            ProjectAccess access = DomainValidation.required(member.access(), "Assignee access is required");
+            DomainValidation.required(member.taskRole(), "Task role is required");
+            if (!goal.getProject().sameAs(access.getProject())) {
+                throw new IllegalArgumentException("Assignee has no access to this project");
+            }
+            if (access.getOrganizationMembership().getStatus() != MembershipStatus.ACTIVE) {
+                throw new IllegalArgumentException("Assignee must be an active member");
+            }
+            if (!seen.add(key(access))) {
+                throw new IllegalArgumentException("A person can be in a task's team only once");
+            }
+            if (member.taskRole() == TaskRole.LEAD) {
+                leads++;
+            }
         }
-        this.assigneeAccess = assigneeAccess;
+        if (leads != 1) {
+            throw new IllegalArgumentException("A task needs exactly one Lead");
+        }
+        team.removeIf(current -> members.stream().noneMatch(m -> key(m.access()).equals(key(current.getAccess()))));
+        for (TeamMember member : members) {
+            team.stream().filter(current -> key(current.getAccess()).equals(key(member.access()))).findFirst()
+                    .ifPresentOrElse(current -> current.changeRole(member.taskRole()),
+                            () -> team.add(new ActivityAssignee(this, member.access(), member.taskRole())));
+        }
+    }
+
+    public boolean isOnTeam(UUID membershipId) {
+        return membershipId != null && team.stream().anyMatch(a -> membershipId.equals(a.membershipId()));
+    }
+
+    public boolean isLead(UUID membershipId) {
+        return membershipId != null && team.stream()
+                .anyMatch(a -> a.getTaskRole() == TaskRole.LEAD && membershipId.equals(a.membershipId()));
+    }
+
+    /** Saved accesses compare by id; new ones (in unit tests) by identity. */
+    private static Object key(ProjectAccess access) {
+        return access.getId() != null ? access.getId() : access;
     }
 
     public void start() {

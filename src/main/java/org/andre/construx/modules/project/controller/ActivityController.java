@@ -2,10 +2,12 @@ package org.andre.construx.modules.project.controller;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.model.ActivityStatus;
+import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.ActivityData;
 import org.andre.construx.shared.validation.BudgetUpdate;
@@ -40,12 +42,15 @@ public class ActivityController {
     }
 
     public record ActivityCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant startAt, @NotNull Instant dueAt,
-                                 @NotNull UUID assigneeAccessId, @Pattern(regexp = GoalController.COLOR) String color) {}
+                                 @NotEmpty @Size(max = 100) List<@Valid @NotNull TeamPlace> assignees,
+                                 @Pattern(regexp = GoalController.COLOR) String color) {}
 
     public record ActivityPatch(@Size(max = 160) String name, Instant startAt, Instant dueAt,
                                 @Pattern(regexp = GoalController.COLOR) String color) {}
 
-    public record AssigneeInput(@NotNull UUID assigneeAccessId) {}
+    public record TeamPlace(@NotNull UUID accessId, @NotNull TaskRole taskRole) {}
+
+    public record TeamInput(@NotEmpty @Size(max = 100) List<@Valid @NotNull TeamPlace> assignees) {}
 
     @PostMapping(TASKS)
     @ResponseStatus(HttpStatus.CREATED)
@@ -53,7 +58,7 @@ public class ActivityController {
                                @PathVariable UUID goalId, @Valid @RequestBody ActivityCreate body,
                                Authentication authentication) {
         return activities.create(userId(authentication), organizationId, projectId, goalId,
-                body.name(), body.startAt(), body.dueAt(), body.assigneeAccessId(), body.color());
+                body.name(), body.startAt(), body.dueAt(), team(body.assignees()), body.color());
     }
 
     @GetMapping(TASKS)
@@ -87,12 +92,13 @@ public class ActivityController {
                 body.requireAllocatedBudget());
     }
 
-    @PutMapping(TASK + "/assignee")
-    public ActivityData reassign(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                 @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                 @Valid @RequestBody AssigneeInput body, Authentication authentication) {
-        return activities.reassign(userId(authentication), organizationId, projectId, goalId, activityId,
-                body.assigneeAccessId());
+    /** Replaces the whole team; exactly one member is the LEAD. */
+    @PutMapping(TASK + "/assignees")
+    public ActivityData assignTeam(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                   @PathVariable UUID goalId, @PathVariable UUID activityId,
+                                   @Valid @RequestBody TeamInput body, Authentication authentication) {
+        return activities.assignTeam(userId(authentication), organizationId, projectId, goalId, activityId,
+                team(body.assignees()));
     }
 
     @PostMapping(TASK + "/start")
@@ -120,6 +126,10 @@ public class ActivityController {
                                    @RequestParam(required = false) ActivityStatus status,
                                    Authentication authentication) {
         return activities.mine(userId(authentication), organizationId, status);
+    }
+
+    private static List<ActivityService.TeamInput> team(List<TeamPlace> places) {
+        return places.stream().map(p -> new ActivityService.TeamInput(p.accessId(), p.taskRole())).toList();
     }
 
     private static UUID userId(Authentication authentication) {

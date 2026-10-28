@@ -103,7 +103,7 @@ class BudgetPermissionBackfillTest {
 
     @Test
     void v16PhaseAndTaskBudgetsAreOptionalAndCannotBeNegative() {
-        flyway(null).migrate();
+        flyway("16").migrate();
 
         UUID goal = UUID.randomUUID();
         jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'Foundations', "

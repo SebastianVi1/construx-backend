@@ -1,6 +1,6 @@
 # Sites, phases and tasks
 
-Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope through `DomainAuthorization` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks assigned to the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
+Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope through `DomainAuthorization` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks whose team includes the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
 
 ## Sites
 
@@ -63,19 +63,19 @@ Phase budget: `PUT .../goals/{goalId}/budget` with `{ "allocatedBudget": 50000 }
 | Method | Path | Permission |
 |---|---|---|
 | POST | `...` | `MANAGE_ACTIVITY` and `ASSIGN_ACTIVITY` on the site |
-| GET | `...?status=&assigneeAccessId=` | `VIEW_ACTIVITY` on the site (`OWN` scope sees only own tasks) |
-| GET | `.../{activityId}` | `VIEW_ACTIVITY` (own tasks pass `OWN`) |
+| GET | `...?status=&assigneeAccessId=` | `VIEW_ACTIVITY` on the site (`OWN` scope sees only tasks they are on) |
+| GET | `.../{activityId}` | `VIEW_ACTIVITY` (team members pass `OWN`) |
 | PATCH | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
-| PUT | `.../{activityId}/assignee` | `ASSIGN_ACTIVITY` on the site |
-| POST | `.../{activityId}/start` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
-| POST | `.../{activityId}/complete` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
+| PUT | `.../{activityId}/assignees` | `ASSIGN_ACTIVITY` on the site |
+| POST | `.../{activityId}/start` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
+| POST | `.../{activityId}/complete` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
 | DELETE | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
 | PUT | `.../{activityId}/budget` | `MANAGE_BUDGET` |
 | GET | `/activities/mine?status=` | any `VIEW_ACTIVITY` or `MANAGE_ACTIVITY` |
 
-POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
+POST body: `{ "name", "startAt", "dueAt", "assignees": [{ "accessId", "taskRole" }] }`, all required. A task has a team (ADR 0005): one or more people, each a `ProjectAccess` of this site (`404` otherwise) with an active membership, nobody twice, and exactly one `LEAD`; `taskRole` is `LEAD`, `FOREMAN` or `CREW`. An empty list or a member without `accessId`/`taskRole` is `400 VALIDATION_FAILED`; no Lead, two Leads, a duplicate person or an inactive member is `400 INVALID_ARGUMENT`. A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignees` with `{ "assignees": [...] }` (same rules) to replace the whole team; people who stay keep their place and only change role. Being a task's Lead does not allow changing its team. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks whose team includes them, whatever their task role; every other change returns `403`. `/activities/mine` lists the tasks whose team includes the caller across all sites of the organization, ordered by `dueAt`, and `?assigneeAccessId=` matches any team member.
 
-Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignees: [{ accessId, membershipId, fullName, taskRole }], allocatedBudget }`. `assignees` is ordered `LEAD`, `FOREMAN`, `CREW`, then by name; `fullName` is null when the person has no profile. The team lives in `activity_assignee` (`V17__activity_team.sql`, which made every earlier assignee the Lead of their task).
 
 Task budget: `PUT .../{activityId}/budget` with `{ "allocatedBudget" }` carves the task budget out of its phase budget (same rules one level down: the tasks of a phase cannot hold more than its budget, `400 BUDGET_EXCEEDED`; the phase needs a budget first, `400 BUDGET_PARENT_MISSING`). Responses include `allocatedBudget`, `null` when unset or without `VIEW_BUDGET`. Deleting a task frees its budget. Phase and task budgets live in `goal.allocated_budget` and `activity.allocated_budget` (`V16__phase_activity_budget.sql`).
 

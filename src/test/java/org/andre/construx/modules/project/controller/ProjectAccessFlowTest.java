@@ -117,7 +117,7 @@ class ProjectAccessFlowTest {
     }
 
     @Test
-    void removeAccessThenNotFoundAndBlockedWhileTasksAreAssigned() throws Exception {
+    void removeAccessThenNotFoundAndBlockedWhileInAnyTaskTeam() throws Exception {
         Session eve = api.signUp();
         UUID membership = members.add(orgId, eve.user(), "WORKER");
         String accessId = com.jayway.jsonpath.JsonPath.read(api.post(owner, access,
@@ -129,11 +129,14 @@ class ProjectAccessFlowTest {
         Timestamp due = Timestamp.from(Instant.now().plusSeconds(86_400));
         jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'G', ?, ?)", goal, projectId, due, due);
         UUID task = UUID.randomUUID();
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'T', ?, ?, ?, 'DONE')",
-                task, goal, UUID.fromString(accessId), due, due);
+        jdbc.update("insert into activity (id, goal_id, name, start_at, due_at, status) values (?, ?, 'T', ?, ?, 'DONE')",
+                task, goal, due, due);
+        jdbc.update("insert into activity_assignee (id, activity_id, access_id, task_role) values (?, ?, ?, 'CREW')",
+                UUID.randomUUID(), task, UUID.fromString(accessId));
         api.delete(owner, access + "/" + accessId).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
 
+        jdbc.update("delete from activity_assignee where activity_id = ?", task);
         jdbc.update("delete from activity where id = ?", task);
         api.delete(owner, access + "/" + accessId).andExpect(status().isNoContent());
         api.get(owner, access).andExpect(jsonPath("$.length()").value(0));
