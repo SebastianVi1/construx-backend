@@ -15,7 +15,7 @@ Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`,
 
 Body: `{ "name", "address", "startDate", "expectedEndDate", "status" }`; only `name` is required on POST. PATCH also accepts `"clear": ["startDate", "expectedEndDate"]` to remove a date (null or a missing date keeps it; clearing and setting the same date returns `400`). `status` is `PLANNED` (default), `ACTIVE`, `ON_HOLD`, `COMPLETED` or `ARCHIVED`. There is no delete: archive the site. The list hides `ARCHIVED` unless `?status=ARCHIVED`. PATCH changes only the fields sent; send `"address": ""` to clear the address. An end date before the start date returns `400 INVALID_ARGUMENT`. Responses include `activityCount` and `doneCount`, which are `null` when the caller cannot view that site's tasks.
 
-Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 }` sets the site's allocated budget and returns the site; `{ "allocatedBudget": null }` clears it. The field is required: a body without it (for example `{}`) returns `400 INVALID_ARGUMENT` and keeps the stored value. The amount is in the organization's currency, cannot be negative and allows at most 12 integer digits and 2 decimals (else `400`). PATCH never changes the budget. Responses include `allocatedBudget`, which is `null` when it is not set or when the caller lacks `VIEW_BUDGET`. `VIEW_BUDGET` and `MANAGE_BUDGET` are organization-scope only and belong to Owner, Administrator and Finance (`V13__project_budget.sql` backfills existing organizations).
+Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 }` sets the site's allocated budget and returns the site; `{ "allocatedBudget": null }` clears it. The field is required: a body without it (for example `{}`) returns `400 INVALID_ARGUMENT` and keeps the stored value. The amount is in the global currency (USD for now), cannot be negative and allows at most 12 integer digits and 2 decimals (else `400`). PATCH never changes the budget. Responses include `allocatedBudget`, which is `null` when it is not set or when the caller lacks `VIEW_BUDGET`. The site budget cannot drop below, or be cleared under, the sum of its phase budgets (`400 BUDGET_EXCEEDED`). `VIEW_BUDGET` is organization-scope only and belongs to Owner, Administrator and Finance; `MANAGE_BUDGET` belongs to Owner and Finance only (`V13__project_budget.sql` backfilled both; `V15__budget_permissions.sql` takes `MANAGE_BUDGET` back from seeded Administrator roles and gives seeded Finance roles `VIEW_GOAL` and `VIEW_ACTIVITY`).
 
 ## Site expenses
 
@@ -28,7 +28,7 @@ Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 
 
 Module `modules/finance`, table `expense` (`V14__site_expenses.sql`). Body: `{ "amount", "spentOn", "description", "category" }`, all required on POST and optional on PATCH (a missing field keeps the stored value). `amount` is greater than 0 with at most 12 integer digits and 2 decimals; `spentOn` is a date; `description` has 1 to 160 characters; `category` is `MATERIALS`, `LABOR`, `EQUIPMENT` or `OTHER`. Anything else returns `400`. The list is newest first (`spentOn`, then creation). DELETE returns `204`; an expense of another site returns `404`.
 
-Every expense is subtracted from the site budget. `GET /projects/{projectId}/budget` returns `{ "allocatedBudget", "spent", "remaining", "byCategory": [{ "category", "amount" }] }`: `spent` is the sum of the site's expenses, `remaining` is `allocatedBudget - spent` (negative on an overrun, `null` when no budget is set), and `byCategory` always lists the four categories in the order above, with `0` for unused ones.
+Every expense is subtracted from the site budget. `GET /projects/{projectId}/budget` returns `{ "allocatedBudget", "spent", "remaining", "allocatedToPhases", "unallocated", "byCategory": [{ "category", "amount" }] }`: `allocatedToPhases` is the sum of the phase budgets, `unallocated` is `allocatedBudget - allocatedToPhases` (`null` without a budget), `spent` is the sum of the site's expenses, `remaining` is `allocatedBudget - spent` (negative on an overrun, `null` when no budget is set), and `byCategory` always lists the four categories in the order above, with `0` for unused ones.
 
 ## People on a site
 
@@ -50,8 +50,11 @@ POST body: `{ "membershipId" }` of a member of this organization. A response row
 | PATCH | `/projects/{projectId}/goals/{goalId}` | `MANAGE_GOAL` on the site |
 | DELETE | `/projects/{projectId}/goals/{goalId}` | `MANAGE_GOAL` on the site |
 | POST | `/projects/{projectId}/goals/{goalId}/shift` | `MANAGE_GOAL` on the site |
+| PUT | `/projects/{projectId}/goals/{goalId}/budget` | `MANAGE_BUDGET` |
 
 Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST and optional on PATCH. `startAt` cannot be after `dueAt`, cannot move after its earliest task start, and `dueAt` cannot move before its latest task (`400 INVALID_ARGUMENT`); when PATCH sends both dates they are checked as a pair. `POST .../shift` with `{ "days": n }` (non-zero, -3650..3650) moves the phase and all its tasks by `n` days in one transaction and returns the phase; `days: 0` is `400 INVALID_ARGUMENT`. Deleting a phase that still has tasks returns `409 STATE_CONFLICT`. Responses include `activityCount`, `doneCount` (null without task visibility) and `completed` (has tasks and all are done). Phases and tasks also take an optional `color` (`#rrggbb`, stored lowercase, `null` = default) on POST and PATCH; PATCH `"color": ""` resets it, any other value is `400 VALIDATION_FAILED`.
+
+Phase budget: `PUT .../goals/{goalId}/budget` with `{ "allocatedBudget": 50000 }` carves the phase budget out of the site budget and returns the phase; `null` clears it. Same body and amount rules as the site budget, and POST/PATCH never change it. The phases of a site cannot hold more than the site budget (`400 BUDGET_EXCEEDED`), a phase budget needs a site budget (`400 BUDGET_PARENT_MISSING`), and a phase budget cannot drop below its tasks' budgets (`400 BUDGET_EXCEEDED`). Responses include `allocatedBudget`, `allocatedToActivities` (sum of its task budgets) and `unallocated` (`allocatedBudget - allocatedToActivities`, `null` without a budget); all three are `null` without `VIEW_BUDGET`. Deleting a phase frees its budget. Changes lock the site row, then the phase row, so concurrent requests cannot break the cap.
 
 ## Tasks
 
@@ -67,11 +70,14 @@ Body: `{ "name", "startAt", "dueAt" }` (ISO-8601 instants), all required on POST
 | POST | `.../{activityId}/start` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
 | POST | `.../{activityId}/complete` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
 | DELETE | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
+| PUT | `.../{activityId}/budget` | `MANAGE_BUDGET` |
 | GET | `/activities/mine?status=` | any `VIEW_ACTIVITY` or `MANAGE_ACTIVITY` |
 
 POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
 
 Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+
+Task budget: `PUT .../{activityId}/budget` with `{ "allocatedBudget" }` carves the task budget out of its phase budget (same rules one level down: the tasks of a phase cannot hold more than its budget, `400 BUDGET_EXCEEDED`; the phase needs a budget first, `400 BUDGET_PARENT_MISSING`). Responses include `allocatedBudget`, `null` when unset or without `VIEW_BUDGET`. Deleting a task frees its budget. Phase and task budgets live in `goal.allocated_budget` and `activity.allocated_budget` (`V16__phase_activity_budget.sql`).
 
 
 ## Gantt bar colors
