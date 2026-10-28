@@ -1,7 +1,9 @@
 package org.andre.construx.modules.project.repository;
 
 import org.andre.construx.modules.project.model.Activity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
@@ -47,6 +49,11 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     List<Activity> findByGoalWithTeam(UUID goalId);
 
     Optional<Activity> findByIdAndGoalId(UUID id, UUID goalId);
+
+    /** Row lock so two team changes of one task run one after the other and keep exactly one Lead. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Activity a where a.id = :id")
+    Optional<Activity> lockById(UUID id);
 
     /** Tasks whose team includes the membership, across every site of its organization. */
     @Query("select distinct a from Activity a join fetch a.goal g join fetch g.project left join fetch a.team t "

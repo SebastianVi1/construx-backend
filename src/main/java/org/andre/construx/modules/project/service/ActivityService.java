@@ -132,6 +132,8 @@ public class ActivityService {
         guard.requireActive(userId, organizationId);
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
+        // The team is still unloaded here, so it is read after the lock and sees the previous change.
+        activities.lockById(activityId);
         activity.assignTeam(resolve(projectId, team));
         return toData(userId, organizationId, List.of(activity)).get(0);
     }
