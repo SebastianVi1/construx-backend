@@ -16,7 +16,11 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** V13 adds the site budget column and grants the budget permissions to Owner, Administrator and Finance. */
+/**
+ * V13 adds the site budget column and grants the budget permissions to Owner, Administrator and Finance.
+ * V15 takes MANAGE_BUDGET back from Administrator and lets Finance see phases and tasks. V16 adds phase and
+ * task budgets.
+ */
 class BudgetPermissionBackfillTest {
     private static final String BEFORE_V13 = "12";
 
@@ -61,7 +65,7 @@ class BudgetPermissionBackfillTest {
 
     @Test
     void grantsBudgetPermissionsOnlyToOwnerAdministratorAndFinance() {
-        flyway(null).migrate();
+        flyway("13").migrate();
 
         Set<String> budget = Set.of("MANAGE_BUDGET", "VIEW_BUDGET");
         assertEquals(budget, actions("OWNER"));
@@ -72,6 +76,44 @@ class BudgetPermissionBackfillTest {
         assertEquals(Set.of(), actions("ESTIMATOR"));
         assertEquals(Set.of("ORGANIZATION"), Set.copyOf(jdbc.queryForList(
                 "select scope from role_permission where action in ('VIEW_BUDGET', 'MANAGE_BUDGET')", String.class)));
+    }
+
+    @Test
+    void v15LeavesBudgetChangesToOwnerAndFinanceAndLetsFinanceSeePhasesAndTasks() {
+        UUID custom = UUID.randomUUID();
+        jdbc.update("insert into organization_role (id, organization_id, code, name, system_role, seeded) "
+                + "select ?, organization_id, 'ACCOUNTANT', 'Accountant', false, false from organization_role "
+                + "where id = ?", custom, roles.get("OWNER"));
+        roles.put("ACCOUNTANT", custom);
+        flyway("14").migrate();
+        jdbc.update("insert into role_permission (id, role_id, action, scope) values (?, ?, 'MANAGE_BUDGET', 'ORGANIZATION')",
+                UUID.randomUUID(), custom);
+        grant("FINANCE", "VIEW_GOAL");
+
+        flyway(null).migrate();
+
+        assertEquals(Set.of("MANAGE_BUDGET", "VIEW_BUDGET"), actions("OWNER"));
+        assertEquals(Set.of("VIEW_BUDGET"), actions("ADMINISTRATOR"));
+        assertEquals(Set.of("MANAGE_BUDGET", "VIEW_BUDGET"), actions("FINANCE"));
+        assertEquals(Set.of("MANAGE_BUDGET"), actions("ACCOUNTANT"));
+        assertEquals(1, count("FINANCE", "VIEW_GOAL"));
+        assertEquals(1, count("FINANCE", "VIEW_ACTIVITY"));
+        assertEquals(0, count("MEMBER", "VIEW_BUDGET"));
+    }
+
+    @Test
+    void v16PhaseAndTaskBudgetsAreOptionalAndCannotBeNegative() {
+        flyway(null).migrate();
+
+        UUID goal = UUID.randomUUID();
+        jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'Foundations', "
+                + "current_timestamp, current_timestamp)", goal, project);
+        assertNull(jdbc.queryForObject("select allocated_budget from goal where id = ?", BigDecimal.class, goal));
+        jdbc.update("update goal set allocated_budget = ? where id = ?", new BigDecimal("10.50"), goal);
+        assertThrows(Exception.class, () -> jdbc.update(
+                "update goal set allocated_budget = ? where id = ?", new BigDecimal("-1"), goal));
+        assertEquals(1, jdbc.queryForObject("select count(*) from information_schema.columns "
+                + "where lower(table_name) = 'activity' and lower(column_name) = 'allocated_budget'", Integer.class));
     }
 
     @Test
@@ -120,6 +162,16 @@ class BudgetPermissionBackfillTest {
         roles.put(code, id);
         jdbc.update("insert into organization_role (id, organization_id, code, name, system_role, seeded) "
                 + "values (?, ?, ?, ?, ?, ?)", id, org, code, code, system, seeded);
+    }
+
+    private void grant(String code, String action) {
+        jdbc.update("insert into role_permission (id, role_id, action, scope) values (?, ?, ?, 'ORGANIZATION')",
+                UUID.randomUUID(), roles.get(code), action);
+    }
+
+    private int count(String code, String action) {
+        return jdbc.queryForObject("select count(*) from role_permission where role_id = ? and action = ?",
+                Integer.class, roles.get(code), action);
     }
 
     private Set<String> actions(String code) {

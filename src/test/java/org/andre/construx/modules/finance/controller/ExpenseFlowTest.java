@@ -138,16 +138,22 @@ class ExpenseFlowTest {
     }
 
     @Test
-    void administratorAndFinanceManageExpenses() throws Exception {
-        for (String role : new String[] {"ADMINISTRATOR", "FINANCE"}) {
-            Session s = as(role);
-            String id = Api.id(api.post(s, site + "/expenses", expense("10", "2026-10-01", role, "OTHER"))
-                    .andExpect(status().isCreated()));
-            api.patch(s, site + "/expenses/" + id, "{\"description\":\"Edited\"}").andExpect(status().isOk());
-            api.get(s, site + "/expenses").andExpect(status().isOk());
-            api.get(s, site + "/budget").andExpect(status().isOk());
-            api.delete(s, site + "/expenses/" + id).andExpect(status().isNoContent());
-        }
+    void financeManagesExpensesAndAdministratorOnlyReadsThem() throws Exception {
+        Session finance = as("FINANCE");
+        String id = Api.id(api.post(finance, site + "/expenses", expense("10", "2026-10-01", "Finance", "OTHER"))
+                .andExpect(status().isCreated()));
+        api.patch(finance, site + "/expenses/" + id, "{\"description\":\"Edited\"}").andExpect(status().isOk());
+        api.get(finance, site + "/expenses").andExpect(status().isOk());
+        api.get(finance, site + "/budget").andExpect(status().isOk());
+
+        Session admin = as("ADMINISTRATOR");
+        api.get(admin, site + "/expenses").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        api.get(admin, site + "/budget").andExpect(status().isOk());
+        api.post(admin, site + "/expenses", expense("10", "2026-10-01", "x", "OTHER")).andExpect(status().isForbidden());
+        api.patch(admin, site + "/expenses/" + id, "{\"description\":\"x\"}").andExpect(status().isForbidden());
+        api.delete(admin, site + "/expenses/" + id).andExpect(status().isForbidden());
+
+        api.delete(finance, site + "/expenses/" + id).andExpect(status().isNoContent());
     }
 
     @Test

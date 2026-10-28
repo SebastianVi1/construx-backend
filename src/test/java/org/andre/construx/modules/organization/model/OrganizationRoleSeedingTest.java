@@ -37,10 +37,10 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void administratorHasEverythingExceptOrganizationManagement() {
+    void administratorHasEverythingExceptOrganizationManagementAndChangingBudgets() {
         Map<PermissionAction, PermissionScope> expected = new EnumMap<>(PermissionAction.class);
         for (PermissionAction action : PermissionAction.values()) {
-            if (action != MANAGE_ORGANIZATION) expected.put(action, ORGANIZATION);
+            if (action != MANAGE_ORGANIZATION && action != MANAGE_BUDGET) expected.put(action, ORGANIZATION);
         }
         assertEquals(expected, grants("ADMINISTRATOR"));
     }
@@ -69,8 +69,9 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void financeViewsProjectsAndManagesMaterialPricesAndSiteBudgets() {
-        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION, VIEW_PRICES, ORGANIZATION, MANAGE_PRICES, ORGANIZATION,
+    void financeViewsSitesPhasesAndTasksAndManagesMaterialPricesAndBudgets() {
+        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION, VIEW_GOAL, ORGANIZATION, VIEW_ACTIVITY, ORGANIZATION,
+                        VIEW_PRICES, ORGANIZATION, MANAGE_PRICES, ORGANIZATION,
                         VIEW_BUDGET, ORGANIZATION, MANAGE_BUDGET, ORGANIZATION),
                 grants("FINANCE"));
     }

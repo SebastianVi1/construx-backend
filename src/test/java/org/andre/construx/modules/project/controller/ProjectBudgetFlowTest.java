@@ -23,7 +23,7 @@ import java.util.UUID;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Site budget: Owner, Administrator and Finance read and set it; everyone else gets null and 403. */
+/** Site budget: Owner and Finance set it, Administrator only reads it; everyone else gets null and 403. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -76,13 +76,13 @@ class ProjectBudgetFlowTest {
     }
 
     @Test
-    void administratorAndFinanceManageTheBudget() throws Exception {
+    void financeManagesTheBudgetAndAdministratorOnlySeesIt() throws Exception {
         Session admin = as("ADMINISTRATOR");
         Session finance = as("FINANCE");
-        api.put(admin, base + "/" + siteId + "/budget", "{\"allocatedBudget\":1000}")
-                .andExpect(status().isOk()).andExpect(jsonPath("$.allocatedBudget").value(1000));
         api.put(finance, base + "/" + siteId + "/budget", "{\"allocatedBudget\":2000}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.allocatedBudget").value(2000));
+        api.put(admin, base + "/" + siteId + "/budget", "{\"allocatedBudget\":1000}")
+                .andExpect(status().isForbidden());
         api.get(admin, base + "/" + siteId).andExpect(jsonPath("$.allocatedBudget").value(2000));
         api.get(finance, base).andExpect(jsonPath("$[0].allocatedBudget").value(2000));
     }

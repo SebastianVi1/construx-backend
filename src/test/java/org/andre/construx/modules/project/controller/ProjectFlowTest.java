@@ -159,10 +159,10 @@ class ProjectFlowTest {
         api.post(finance, base, "{\"name\":\"By finance\"}").andExpect(status().isForbidden());
         api.get(member, base).andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].activityCount").value(0));
-        // Finance sees sites but not task progress
+        // Finance sees sites and task progress, to assign phase and task budgets
         api.get(finance, base).andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].activityCount").isEmpty())
-                .andExpect(jsonPath("$[0].doneCount").isEmpty());
+                .andExpect(jsonPath("$[0].activityCount").value(0))
+                .andExpect(jsonPath("$[0].doneCount").value(0));
     }
 
     @Test
