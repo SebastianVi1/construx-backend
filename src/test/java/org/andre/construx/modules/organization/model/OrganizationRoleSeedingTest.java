@@ -69,8 +69,9 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void financeViewsProjectsAndManagesMaterialPrices() {
-        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION, VIEW_PRICES, ORGANIZATION, MANAGE_PRICES, ORGANIZATION),
+    void financeViewsProjectsAndManagesMaterialPricesAndSiteBudgets() {
+        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION, VIEW_PRICES, ORGANIZATION, MANAGE_PRICES, ORGANIZATION,
+                        VIEW_BUDGET, ORGANIZATION, MANAGE_BUDGET, ORGANIZATION),
                 grants("FINANCE"));
     }
 
