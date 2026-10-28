@@ -46,7 +46,7 @@ public class Project {
     @Column(nullable = false, length = 20)
     private ProjectStatus status = ProjectStatus.PLANNED;
 
-    /** Optional allocated budget in the organization's currency; null means not set. */
+    /** Optional allocated budget in the global currency (USD); null means not set. */
     @Column(precision = 14, scale = 2)
     private BigDecimal allocatedBudget;
 
@@ -86,9 +86,14 @@ public class Project {
         this.status = DomainValidation.required(status, "Project status is required");
     }
 
-    /** Sets or, with null, clears the budget; it must fit numeric(14,2) and cannot be negative. */
-    public void assignBudget(BigDecimal amount) {
-        this.allocatedBudget = amount == null ? null : MoneyAmount.nonNegative(amount, "Allocated budget");
+    /**
+     * Sets or, with null, clears the budget; it must fit numeric(14,2), cannot be negative and cannot drop
+     * below what the site's phases already hold.
+     */
+    public void assignBudget(BigDecimal amount, BigDecimal allocatedToPhases) {
+        BigDecimal checked = amount == null ? null : MoneyAmount.nonNegative(amount, "Allocated budget");
+        BudgetAllocation.checkParent(checked, allocatedToPhases);
+        this.allocatedBudget = checked;
     }
 
     public boolean sameAs(Project other) {

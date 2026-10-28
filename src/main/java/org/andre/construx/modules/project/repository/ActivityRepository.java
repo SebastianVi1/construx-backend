@@ -4,6 +4,7 @@ import org.andre.construx.modules.project.model.Activity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +26,15 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     List<Object[]> countByGoal(UUID projectId);
 
     boolean existsByGoalId(UUID goalId);
+
+    /** Rows of [goalId, sum of task budgets] for one site; goals without task budgets are absent. */
+    @Query("select a.goal.id, sum(a.allocatedBudget) from Activity a "
+            + "where a.goal.project.id = :projectId and a.allocatedBudget is not null group by a.goal.id")
+    List<Object[]> sumBudgetByGoal(UUID projectId);
+
+    /** Sum of the task budgets of one phase; zero when none is set. */
+    @Query("select coalesce(sum(a.allocatedBudget), 0) from Activity a where a.goal.id = :goalId")
+    BigDecimal sumBudgetOfGoal(UUID goalId);
 
     @Query("select a from Activity a join fetch a.assigneeAccess acc join fetch acc.organizationMembership "
             + "where a.goal.id = :goalId order by a.dueAt, a.name")

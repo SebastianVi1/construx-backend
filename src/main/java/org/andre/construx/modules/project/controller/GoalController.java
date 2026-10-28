@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.service.GoalService;
+import org.andre.construx.shared.validation.BudgetUpdate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -70,6 +72,15 @@ public class GoalController {
                                        Authentication authentication) {
         return goals.update(userId(authentication), organizationId, projectId, goalId, body.name(), body.startAt(),
                 body.dueAt(), body.color());
+    }
+
+    /** Owner and Finance carve the phase budget out of the site budget; null clears it. */
+    @PutMapping("/{goalId}/budget")
+    public GoalService.GoalData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                             @PathVariable UUID goalId, @Valid @RequestBody BudgetUpdate body,
+                                             Authentication authentication) {
+        return goals.assignBudget(userId(authentication), organizationId, projectId, goalId,
+                body.requireAllocatedBudget());
     }
 
     /** Moves the phase and all its tasks by whole days. */

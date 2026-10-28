@@ -5,6 +5,7 @@ import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.repository.ExpenseRepository;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.project.model.BudgetAllocation;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
@@ -44,9 +45,12 @@ public class ExpenseService {
 
     public record CategoryTotal(ExpenseCategory category, BigDecimal amount) {}
 
-    /** {@code remaining} is null without a budget and negative on an overrun. */
+    /**
+     * {@code remaining} is null without a budget and negative on an overrun. {@code allocatedToPhases} is the sum
+     * of the phase budgets and {@code unallocated} what the site has left to give phases, null without a budget.
+     */
     public record BudgetSummary(BigDecimal allocatedBudget, BigDecimal spent, BigDecimal remaining,
-                                List<CategoryTotal> byCategory) {}
+                                BigDecimal allocatedToPhases, BigDecimal unallocated, List<CategoryTotal> byCategory) {}
 
     @Transactional(readOnly = true)
     public List<ExpenseData> list(UUID userId, UUID organizationId, UUID projectId) {
@@ -90,7 +94,9 @@ public class ExpenseService {
         BigDecimal spent = byCategory.stream().map(CategoryTotal::amount).reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2);
         BigDecimal budget = project.getAllocatedBudget();
-        return new BudgetSummary(budget, spent, budget == null ? null : budget.subtract(spent), byCategory);
+        BigDecimal toPhases = projects.allocatedToPhases(project.getId());
+        return new BudgetSummary(budget, spent, budget == null ? null : budget.subtract(spent), toPhases,
+                BudgetAllocation.unallocated(budget, toPhases), byCategory);
     }
 
     private Project authorized(UUID userId, UUID organizationId, UUID projectId, PermissionAction action) {

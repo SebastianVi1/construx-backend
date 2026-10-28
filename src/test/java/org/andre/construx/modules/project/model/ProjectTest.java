@@ -53,20 +53,20 @@ class ProjectTest {
     void budgetIsOptionalAndCanBeAssignedAndCleared() {
         Project project = new Project(organization, "Tower");
         assertNull(project.getAllocatedBudget());
-        project.assignBudget(new BigDecimal("250000.5"));
+        project.assignBudget(new BigDecimal("250000.5"), BigDecimal.ZERO);
         assertEquals(new BigDecimal("250000.50"), project.getAllocatedBudget());
-        project.assignBudget(BigDecimal.ZERO);
+        project.assignBudget(BigDecimal.ZERO, BigDecimal.ZERO);
         assertEquals(new BigDecimal("0.00"), project.getAllocatedBudget());
-        project.assignBudget(null);
+        project.assignBudget(null, BigDecimal.ZERO);
         assertNull(project.getAllocatedBudget());
     }
 
     @Test
     void negativeOverPreciseOrOversizedBudgetsAreRejected() {
         Project project = new Project(organization, "Tower");
-        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("-0.01")));
-        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("10.001")));
-        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("1000000000000")));
-        assertDoesNotThrow(() -> project.assignBudget(new BigDecimal("999999999999.99")));
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("-0.01"), BigDecimal.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("10.001"), BigDecimal.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("1000000000000"), BigDecimal.ZERO));
+        assertDoesNotThrow(() -> project.assignBudget(new BigDecimal("999999999999.99"), BigDecimal.ZERO));
     }
 }

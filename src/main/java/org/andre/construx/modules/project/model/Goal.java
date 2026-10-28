@@ -1,6 +1,7 @@
 package org.andre.construx.modules.project.model;
 
 import org.andre.construx.shared.validation.DomainValidation;
+import org.andre.construx.shared.validation.MoneyAmount;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -9,6 +10,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
@@ -43,6 +45,10 @@ public class Goal {
     /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
     @Column(length = 7)
     private String color;
+
+    /** Optional share of the site budget; null means not set. */
+    @Column(precision = 14, scale = 2)
+    private BigDecimal allocatedBudget;
 
     @OneToMany(mappedBy = "goal")
     private Set<Activity> activities = new HashSet<>();
@@ -99,6 +105,17 @@ public class Goal {
     /** Null clears the custom color. */
     public void changeColor(String color) {
         this.color = BarColor.normalize(color);
+    }
+
+    /**
+     * Sets or, with null, clears the phase budget. It must fit in what the site has left after the other
+     * phases, and cannot drop below what the phase's tasks already hold.
+     */
+    public void assignBudget(BigDecimal amount, BigDecimal allocatedToOtherPhases, BigDecimal allocatedToActivities) {
+        BigDecimal checked = amount == null ? null : MoneyAmount.nonNegative(amount, "Allocated budget");
+        BudgetAllocation.checkChild(project.getAllocatedBudget(), allocatedToOtherPhases, checked);
+        BudgetAllocation.checkParent(checked, allocatedToActivities);
+        this.allocatedBudget = checked;
     }
 
     public boolean isCompleted() {

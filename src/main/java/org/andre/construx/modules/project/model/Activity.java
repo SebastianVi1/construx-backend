@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -52,6 +53,10 @@ public class Activity {
     /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
     @Column(length = 7)
     private String color;
+
+    /** Optional share of the phase budget; null means not set. */
+    @Column(precision = 14, scale = 2)
+    private BigDecimal allocatedBudget;
 
     public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant startAt, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
