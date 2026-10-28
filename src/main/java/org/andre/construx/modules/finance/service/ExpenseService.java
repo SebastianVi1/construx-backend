@@ -164,10 +164,11 @@ public class ExpenseService {
      * now; every other case, including a missing expense, is the same 403 as before the Lead exception.
      */
     private Expense editable(UUID userId, UUID organizationId, UUID projectId, UUID expenseId) {
+        // Membership first: a non-member gets 404, never the 403 the permission lookup would give.
+        OrganizationMembership member = guard.requireActive(userId, organizationId);
         if (holds(userId, organizationId, PermissionAction.MANAGE_BUDGET)) {
             return load(authorized(userId, organizationId, projectId, PermissionAction.MANAGE_BUDGET), expenseId);
         }
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
         Project project = projects.load(organizationId, projectId);
         return expenses.findByIdAndProjectId(expenseId, project.getId())
                 .filter(e -> e.getActivity() != null && e.getActivity().isLead(member.getId())
