@@ -70,4 +70,4 @@ Response (200 for a dry run and for a successful import):
 
 The import is all or nothing in one transaction. `dryRun=false` writes only when every row is valid: the observations get `source = CSV` and `imported` is `true`. With any invalid row it answers `422` with the same body (`valid: false`, `imported: false`) and writes nothing.
 
-Note: Spring's default `spring.servlet.multipart.max-file-size` is also 1 MB, so on a real server a larger upload is refused by the multipart resolver before this endpoint runs (413).
+Note: `spring.servlet.multipart.max-file-size` and `max-request-size` are set to 2 MB so files between 1 and 2 MB reach this endpoint and get the `400` above; anything over 2 MB is refused by the multipart resolver with `413` before the endpoint runs.
