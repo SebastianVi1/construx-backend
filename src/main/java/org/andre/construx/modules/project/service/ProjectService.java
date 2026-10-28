@@ -15,6 +15,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -57,9 +58,9 @@ public class ProjectService {
         }
     }
 
-    /** Counts are null when the caller cannot view this site's tasks. */
+    /** Counts are null when the caller cannot view this site's tasks; the budget, without VIEW_BUDGET. */
     public record ProjectData(UUID id, String name, String address, LocalDate startDate, LocalDate expectedEndDate,
-                              ProjectStatus status, Long activityCount, Long doneCount) {}
+                              ProjectStatus status, Long activityCount, Long doneCount, BigDecimal allocatedBudget) {}
 
     @Transactional
     public ProjectData create(UUID userId, UUID organizationId, ProjectInput input) {
@@ -120,6 +121,16 @@ public class ProjectService {
         return withCounts(userId, organizationId, member, List.of(project)).get(0);
     }
 
+    /** Sets or, with null, clears the site's allocated budget. Requires MANAGE_BUDGET. */
+    @Transactional
+    public ProjectData assignBudget(UUID userId, UUID organizationId, UUID projectId, BigDecimal amount) {
+        OrganizationMembership member = guard.requireActive(userId, organizationId);
+        Project project = load(organizationId, projectId);
+        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_BUDGET);
+        project.assignBudget(amount);
+        return withCounts(userId, organizationId, member, List.of(project)).get(0);
+    }
+
     /** Used by the other project-module services to resolve a site inside the tenant. */
     public Project load(UUID organizationId, UUID projectId) {
         return projects.findByIdAndOrganizationId(projectId, organizationId)
@@ -151,11 +162,14 @@ public class ProjectService {
                 counts.put((UUID) row[0], new long[] {((Number) row[1]).longValue(), ((Number) row[2]).longValue()});
             }
         }
+        boolean budgetVisible = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_BUDGET)
+                .isPresent();
         return list.stream().map(p -> {
             boolean visible = covered.contains(p.getId());
             long[] c = counts.getOrDefault(p.getId(), new long[] {0, 0});
             return new ProjectData(p.getId(), p.getName(), p.getAddress(), p.getStartDate(), p.getExpectedEndDate(),
-                    p.getStatus(), visible ? c[0] : null, visible ? c[1] : null);
+                    p.getStatus(), visible ? c[0] : null, visible ? c[1] : null,
+                    budgetVisible ? p.getAllocatedBudget() : null);
         }).toList();
     }
 }

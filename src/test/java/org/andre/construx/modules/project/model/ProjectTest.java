@@ -4,6 +4,7 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.organization.model.Organization;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,5 +47,26 @@ class ProjectTest {
         project.changeStatus(ProjectStatus.ARCHIVED);
         assertEquals(ProjectStatus.ARCHIVED, project.getStatus());
         assertThrows(IllegalArgumentException.class, () -> project.changeStatus(null));
+    }
+
+    @Test
+    void budgetIsOptionalAndCanBeAssignedAndCleared() {
+        Project project = new Project(organization, "Tower");
+        assertNull(project.getAllocatedBudget());
+        project.assignBudget(new BigDecimal("250000.5"));
+        assertEquals(new BigDecimal("250000.50"), project.getAllocatedBudget());
+        project.assignBudget(BigDecimal.ZERO);
+        assertEquals(new BigDecimal("0.00"), project.getAllocatedBudget());
+        project.assignBudget(null);
+        assertNull(project.getAllocatedBudget());
+    }
+
+    @Test
+    void negativeOverPreciseOrOversizedBudgetsAreRejected() {
+        Project project = new Project(organization, "Tower");
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("-0.01")));
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("10.001")));
+        assertThrows(IllegalArgumentException.class, () -> project.assignBudget(new BigDecimal("1000000000000")));
+        assertDoesNotThrow(() -> project.assignBudget(new BigDecimal("999999999999.99")));
     }
 }

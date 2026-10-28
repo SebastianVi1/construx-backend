@@ -64,5 +64,9 @@ public class Permission {
                 && scope != PermissionScope.ORGANIZATION) {
             throw new IllegalArgumentException("Material prices belong to the whole organization");
         }
+        if ((action == PermissionAction.VIEW_BUDGET || action == PermissionAction.MANAGE_BUDGET)
+                && scope != PermissionScope.ORGANIZATION) {
+            throw new IllegalArgumentException("Site budgets are an organization-wide finance permission");
+        }
     }
 }

@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class PricePermissionBackfillTest {
     /** V9 (start dates) and V10 (bar colors) land with the phases-gantt work on master; V8 is the last shared migration before V11. */
     private static final String BEFORE_V11 = "8";
+    /** V13 adds budget grants; stop before it so this test only sees what V11 does. */
+    private static final String THROUGH_V12 = "12";
 
     private final Map<String, UUID> roles = new HashMap<>();
     // One shared session: H2 binds a check constraint to the session that created it.
@@ -59,7 +61,7 @@ class PricePermissionBackfillTest {
 
     @Test
     void grantsPricePermissionsOnlyToOwnerAndTheSeededRolesThatHaveThem() {
-        flyway(null).migrate();
+        flyway(THROUGH_V12).migrate();
 
         assertEquals(Set.of("MANAGE_PRICES", "VIEW_PRICES", "VIEW_PROJECT"), actions("OWNER"));
         assertEquals(Set.of("MANAGE_PRICES", "VIEW_PRICES"), actions("ADMINISTRATOR"));
@@ -73,7 +75,7 @@ class PricePermissionBackfillTest {
 
     @Test
     void stillRejectsUnknownActions() {
-        flyway(null).migrate();
+        flyway(THROUGH_V12).migrate();
 
         assertThrows(Exception.class, () -> jdbc.update(
                 "insert into role_permission (id, role_id, action, scope) values (?, ?, ?, ?)",

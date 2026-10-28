@@ -10,8 +10,11 @@ Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`,
 | GET | `/projects?status=` | `VIEW_PROJECT`, list filtered by scope |
 | GET | `/projects/{projectId}` | `VIEW_PROJECT` on the site |
 | PATCH | `/projects/{projectId}` | `MANAGE_PROJECT` on the site |
+| PUT | `/projects/{projectId}/budget` | `MANAGE_BUDGET` |
 
 Body: `{ "name", "address", "startDate", "expectedEndDate", "status" }`; only `name` is required on POST. PATCH also accepts `"clear": ["startDate", "expectedEndDate"]` to remove a date (null or a missing date keeps it; clearing and setting the same date returns `400`). `status` is `PLANNED` (default), `ACTIVE`, `ON_HOLD`, `COMPLETED` or `ARCHIVED`. There is no delete: archive the site. The list hides `ARCHIVED` unless `?status=ARCHIVED`. PATCH changes only the fields sent; send `"address": ""` to clear the address. An end date before the start date returns `400 INVALID_ARGUMENT`. Responses include `activityCount` and `doneCount`, which are `null` when the caller cannot view that site's tasks.
+
+Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 }` sets the site's allocated budget and returns the site; `{ "allocatedBudget": null }` clears it. The field is required: a body without it (for example `{}`) returns `400 INVALID_ARGUMENT` and keeps the stored value. The amount is in the organization's currency, cannot be negative and allows at most 12 integer digits and 2 decimals (else `400`). PATCH never changes the budget. Responses include `allocatedBudget`, which is `null` when it is not set or when the caller lacks `VIEW_BUDGET`. `VIEW_BUDGET` and `MANAGE_BUDGET` are organization-scope only and belong to Owner, Administrator and Finance (`V13__project_budget.sql` backfills existing organizations).
 
 ## People on a site
 

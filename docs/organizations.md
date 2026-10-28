@@ -21,7 +21,7 @@ Authorization is evaluated per request through `DomainAuthorization`; roles are 
 
 ## Seeded roles
 
-Every new organization gets `OWNER` plus the roles defined in `src/main/resources/seeded-roles.properties` (default: `ADMINISTRATOR`, `MEMBER`, `WORKER`, `FINANCE`). Edit that file to change names or permissions; invalid action/scope pairs fail at startup. Changes apply only to organizations created afterwards; a new grant for existing organizations needs a Flyway backfill (as `V11__price_permissions.sql` does for `VIEW_PRICES` and `MANAGE_PRICES`). Matrix and rationale: `.agents/contracts/v1-api.md` section 8.
+Every new organization gets `OWNER` plus the roles defined in `src/main/resources/seeded-roles.properties` (default: `ADMINISTRATOR`, `MEMBER`, `WORKER`, `FINANCE`). Edit that file to change names or permissions; invalid action/scope pairs fail at startup. Changes apply only to organizations created afterwards; a new grant for existing organizations needs a Flyway backfill (as `V11__price_permissions.sql` does for `VIEW_PRICES` and `MANAGE_PRICES`, and `V13__project_budget.sql` for `VIEW_BUDGET` and `MANAGE_BUDGET`). Matrix and rationale: `.agents/contracts/v1-api.md` section 8.
 
 ## Onboarding intent
 

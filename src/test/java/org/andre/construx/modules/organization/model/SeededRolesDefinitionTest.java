@@ -51,4 +51,13 @@ class SeededRolesDefinitionTest {
             assertDoesNotThrow(() -> Permission.validate(action, PermissionScope.ORGANIZATION));
         }
     }
+
+    @Test
+    void siteBudgetsRequireOrganizationScope() {
+        for (PermissionAction action : new PermissionAction[] {PermissionAction.VIEW_BUDGET, PermissionAction.MANAGE_BUDGET}) {
+            assertThrows(IllegalArgumentException.class, () -> Permission.validate(action, PermissionScope.PROJECT));
+            assertThrows(IllegalArgumentException.class, () -> Permission.validate(action, PermissionScope.OWN));
+            assertDoesNotThrow(() -> Permission.validate(action, PermissionScope.ORGANIZATION));
+        }
+    }
 }

@@ -1,7 +1,10 @@
 package org.andre.construx.modules.project.controller;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.model.ProjectStatus;
 import org.andre.construx.modules.project.service.ProjectService;
@@ -11,12 +14,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -38,6 +43,29 @@ public class ProjectController {
     public record ProjectPatch(@Size(max = 160) String name, @Size(max = 255) String address,
                                LocalDate startDate, LocalDate expectedEndDate, ProjectStatus status,
                                Set<String> clear) {}
+
+    /**
+     * {@code allocatedBudget} is required but may be null, which clears the budget. A body without it is
+     * rejected so a client that forgets the field cannot wipe the value; the setter records that it was sent.
+     */
+    public static final class BudgetUpdate {
+        @PositiveOrZero @Digits(integer = 12, fraction = 2)
+        private BigDecimal allocatedBudget;
+        private boolean sent;
+
+        @JsonProperty("allocatedBudget")
+        void setAllocatedBudget(BigDecimal allocatedBudget) {
+            this.allocatedBudget = allocatedBudget;
+            this.sent = true;
+        }
+
+        BigDecimal requireAllocatedBudget() {
+            if (!sent) {
+                throw new IllegalArgumentException("allocatedBudget is required; send null to clear it");
+            }
+            return allocatedBudget;
+        }
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -66,6 +94,14 @@ public class ProjectController {
         return projects.update(userId(authentication), organizationId, projectId, new ProjectService.ProjectInput(
                 body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status(),
                 body.clear()));
+    }
+
+    @PutMapping("/{projectId}/budget")
+    public ProjectService.ProjectData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                                   @Valid @RequestBody BudgetUpdate body,
+                                                   Authentication authentication) {
+        return projects.assignBudget(userId(authentication), organizationId, projectId,
+                body.requireAllocatedBudget());
     }
 
     private static UUID userId(Authentication authentication) {
