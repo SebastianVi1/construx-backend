@@ -17,7 +17,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/** Constraints of V11 on a schema built only by Flyway (the flow tests use Hibernate's create-drop schema). */
+/** Constraints of V12 on a schema built only by Flyway (the flow tests use Hibernate's create-drop schema). */
 @SpringBootTest(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.datasource.url=jdbc:h2:mem:pricing-migration;MODE=PostgreSQL;DB_CLOSE_DELAY=-1"})

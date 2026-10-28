@@ -15,10 +15,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** V10 grants the price permissions to roles that existed before it, like new organizations get them. */
+/** V11 grants the price permissions to roles that existed before it, like new organizations get them. */
 class PricePermissionBackfillTest {
-    /** Last migration before V10 on this branch; V9 is reserved by in-flight work. */
-    private static final String BEFORE_V10 = "8";
+    /** V9 (start dates) and V10 (bar colors) land with the phases-gantt work on master; V8 is the last shared migration before V11. */
+    private static final String BEFORE_V11 = "8";
 
     private final Map<String, UUID> roles = new HashMap<>();
     // One shared session: H2 binds a check constraint to the session that created it.
@@ -26,11 +26,11 @@ class PricePermissionBackfillTest {
     private JdbcTemplate jdbc;
 
     @BeforeEach
-    void migrateToJustBeforeV10WithAnExistingOrganization() {
+    void migrateToJustBeforeV11WithAnExistingOrganization() {
         dataSource = new SingleConnectionDataSource(
                 "jdbc:h2:mem:price-backfill-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "", true);
         jdbc = new JdbcTemplate(dataSource);
-        flyway(BEFORE_V10).migrate();
+        flyway(BEFORE_V11).migrate();
 
         // Postgres names the inline V1 check "role_permission_action_check"; H2 does not, so mirror it.
         String check = jdbc.queryForObject("select constraint_name from information_schema.check_constraints "
