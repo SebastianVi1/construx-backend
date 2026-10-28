@@ -87,6 +87,18 @@ class BudgetPermissionBackfillTest {
     }
 
     @Test
+    void v14ExpensesBelongToASiteAndRejectNonPositiveAmountsAndUnknownCategories() {
+        flyway(null).migrate();
+
+        String insert = "insert into expense (id, project_id, amount, spent_on, description, category, created_at) "
+                + "values (?, ?, ?, date '2026-10-01', 'Cement', ?, current_timestamp)";
+        jdbc.update(insert, UUID.randomUUID(), project, new BigDecimal("10.50"), "MATERIALS");
+        assertThrows(Exception.class, () -> jdbc.update(insert, UUID.randomUUID(), project, BigDecimal.ZERO, "MATERIALS"));
+        assertThrows(Exception.class, () -> jdbc.update(insert, UUID.randomUUID(), project, BigDecimal.ONE, "FOOD"));
+        assertThrows(Exception.class, () -> jdbc.update(insert, UUID.randomUUID(), UUID.randomUUID(), BigDecimal.ONE, "OTHER"));
+    }
+
+    @Test
     void keepsThePreviousActionsAndStillRejectsUnknownOnes() {
         flyway(null).migrate();
 
