@@ -9,13 +9,16 @@ import jakarta.validation.constraints.Size;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+/** Dynamic updates write only changed columns, so a budget change and a concurrent edit never undo each other. */
 @Entity
+@DynamicUpdate
 @Table(name = "activity")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
