@@ -112,8 +112,22 @@ class BudgetPermissionBackfillTest {
         jdbc.update("update goal set allocated_budget = ? where id = ?", new BigDecimal("10.50"), goal);
         assertThrows(Exception.class, () -> jdbc.update(
                 "update goal set allocated_budget = ? where id = ?", new BigDecimal("-1"), goal));
-        assertEquals(1, jdbc.queryForObject("select count(*) from information_schema.columns "
-                + "where lower(table_name) = 'activity' and lower(column_name) = 'allocated_budget'", Integer.class));
+
+        UUID org = jdbc.queryForObject("select organization_id from project where id = ?", UUID.class, project);
+        UUID user = jdbc.queryForObject("select created_by_id from organization where id = ?", UUID.class, org);
+        UUID membership = UUID.randomUUID();
+        jdbc.update("insert into organization_membership (id, organization_id, role_id, user_account_id, status) "
+                + "values (?, ?, ?, ?, 'ACTIVE')", membership, org, roles.get("OWNER"), user);
+        UUID access = UUID.randomUUID();
+        jdbc.update("insert into project_access (id, organization_membership_id, project_id) values (?, ?, ?)",
+                access, membership, project);
+        UUID activity = UUID.randomUUID();
+        jdbc.update("insert into activity (id, goal_id, assignee_access_id, name, status, start_at, due_at) "
+                + "values (?, ?, ?, 'Dig', 'TODO', current_timestamp, current_timestamp)", activity, goal, access);
+        assertNull(jdbc.queryForObject("select allocated_budget from activity where id = ?", BigDecimal.class, activity));
+        jdbc.update("update activity set allocated_budget = ? where id = ?", new BigDecimal("5.25"), activity);
+        assertThrows(Exception.class, () -> jdbc.update(
+                "update activity set allocated_budget = ? where id = ?", new BigDecimal("-1"), activity));
     }
 
     @Test
