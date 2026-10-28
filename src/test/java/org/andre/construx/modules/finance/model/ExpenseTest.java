@@ -2,11 +2,17 @@ package org.andre.construx.modules.finance.model;
 
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.organization.model.Organization;
+import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.project.model.Activity;
+import org.andre.construx.modules.project.model.Goal;
 import org.andre.construx.modules.project.model.Project;
+import org.andre.construx.modules.project.model.ProjectAccess;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,6 +20,26 @@ class ExpenseTest {
     private final Project project = new Project(
             new Organization("Acme", new UserAccount("o@acme.com", "hash")), "Tower");
     private final LocalDate day = LocalDate.of(2026, 10, 1);
+
+    @Test
+    void anExpenseCanBeChargedToATaskOfItsOwnSiteOnlyAndKnowsWhoRecordedIt() {
+        Organization organization = new Organization("Acme", new UserAccount("o@acme.com", "hash"));
+        Project tower = new Project(organization, "Tower");
+        Project other = new Project(organization, "Other");
+        OrganizationMembership owner = organization.getMemberships().iterator().next();
+        Instant start = Instant.parse("2027-01-01T00:00:00Z");
+        Goal goal = new Goal(tower, "Structure", start, start.plus(10, ChronoUnit.DAYS));
+        Activity task = new Activity(goal, "Pour", new ProjectAccess(tower, owner), start, start.plus(1, ChronoUnit.DAYS));
+
+        Expense expense = new Expense(tower, task, owner, BigDecimal.TEN, day, "Cement", ExpenseCategory.MATERIALS);
+        assertSame(task, expense.getActivity());
+        assertSame(owner, expense.getCreatedBy());
+        assertThrows(IllegalArgumentException.class,
+                () -> new Expense(other, task, owner, BigDecimal.TEN, day, "Cement", ExpenseCategory.MATERIALS));
+        Expense siteOnly = new Expense(tower, BigDecimal.TEN, day, "Permit", ExpenseCategory.OTHER);
+        assertNull(siteOnly.getActivity());
+        assertFalse(siteOnly.recordedBy(java.util.UUID.randomUUID()));
+    }
 
     @Test
     void expenseKeepsTwoDecimalsAndATrimmedDescription() {

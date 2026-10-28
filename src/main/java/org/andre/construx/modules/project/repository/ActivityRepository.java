@@ -31,6 +31,10 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
 
     boolean existsByGoalId(UUID goalId);
 
+    /** Whether any expense is charged to the task; such a task cannot be deleted. */
+    @Query("select count(e) > 0 from Expense e where e.activity.id = :activityId")
+    boolean hasExpenses(UUID activityId);
+
     /** Rows of [goalId, sum of task budgets] for one site; goals without task budgets are absent. */
     @Query("select a.goal.id, sum(a.allocatedBudget) from Activity a "
             + "where a.goal.project.id = :projectId and a.allocatedBudget is not null group by a.goal.id")

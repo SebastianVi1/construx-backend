@@ -175,6 +175,9 @@ public class ActivityService {
         guard.requireActive(userId, organizationId);
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
+        if (activities.hasExpenses(activityId)) {
+            throw new IllegalStateException("Remove this task's expenses before deleting it");
+        }
         activities.delete(activity);
     }
 
@@ -191,7 +194,8 @@ public class ActivityService {
                 .toList());
     }
 
-    private Activity load(UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
+    /** Resolves a task inside the tenant, site and phase (404 otherwise), for the other modules. */
+    public Activity load(UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
         goals.load(organizationId, projectId, goalId);
         return activities.findByIdAndGoalId(activityId, goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));

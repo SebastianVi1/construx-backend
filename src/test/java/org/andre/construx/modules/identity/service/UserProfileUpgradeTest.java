@@ -51,6 +51,7 @@ class UserProfileUpgradeTest {
                         + "email_verified boolean not null, status enum ('ACTIVE','DISABLED') not null)");
                 // Flyway baselines at V1, so later migrations alter tables a real V1 database already has.
                 statement.execute("create table organization (id uuid primary key)");
+                statement.execute("create table organization_membership (id uuid primary key)");
                 statement.execute("create table organization_role (id uuid primary key, code varchar(64), system_role boolean)");
                 statement.execute("create table role_permission (id uuid primary key, role_id uuid, action varchar(40), scope varchar(20))");
                 statement.execute("create table organization_invitation (id uuid primary key)");

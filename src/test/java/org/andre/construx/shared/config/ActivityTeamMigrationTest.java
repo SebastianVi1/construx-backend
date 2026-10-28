@@ -13,7 +13,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** V17 turns each task's single assignee into the Lead of its team and drops the old column. */
+/**
+ * V17 turns each task's single assignee into the Lead of its team and drops the old column. V18 lets an expense
+ * be charged to a task and remember who recorded it.
+ */
 class ActivityTeamMigrationTest {
     // One shared session: H2 binds a check constraint to the session that created it.
     private SingleConnectionDataSource dataSource;
@@ -87,6 +90,28 @@ class ActivityTeamMigrationTest {
         jdbc.update("delete from activity where id = ?", pour);
         assertEquals(0, jdbc.queryForObject("select count(*) from activity_assignee where activity_id = ?",
                 Integer.class, pour));
+    }
+
+    @Test
+    void v18ExistingExpensesKeepNoTaskAndNewOnesPointToARealTaskAndMember() {
+        UUID project = jdbc.queryForObject("select project_id from goal where id = ?", UUID.class, goal);
+        String before = "insert into expense (id, project_id, amount, spent_on, description, category, created_at) "
+                + "values (?, ?, 10, date '2027-01-01', 'Cement', 'MATERIALS', current_timestamp)";
+        UUID old = UUID.randomUUID();
+        jdbc.update(before, old, project);
+        flyway(null).migrate();
+
+        assertNull(jdbc.queryForObject("select activity_id from expense where id = ?", UUID.class, old));
+        assertNull(jdbc.queryForObject("select created_by_membership_id from expense where id = ?", UUID.class, old));
+        UUID membership = jdbc.queryForObject("select organization_membership_id from project_access where id = ?",
+                UUID.class, ana);
+        String linked = "insert into expense (id, project_id, activity_id, created_by_membership_id, amount, spent_on, "
+                + "description, category, created_at) values (?, ?, ?, ?, 5, date '2027-01-02', 'Sand', 'MATERIALS', "
+                + "current_timestamp)";
+        jdbc.update(linked, UUID.randomUUID(), project, pour, membership);
+        assertThrows(Exception.class, () -> jdbc.update(linked, UUID.randomUUID(), project, UUID.randomUUID(), membership));
+        assertThrows(Exception.class, () -> jdbc.update(linked, UUID.randomUUID(), project, pour, UUID.randomUUID()));
+        assertThrows(Exception.class, () -> jdbc.update("delete from activity where id = ?", pour));
     }
 
     private UUID access(UUID org, UUID role, UUID project, UUID user) {

@@ -23,10 +23,15 @@ Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 
 |---|---|---|
 | GET | `/projects/{projectId}/expenses` | `VIEW_BUDGET` |
 | POST | `/projects/{projectId}/expenses` | `MANAGE_BUDGET` |
-| PATCH | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET` |
-| DELETE | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET` |
+| PATCH | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET`, or the task's Lead for an expense they recorded |
+| DELETE | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET`, or the task's Lead for an expense they recorded |
+| GET | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/expenses` | `VIEW_BUDGET` or the task's Lead |
+| POST | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/expenses` | `MANAGE_BUDGET` or the task's Lead |
+| GET | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/budget` | `VIEW_BUDGET` or the task's Lead |
 
 Module `modules/finance`, table `expense` (`V14__site_expenses.sql`). Only Owner and Finance record, edit and delete expenses; Administrator lost that with `MANAGE_BUDGET` in `V15__budget_permissions.sql` and keeps read access through `VIEW_BUDGET`. Body: `{ "amount", "spentOn", "description", "category" }`, all required on POST and optional on PATCH (a missing field keeps the stored value). `amount` is greater than 0 with at most 12 integer digits and 2 decimals; `spentOn` is a date; `description` has 1 to 160 characters; `category` is `MATERIALS`, `LABOR`, `EQUIPMENT` or `OTHER`. Anything else returns `400`. The list is newest first (`spentOn`, then creation). DELETE returns `204`; an expense of another site returns `404`.
+
+Task expenses (ADR 0005, `V18__expense_task_link.sql`): an expense can be charged to one task of its site; it is still a site expense, listed and subtracted from the site budget like any other. Responses carry `activityId` and `createdByMembershipId` (both `null` for site-only expenses and for expenses recorded before V18). The task's current Lead, whatever their organization role, can list the task's expenses, record new ones of any category with the same body, read `GET .../activities/{activityId}/budget` = `{ "allocatedBudget", "spent", "remaining" }` (`remaining` negative on an overrun, `null` when the task has no budget), and PATCH or DELETE, through the site paths, only the expenses they recorded on a task they still lead. Overspending a task, or charging a task with no budget, is allowed. Other team members and other workers get `403`; a former Lead loses these rights, and a new Lead cannot edit the previous Lead's expenses. The Lead cannot change the task's `allocatedBudget` (`PUT .../budget` stays `MANAGE_BUDGET`) or see the site budget. A task with expenses cannot be deleted (`409 STATE_CONFLICT`).
 
 Every expense is subtracted from the site budget. `GET /projects/{projectId}/budget` returns `{ "allocatedBudget", "spent", "remaining", "allocatedToPhases", "unallocated", "byCategory": [{ "category", "amount" }] }`: `allocatedToPhases` is the sum of the phase budgets, `unallocated` is `allocatedBudget - allocatedToPhases` (`null` without a budget), `spent` is the sum of the site's expenses, `remaining` is `allocatedBudget - spent` (negative on an overrun, `null` when no budget is set), and `byCategory` always lists the four categories in the order above, with `0` for unused ones.
 
