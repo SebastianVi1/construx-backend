@@ -10,5 +10,7 @@ public enum PermissionAction {
     MANAGE_GOAL,
     VIEW_ACTIVITY,
     MANAGE_ACTIVITY,
-    ASSIGN_ACTIVITY
+    ASSIGN_ACTIVITY,
+    VIEW_PRICES,
+    MANAGE_PRICES
 }

@@ -54,6 +54,7 @@ class OrganizationRoleSeedingTest {
         expected.put(VIEW_ACTIVITY, ORGANIZATION);
         expected.put(MANAGE_ACTIVITY, ORGANIZATION);
         expected.put(ASSIGN_ACTIVITY, ORGANIZATION);
+        expected.put(VIEW_PRICES, ORGANIZATION);
         assertEquals(expected, grants("MEMBER"));
     }
 
@@ -68,8 +69,17 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void financeOnlyViewsProjectsForNow() {
-        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION), grants("FINANCE"));
+    void financeViewsProjectsAndManagesMaterialPrices() {
+        assertEquals(Map.of(VIEW_PROJECT, ORGANIZATION, VIEW_PRICES, ORGANIZATION, MANAGE_PRICES, ORGANIZATION),
+                grants("FINANCE"));
+    }
+
+    @Test
+    void ownerHoldsEveryActionIncludingMaterialPrices() {
+        Map<PermissionAction, PermissionScope> expected = new EnumMap<>(PermissionAction.class);
+        for (PermissionAction action : PermissionAction.values()) expected.put(action, ORGANIZATION);
+        assertEquals(expected, grants("OWNER"));
+        assertEquals(ORGANIZATION, grants("OWNER").get(MANAGE_PRICES));
     }
 
     @Test
