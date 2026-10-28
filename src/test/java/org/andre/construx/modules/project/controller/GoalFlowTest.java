@@ -123,7 +123,7 @@ class GoalFlowTest {
     }
 
     @Test
-    void membersManageGoalsWorkersOnlyViewTheirSitesFinanceCannotSeeThem() throws Exception {
+    void membersManageGoalsWorkersOnlyViewTheirSitesFinanceOnlyViewsThem() throws Exception {
         Session member = api.signUp();
         members.add(orgId, member.user(), "MEMBER");
         Session worker = api.signUp();
@@ -142,7 +142,8 @@ class GoalFlowTest {
         api.post(worker, goals, "{\"name\":\"By worker\",\"startAt\":\"2027-01-01T00:00:00Z\",\"dueAt\":\"2027-03-01T00:00:00Z\"}")
                 .andExpect(status().isForbidden());
         api.delete(worker, goals + "/" + id).andExpect(status().isForbidden());
-        api.get(finance, goals).andExpect(status().isForbidden());
+        api.get(finance, goals).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        api.patch(finance, goals + "/" + id, "{\"name\":\"x\"}").andExpect(status().isForbidden());
     }
 
     @Test

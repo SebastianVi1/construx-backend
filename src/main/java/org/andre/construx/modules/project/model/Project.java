@@ -1,6 +1,7 @@
 package org.andre.construx.modules.project.model;
 
 import org.andre.construx.shared.validation.DomainValidation;
+import org.andre.construx.shared.validation.MoneyAmount;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,7 +12,6 @@ import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.Organization;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
@@ -46,7 +46,7 @@ public class Project {
     @Column(nullable = false, length = 20)
     private ProjectStatus status = ProjectStatus.PLANNED;
 
-    /** Optional allocated budget in the organization's currency; null means not set. */
+    /** Optional allocated budget in the global currency (USD); null means not set. */
     @Column(precision = 14, scale = 2)
     private BigDecimal allocatedBudget;
 
@@ -86,24 +86,14 @@ public class Project {
         this.status = DomainValidation.required(status, "Project status is required");
     }
 
-    /** Sets or, with null, clears the budget; it must fit numeric(14,2) and cannot be negative. */
-    public void assignBudget(BigDecimal amount) {
-        if (amount == null) {
-            this.allocatedBudget = null;
-            return;
-        }
-        if (amount.signum() < 0) {
-            throw new IllegalArgumentException("Allocated budget cannot be negative");
-        }
-        BigDecimal normalized = amount.stripTrailingZeros();
-        if (normalized.scale() > 2) {
-            throw new IllegalArgumentException("Allocated budget allows at most 2 decimals");
-        }
-        BigDecimal scaled = amount.setScale(2, RoundingMode.UNNECESSARY);
-        if (scaled.precision() > 14) {
-            throw new IllegalArgumentException("Allocated budget is too large");
-        }
-        this.allocatedBudget = scaled;
+    /**
+     * Sets or, with null, clears the budget; it must fit numeric(14,2), cannot be negative and cannot drop
+     * below what the site's phases already hold.
+     */
+    public void assignBudget(BigDecimal amount, BigDecimal allocatedToPhases) {
+        BigDecimal checked = amount == null ? null : MoneyAmount.nonNegative(amount, "Allocated budget");
+        BudgetAllocation.checkParent(checked, allocatedToPhases);
+        this.allocatedBudget = checked;
     }
 
     public boolean sameAs(Project other) {

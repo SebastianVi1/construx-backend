@@ -239,12 +239,14 @@ class ActivityFlowTest {
     }
 
     @Test
-    void financeCannotSeeTasksAndOutsidersGetNotFound() throws Exception {
+    void financeOnlyViewsTasksAndOutsidersGetNotFound() throws Exception {
         String task = create(member, "Secret", anaAccess);
         Session finance = api.signUp();
         members.add(orgId, finance.user(), "FINANCE");
-        api.get(finance, tasks).andExpect(status().isForbidden());
-        api.get(finance, org + "/activities/mine").andExpect(status().isForbidden());
+        api.get(finance, tasks).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        api.get(finance, org + "/activities/mine").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        api.patch(finance, tasks + "/" + task, "{\"name\":\"x\"}").andExpect(status().isForbidden());
+        api.post(finance, tasks + "/" + task + "/start", null).andExpect(status().isForbidden());
 
         Session stranger = api.signUp();
         UUID strangerOrg = api.createOrganization(stranger, "Other " + UUID.randomUUID());

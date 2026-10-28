@@ -1,6 +1,7 @@
 package org.andre.construx.modules.project.model;
 
 import org.andre.construx.shared.validation.DomainValidation;
+import org.andre.construx.shared.validation.MoneyAmount;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -8,12 +9,16 @@ import jakarta.validation.constraints.Size;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+/** Dynamic updates write only changed columns, so a budget change and a concurrent edit never undo each other. */
 @Entity
+@DynamicUpdate
 @Table(name = "activity")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -52,6 +57,10 @@ public class Activity {
     /** Bar color in the schedule as lowercase #rrggbb; null is the default color. */
     @Column(length = 7)
     private String color;
+
+    /** Optional share of the phase budget; null means not set. */
+    @Column(precision = 14, scale = 2)
+    private BigDecimal allocatedBudget;
 
     public Activity(Goal goal, String name, ProjectAccess assigneeAccess, Instant startAt, Instant dueAt) {
         this.goal = DomainValidation.required(goal, "Goal is required");
@@ -102,6 +111,13 @@ public class Activity {
     /** Null clears the custom color. */
     public void changeColor(String color) {
         this.color = BarColor.normalize(color);
+    }
+
+    /** Sets or, with null, clears the task budget; it must fit in what the phase has left after its other tasks. */
+    public void assignBudget(BigDecimal amount, BigDecimal allocatedToOtherActivities) {
+        BigDecimal checked = amount == null ? null : MoneyAmount.nonNegative(amount, "Allocated budget");
+        BudgetAllocation.checkChild(goal.getAllocatedBudget(), allocatedToOtherActivities, checked);
+        this.allocatedBudget = checked;
     }
 
     public void assignTo(ProjectAccess assigneeAccess) {

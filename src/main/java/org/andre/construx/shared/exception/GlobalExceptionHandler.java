@@ -37,6 +37,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return respond(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage(), "NOT_FOUND", request);
     }
 
+    @ExceptionHandler(RuleViolationException.class)
+    public ResponseEntity<ProblemDetail> handleRuleViolation(RuleViolationException ex, HttpServletRequest request) {
+        return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetail> handleInvalidArgument(IllegalArgumentException ex, HttpServletRequest request) {
         return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), "INVALID_ARGUMENT", request);

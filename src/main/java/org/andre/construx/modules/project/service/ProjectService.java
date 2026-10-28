@@ -7,10 +7,13 @@ import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.model.ProjectStatus;
 import org.andre.construx.modules.project.repository.ActivityRepository;
+import org.andre.construx.modules.project.repository.GoalRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
 import org.andre.construx.modules.project.repository.ProjectRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.security.DomainAuthorization;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,16 +36,21 @@ public class ProjectService {
     private final ProjectRepository projects;
     private final ProjectAccessRepository accesses;
     private final ActivityRepository activities;
+    private final GoalRepository goals;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
+    private final EntityManager entityManager;
 
     public ProjectService(ProjectRepository projects, ProjectAccessRepository accesses, ActivityRepository activities,
-                          MembershipGuard guard, DomainAuthorization authorization) {
+                          GoalRepository goals, MembershipGuard guard, DomainAuthorization authorization,
+                          EntityManager entityManager) {
         this.projects = projects;
         this.accesses = accesses;
         this.activities = activities;
+        this.goals = goals;
         this.guard = guard;
         this.authorization = authorization;
+        this.entityManager = entityManager;
     }
 
     /** Optional dates a PATCH may remove; JSON cannot tell "not sent" from null. */
@@ -121,14 +129,38 @@ public class ProjectService {
         return withCounts(userId, organizationId, member, List.of(project)).get(0);
     }
 
-    /** Sets or, with null, clears the site's allocated budget. Requires MANAGE_BUDGET. */
+    /**
+     * Sets or, with null, clears the site's allocated budget. Requires MANAGE_BUDGET. It cannot drop below what
+     * the site's phases already hold.
+     */
     @Transactional
     public ProjectData assignBudget(UUID userId, UUID organizationId, UUID projectId, BigDecimal amount) {
         OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Project project = load(organizationId, projectId);
+        load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_BUDGET);
-        project.assignBudget(amount);
+        Project project = lockForBudget(organizationId, projectId);
+        project.assignBudget(amount, allocatedToPhases(projectId));
         return withCounts(userId, organizationId, member, List.of(project)).get(0);
+    }
+
+    /**
+     * Loads the site with fresh state under a row lock, so every budget change inside one site (its own, its
+     * phases') runs one at a time and the allocation cap holds under concurrent requests.
+     */
+    public Project lockForBudget(UUID organizationId, UUID projectId) {
+        Project project = load(organizationId, projectId);
+        entityManager.refresh(project, LockModeType.PESSIMISTIC_WRITE);
+        return project;
+    }
+
+    /** Sum of the site's phase budgets. */
+    public BigDecimal allocatedToPhases(UUID projectId) {
+        return goals.sumBudgetByProject(projectId).setScale(2);
+    }
+
+    /** Budget amounts are visible to any role with VIEW_BUDGET; everyone else gets null. */
+    public boolean canViewBudget(UUID userId, UUID organizationId) {
+        return authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_BUDGET).isPresent();
     }
 
     /** Used by the other project-module services to resolve a site inside the tenant. */
@@ -162,8 +194,7 @@ public class ProjectService {
                 counts.put((UUID) row[0], new long[] {((Number) row[1]).longValue(), ((Number) row[2]).longValue()});
             }
         }
-        boolean budgetVisible = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_BUDGET)
-                .isPresent();
+        boolean budgetVisible = canViewBudget(userId, organizationId);
         return list.stream().map(p -> {
             boolean visible = covered.contains(p.getId());
             long[] c = counts.getOrDefault(p.getId(), new long[] {0, 0});
