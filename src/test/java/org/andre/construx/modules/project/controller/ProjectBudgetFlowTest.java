@@ -113,6 +113,16 @@ class ProjectBudgetFlowTest {
     }
 
     @Test
+    void aBodyWithoutTheFieldIsRejectedInsteadOfClearingTheBudget() throws Exception {
+        api.put(owner, base + "/" + siteId + "/budget", "{\"allocatedBudget\":5000}").andExpect(status().isOk());
+        api.put(owner, base + "/" + siteId + "/budget", "{}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+        api.put(owner, base + "/" + siteId + "/budget", "{\"budget\":1}").andExpect(status().isBadRequest());
+        api.get(owner, base + "/" + siteId).andExpect(jsonPath("$.allocatedBudget").value(5000));
+    }
+
+    @Test
     void otherTenantsAndUnknownSitesGetNotFound() throws Exception {
         Session stranger = api.signUp();
         UUID strangerOrg = api.createOrganization(stranger, "Other " + UUID.randomUUID());

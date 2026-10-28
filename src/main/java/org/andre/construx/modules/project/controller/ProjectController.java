@@ -1,5 +1,6 @@
 package org.andre.construx.modules.project.controller;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
@@ -43,8 +44,28 @@ public class ProjectController {
                                LocalDate startDate, LocalDate expectedEndDate, ProjectStatus status,
                                Set<String> clear) {}
 
-    /** A null amount clears the budget. */
-    public record BudgetUpdate(@PositiveOrZero @Digits(integer = 12, fraction = 2) BigDecimal allocatedBudget) {}
+    /**
+     * {@code allocatedBudget} is required but may be null, which clears the budget. A body without it is
+     * rejected so a client that forgets the field cannot wipe the value; the setter records that it was sent.
+     */
+    public static final class BudgetUpdate {
+        @PositiveOrZero @Digits(integer = 12, fraction = 2)
+        private BigDecimal allocatedBudget;
+        private boolean sent;
+
+        @JsonProperty("allocatedBudget")
+        void setAllocatedBudget(BigDecimal allocatedBudget) {
+            this.allocatedBudget = allocatedBudget;
+            this.sent = true;
+        }
+
+        BigDecimal requireAllocatedBudget() {
+            if (!sent) {
+                throw new IllegalArgumentException("allocatedBudget is required; send null to clear it");
+            }
+            return allocatedBudget;
+        }
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -79,7 +100,8 @@ public class ProjectController {
     public ProjectService.ProjectData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                                    @Valid @RequestBody BudgetUpdate body,
                                                    Authentication authentication) {
-        return projects.assignBudget(userId(authentication), organizationId, projectId, body.allocatedBudget());
+        return projects.assignBudget(userId(authentication), organizationId, projectId,
+                body.requireAllocatedBudget());
     }
 
     private static UUID userId(Authentication authentication) {
