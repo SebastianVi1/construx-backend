@@ -14,5 +14,7 @@ public enum PermissionAction {
     VIEW_PRICES,
     MANAGE_PRICES,
     VIEW_BUDGET,
-    MANAGE_BUDGET
+    MANAGE_BUDGET,
+    VIEW_PLAN,
+    MANAGE_PLAN
 }

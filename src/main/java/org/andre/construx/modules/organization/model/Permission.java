@@ -68,5 +68,9 @@ public class Permission {
                 && scope != PermissionScope.ORGANIZATION) {
             throw new IllegalArgumentException("Site budgets are an organization-wide finance permission");
         }
+        if ((action == PermissionAction.VIEW_PLAN || action == PermissionAction.MANAGE_PLAN)
+                && scope == PermissionScope.OWN) {
+            throw new IllegalArgumentException("Site plans require project or organization scope");
+        }
     }
 }
