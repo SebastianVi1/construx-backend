@@ -1,0 +1,10 @@
+target/
+.env
+.git
+.idea
+.claude
+.codex
+.agents
+.atl
+docs
+*.md
