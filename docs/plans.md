@@ -55,7 +55,7 @@ non-member -> 404, unknown site -> 404, missing permission -> 403, plan outside 
 
 | Variable | Use |
 |---|---|
-| `AWS_BUCKET_NAME` | Bucket name (required) |
+| `AWS_BUCKET_NAME` | Bucket name. The app starts without it, but plan uploads and views fail |
 | `AWS_REGION` | Bucket region, default `us-east-1` |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Keys of the backend IAM user, or set `AWS_PROFILE` instead |
 
