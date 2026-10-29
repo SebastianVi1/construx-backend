@@ -71,7 +71,7 @@ class TaskBudgetFlowTest {
 
     private String task(String name) throws Exception {
         return tasks + "/" + Api.id(api.post(owner, tasks, "{\"name\":\"" + name + "\",\"startAt\":\"2027-01-02T00:00:00Z\","
-                + "\"dueAt\":\"2027-01-10T00:00:00Z\",\"assigneeAccessId\":\"" + assignee + "\"}"));
+                + "\"dueAt\":\"2027-01-10T00:00:00Z\",\"assignees\":[{\"accessId\":\"" + assignee + "\",\"taskRole\":\"LEAD\"}]}"));
     }
 
     private static String budget(String amount) {

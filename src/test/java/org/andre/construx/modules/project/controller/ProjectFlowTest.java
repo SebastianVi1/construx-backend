@@ -173,10 +173,16 @@ class ProjectFlowTest {
         UUID goal = UUID.randomUUID();
         Timestamp due = Timestamp.from(Instant.now().plusSeconds(86_400));
         jdbc.update("insert into goal (id, project_id, name, start_at, due_at) values (?, ?, 'Foundations', ?, ?)", goal, projectId, due, due);
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'Dig', ?, ?, ?, 'DONE')",
-                UUID.randomUUID(), goal, access, due, due);
-        jdbc.update("insert into activity (id, goal_id, name, assignee_access_id, start_at, due_at, status) values (?, ?, 'Pour', ?, ?, ?, 'TODO')",
-                UUID.randomUUID(), goal, access, due, due);
+        UUID dig = UUID.randomUUID();
+        jdbc.update("insert into activity (id, goal_id, name, start_at, due_at, status) values (?, ?, 'Dig', ?, ?, 'DONE')",
+                dig, goal, due, due);
+        jdbc.update("insert into activity_assignee (id, activity_id, access_id, task_role) values (?, ?, ?, 'LEAD')",
+                UUID.randomUUID(), dig, access);
+        UUID pour = UUID.randomUUID();
+        jdbc.update("insert into activity (id, goal_id, name, start_at, due_at, status) values (?, ?, 'Pour', ?, ?, 'TODO')",
+                pour, goal, due, due);
+        jdbc.update("insert into activity_assignee (id, activity_id, access_id, task_role) values (?, ?, ?, 'LEAD')",
+                UUID.randomUUID(), pour, access);
         api.get(owner, base + "/" + id).andExpect(jsonPath("$.activityCount").value(2))
                 .andExpect(jsonPath("$.doneCount").value(1));
     }

@@ -1,7 +1,9 @@
 package org.andre.construx.modules.project.repository;
 
 import org.andre.construx.modules.project.model.Activity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
@@ -17,7 +19,9 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
             + "from Activity a join a.goal g where g.project.id in :projectIds group by g.project.id")
     List<Object[]> countByProject(Collection<UUID> projectIds);
 
-    boolean existsByAssigneeAccessId(UUID accessId);
+    /** Whether the person is in the team of any task. */
+    @Query("select count(t) > 0 from ActivityAssignee t where t.access.id = :accessId")
+    boolean existsInAnyTeam(UUID accessId);
 
     /** Rows of [goalId, activityCount, doneCount] for one site; goals without activities are absent. */
     @Query("select a.goal.id, count(a), "
@@ -26,6 +30,10 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     List<Object[]> countByGoal(UUID projectId);
 
     boolean existsByGoalId(UUID goalId);
+
+    /** Whether any expense is charged to the task; such a task cannot be deleted. */
+    @Query("select count(e) > 0 from Expense e where e.activity.id = :activityId")
+    boolean hasExpenses(UUID activityId);
 
     /** Rows of [goalId, sum of task budgets] for one site; goals without task budgets are absent. */
     @Query("select a.goal.id, sum(a.allocatedBudget) from Activity a "
@@ -40,15 +48,21 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
     @Query("select coalesce(sum(a.allocatedBudget), 0) from Activity a where a.goal.id = :goalId and a.id <> :activityId")
     BigDecimal sumBudgetOfOtherActivities(UUID goalId, UUID activityId);
 
-    @Query("select a from Activity a join fetch a.assigneeAccess acc join fetch acc.organizationMembership "
-            + "where a.goal.id = :goalId order by a.dueAt, a.name")
-    List<Activity> findByGoalWithAssignee(UUID goalId);
+    @Query("select distinct a from Activity a left join fetch a.team t left join fetch t.access acc "
+            + "left join fetch acc.organizationMembership where a.goal.id = :goalId order by a.dueAt, a.name")
+    List<Activity> findByGoalWithTeam(UUID goalId);
 
     Optional<Activity> findByIdAndGoalId(UUID id, UUID goalId);
 
-    /** The membership's assigned tasks across every site of its organization. */
-    @Query("select a from Activity a join fetch a.goal g join fetch g.project join fetch a.assigneeAccess acc "
-            + "join fetch acc.organizationMembership m where m.id = :membershipId "
-            + "and g.project.organization.id = :organizationId order by a.dueAt, a.name")
+    /** Row lock so two team changes of one task run one after the other and keep exactly one Lead. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Activity a where a.id = :id")
+    Optional<Activity> lockById(UUID id);
+
+    /** Tasks whose team includes the membership, across every site of its organization. */
+    @Query("select distinct a from Activity a join fetch a.goal g join fetch g.project left join fetch a.team t "
+            + "left join fetch t.access acc left join fetch acc.organizationMembership "
+            + "where g.project.organization.id = :organizationId and exists (select 1 from ActivityAssignee x "
+            + "where x.activity = a and x.access.organizationMembership.id = :membershipId) order by a.dueAt, a.name")
     List<Activity> findAssignedTo(UUID organizationId, UUID membershipId);
 }

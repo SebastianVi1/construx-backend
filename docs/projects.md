@@ -1,6 +1,6 @@
 # Sites, phases and tasks
 
-Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope through `DomainAuthorization` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks assigned to the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
+Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope through `DomainAuthorization` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks whose team includes the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
 
 ## Sites
 
@@ -23,10 +23,15 @@ Budget: `PUT /projects/{projectId}/budget` with `{ "allocatedBudget": 250000.50 
 |---|---|---|
 | GET | `/projects/{projectId}/expenses` | `VIEW_BUDGET` |
 | POST | `/projects/{projectId}/expenses` | `MANAGE_BUDGET` |
-| PATCH | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET` |
-| DELETE | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET` |
+| PATCH | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET`, or the task's Lead for an expense they recorded |
+| DELETE | `/projects/{projectId}/expenses/{expenseId}` | `MANAGE_BUDGET`, or the task's Lead for an expense they recorded |
+| GET | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/expenses` | `VIEW_BUDGET` or the task's Lead |
+| POST | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/expenses` | `MANAGE_BUDGET` or the task's Lead |
+| GET | `/projects/{projectId}/goals/{goalId}/activities/{activityId}/budget` | `VIEW_BUDGET` or the task's Lead |
 
 Module `modules/finance`, table `expense` (`V14__site_expenses.sql`). Only Owner and Finance record, edit and delete expenses; Administrator lost that with `MANAGE_BUDGET` in `V15__budget_permissions.sql` and keeps read access through `VIEW_BUDGET`. Body: `{ "amount", "spentOn", "description", "category" }`, all required on POST and optional on PATCH (a missing field keeps the stored value). `amount` is greater than 0 with at most 12 integer digits and 2 decimals; `spentOn` is a date; `description` has 1 to 160 characters; `category` is `MATERIALS`, `LABOR`, `EQUIPMENT` or `OTHER`. Anything else returns `400`. The list is newest first (`spentOn`, then creation). DELETE returns `204`; an expense of another site returns `404`.
+
+Task expenses (ADR 0005, `V18__expense_task_link.sql`): an expense can be charged to one task of its site; it is still a site expense, listed and subtracted from the site budget like any other. Responses carry `activityId` and `createdByMembershipId` (both `null` for site-only expenses and for expenses recorded before V18). The task's current Lead, whatever their organization role, can list the task's expenses, record new ones of any category with the same body, read `GET .../activities/{activityId}/budget` = `{ "allocatedBudget", "spent", "remaining" }` (`remaining` negative on an overrun, `null` when the task has no budget), and PATCH or DELETE, through the site paths, only the expenses they recorded on a task they still lead. Overspending a task, or charging a task with no budget, is allowed. Other team members and other workers get `403`; a former Lead loses these rights, and a new Lead cannot edit the previous Lead's expenses. The Lead cannot change the task's `allocatedBudget` (`PUT .../budget` stays `MANAGE_BUDGET`) or see the site budget. A task with expenses cannot be deleted (`409 STATE_CONFLICT`).
 
 Every expense is subtracted from the site budget. `GET /projects/{projectId}/budget` returns `{ "allocatedBudget", "spent", "remaining", "allocatedToPhases", "unallocated", "byCategory": [{ "category", "amount" }] }`: `allocatedToPhases` is the sum of the phase budgets, `unallocated` is `allocatedBudget - allocatedToPhases` (`null` without a budget), `spent` is the sum of the site's expenses, `remaining` is `allocatedBudget - spent` (negative on an overrun, `null` when no budget is set), and `byCategory` always lists the four categories in the order above, with `0` for unused ones.
 
@@ -63,19 +68,19 @@ Phase budget: `PUT .../goals/{goalId}/budget` with `{ "allocatedBudget": 50000 }
 | Method | Path | Permission |
 |---|---|---|
 | POST | `...` | `MANAGE_ACTIVITY` and `ASSIGN_ACTIVITY` on the site |
-| GET | `...?status=&assigneeAccessId=` | `VIEW_ACTIVITY` on the site (`OWN` scope sees only own tasks) |
-| GET | `.../{activityId}` | `VIEW_ACTIVITY` (own tasks pass `OWN`) |
+| GET | `...?status=&assigneeAccessId=` | `VIEW_ACTIVITY` on the site (`OWN` scope sees only tasks they are on) |
+| GET | `.../{activityId}` | `VIEW_ACTIVITY` (team members pass `OWN`) |
 | PATCH | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
-| PUT | `.../{activityId}/assignee` | `ASSIGN_ACTIVITY` on the site |
-| POST | `.../{activityId}/start` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
-| POST | `.../{activityId}/complete` | `MANAGE_ACTIVITY`; `OWN` passes for the assignee |
+| PUT | `.../{activityId}/assignees` | `ASSIGN_ACTIVITY` on the site |
+| POST | `.../{activityId}/start` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
+| POST | `.../{activityId}/complete` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
 | DELETE | `.../{activityId}` | `MANAGE_ACTIVITY` on the site |
 | PUT | `.../{activityId}/budget` | `MANAGE_BUDGET` |
 | GET | `/activities/mine?status=` | any `VIEW_ACTIVITY` or `MANAGE_ACTIVITY` |
 
-POST body: `{ "name", "startAt", "dueAt", "assigneeAccessId" }`, all required; the assignee must be a `ProjectAccess` of this site (`404` otherwise). A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignee` with `{ "assigneeAccessId" }` to reassign. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks assigned to them; every other change returns `403`. `/activities/mine` lists the caller's own tasks across all sites of the organization, ordered by `dueAt`.
+POST body: `{ "name", "startAt", "dueAt", "assignees": [{ "accessId", "taskRole" }] }`, all required. A task has a team (ADR 0005): one or more people, each a `ProjectAccess` of this site (`404` otherwise) with an active membership, nobody twice, and exactly one `LEAD`; `taskRole` is `LEAD`, `FOREMAN` or `CREW`. An empty list or a member without `accessId`/`taskRole` is `400 VALIDATION_FAILED`; no Lead, two Leads, a duplicate person or an inactive member is `400 INVALID_ARGUMENT`. A task lies inside its phase: `startAt` cannot be after `dueAt`, before the phase's `startAt`, and `dueAt` cannot be after the phase's (`400`). PATCH accepts `{ "name", "startAt", "dueAt", "color" }`, checking both dates together; use `PUT .../assignees` with `{ "assignees": [...] }` (same rules) to replace the whole team; people who stay keep their place and only change role. Being a task's Lead does not allow changing its team. Status moves `TODO` → `IN_PROGRESS` (`start`) and `TODO`/`IN_PROGRESS` → `DONE` (`complete`, sets `completedAt`); other moves return `409 STATE_CONFLICT` and a done task cannot be reopened in v1. A worker (`MANAGE_ACTIVITY` at `OWN`) can only start and complete tasks whose team includes them, whatever their task role; every other change returns `403`. `/activities/mine` lists the tasks whose team includes the caller across all sites of the organization, ordered by `dueAt`, and `?assigneeAccessId=` matches any team member.
 
-Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignee: { accessId, membershipId, fullName } }`. `assignee.fullName` is null when the person has no profile.
+Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt, color, status, completedAt, assignees: [{ accessId, membershipId, fullName, taskRole }], allocatedBudget }`. `assignees` is ordered `LEAD`, `FOREMAN`, `CREW`, then by name; `fullName` is null when the person has no profile. The team lives in `activity_assignee` (`V17__activity_team.sql`, which made every earlier assignee the Lead of their task).
 
 Task budget: `PUT .../{activityId}/budget` with `{ "allocatedBudget" }` carves the task budget out of its phase budget (same rules one level down: the tasks of a phase cannot hold more than its budget, `400 BUDGET_EXCEEDED`; the phase needs a budget first, `400 BUDGET_PARENT_MISSING`). Responses include `allocatedBudget`, `null` when unset or without `VIEW_BUDGET`. Deleting a task frees its budget. Phase and task budgets live in `goal.allocated_budget` and `activity.allocated_budget` (`V16__phase_activity_budget.sql`).
 

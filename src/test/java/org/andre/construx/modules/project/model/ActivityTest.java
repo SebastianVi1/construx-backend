@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -108,7 +109,36 @@ class ActivityTest {
     void assigneeMustHaveAccessToTheSameSite() {
         Project other = new Project(organization, "Other");
         ProjectAccess foreign = new ProjectAccess(other, organization.getMemberships().iterator().next());
-        assertThrows(IllegalArgumentException.class, () -> activity.assignTo(foreign));
+        assertThrows(IllegalArgumentException.class,
+                () -> activity.assignTeam(List.of(new TeamMember(foreign, TaskRole.LEAD))));
+    }
+
+    @Test
+    void teamHasExactlyOneLeadAndNobodyTwice() {
+        assertThrows(IllegalArgumentException.class, () -> activity.assignTeam(List.of()));
+        assertThrows(IllegalArgumentException.class, () -> activity.assignTeam(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> activity.assignTeam(List.of(new TeamMember(access, TaskRole.CREW))));
+        assertThrows(IllegalArgumentException.class, () -> activity.assignTeam(
+                List.of(new TeamMember(access, TaskRole.LEAD), new TeamMember(access, TaskRole.CREW))));
+        assertThrows(IllegalArgumentException.class,
+                () -> activity.assignTeam(List.of(new TeamMember(access, null))));
+        assertEquals(1, activity.getTeam().size());
+        assertEquals(TaskRole.LEAD, activity.getTeam().get(0).getTaskRole());
+    }
+
+    @Test
+    void keptMembersChangeRoleInPlace() {
+        ActivityAssignee row = activity.getTeam().get(0);
+        Project same = goal.getProject();
+        ProjectAccess other = new ProjectAccess(same, organization.getMemberships().iterator().next());
+        activity.assignTeam(List.of(new TeamMember(other, TaskRole.LEAD), new TeamMember(access, TaskRole.FOREMAN)));
+        assertEquals(2, activity.getTeam().size());
+        assertSame(row, activity.getTeam().get(0));
+        assertEquals(TaskRole.FOREMAN, row.getTaskRole());
+        activity.assignTeam(List.of(new TeamMember(other, TaskRole.LEAD)));
+        assertEquals(1, activity.getTeam().size());
+        assertSame(other, activity.getTeam().get(0).getAccess());
     }
 
     @Test

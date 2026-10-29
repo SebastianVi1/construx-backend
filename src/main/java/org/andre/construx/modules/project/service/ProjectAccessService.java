@@ -85,8 +85,8 @@ public class ProjectAccessService {
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
         ProjectAccess access = accesses.findByIdAndProjectId(accessId, projectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Site access not found"));
-        if (activities.existsByAssigneeAccessId(accessId)) {
-            throw new IllegalStateException("Reassign this person's tasks before removing them from the site");
+        if (activities.existsInAnyTeam(accessId)) {
+            throw new IllegalStateException("Take this person off their task teams before removing them from the site");
         }
         accesses.delete(access);
     }

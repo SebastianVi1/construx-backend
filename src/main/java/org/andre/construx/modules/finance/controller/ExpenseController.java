@@ -28,6 +28,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/organizations/{organizationId}/projects/{projectId}")
 public class ExpenseController {
+    private static final String TASK = "/goals/{goalId}/activities/{activityId}";
+
     private final ExpenseService expenses;
 
     public ExpenseController(ExpenseService expenses) {
@@ -76,6 +78,33 @@ public class ExpenseController {
     public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID expenseId,
                        Authentication authentication) {
         expenses.delete(userId(authentication), organizationId, projectId, expenseId);
+    }
+
+    /** The task's budget, what was charged to it and what remains; budget roles and the task's Lead. */
+    @GetMapping(TASK + "/budget")
+    public ExpenseService.TaskBudget taskBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                                @PathVariable UUID goalId, @PathVariable UUID activityId,
+                                                Authentication authentication) {
+        return expenses.taskBudget(userId(authentication), organizationId, projectId, goalId, activityId);
+    }
+
+    @GetMapping(TASK + "/expenses")
+    public List<ExpenseService.ExpenseData> listForTask(@PathVariable UUID organizationId,
+                                                        @PathVariable UUID projectId, @PathVariable UUID goalId,
+                                                        @PathVariable UUID activityId,
+                                                        Authentication authentication) {
+        return expenses.listForTask(userId(authentication), organizationId, projectId, goalId, activityId);
+    }
+
+    /** An expense charged to the task; it also counts against the site budget. Edit and delete use the site paths. */
+    @PostMapping(TASK + "/expenses")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ExpenseService.ExpenseData createForTask(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                                    @PathVariable UUID goalId, @PathVariable UUID activityId,
+                                                    @Valid @RequestBody ExpenseCreate body,
+                                                    Authentication authentication) {
+        return expenses.createForTask(userId(authentication), organizationId, projectId, goalId, activityId,
+                body.amount(), body.spentOn(), body.description(), body.category());
     }
 
     private static UUID userId(Authentication authentication) {

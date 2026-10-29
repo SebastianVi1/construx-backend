@@ -65,7 +65,7 @@ class BudgetLostUpdateTest {
         api.put(owner, site + "/goals/" + goalId + "/budget", "{\"allocatedBudget\":500}");
         activityId = UUID.fromString(Api.id(api.post(owner, site + "/goals/" + goalId + "/activities",
                 "{\"name\":\"Dig\",\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\","
-                        + "\"assigneeAccessId\":\"" + assignee + "\"}")));
+                        + "\"assignees\":[{\"accessId\":\"" + assignee + "\",\"taskRole\":\"LEAD\"}]}")));
     }
 
     /** Runs {@code other} in its own committed transaction while {@code first} still holds a stale copy. */

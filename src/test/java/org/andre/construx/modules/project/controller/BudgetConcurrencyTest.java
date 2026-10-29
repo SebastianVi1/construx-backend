@@ -140,8 +140,7 @@ class BudgetConcurrencyTest {
             List<UUID> tasks = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 tasks.add(UUID.fromString(Api.id(api.post(owner, site + "/goals/" + p + "/activities", "{\"name\":\"t" + round + i
-                        + "\",\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\",\"assigneeAccessId\":\""
-                        + assignee + "\"}"))));
+                        + "\",\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\",\"assignees\":[{\"accessId\":\"" + assignee + "\",\"taskRole\":\"LEAD\"}]}"))));
             }
             together(6, i -> i == 5
                     ? () -> goalService.assignBudget(user, orgId, projectId, p, new BigDecimal("40"))
