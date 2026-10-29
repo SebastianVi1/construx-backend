@@ -77,10 +77,10 @@ class OrganizationMembersFlowTest {
         api.get(worker, org + "/me").andExpect(status().isOk())
                 .andExpect(jsonPath("$.membershipId").value(workerMembership.toString()))
                 .andExpect(jsonPath("$.role.code").value("WORKER"))
-                .andExpect(jsonPath("$.permissions.length()").value(4))
+                .andExpect(jsonPath("$.permissions.length()").value(5))
                 .andExpect(jsonPath("$.permissions[?(@.action == 'MANAGE_ACTIVITY')].scope").value(hasItem("OWN")))
                 .andExpect(jsonPath("$.permissions[?(@.action == 'VIEW_PROJECT')].scope").value(hasItem("PROJECT")));
-        api.get(owner, org + "/me").andExpect(jsonPath("$.permissions.length()").value(14));
+        api.get(owner, org + "/me").andExpect(jsonPath("$.permissions.length()").value(16));
         Session stranger = api.signUp();
         api.get(stranger, org + "/me").andExpect(status().isNotFound());
     }

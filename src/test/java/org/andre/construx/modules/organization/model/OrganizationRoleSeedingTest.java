@@ -55,6 +55,8 @@ class OrganizationRoleSeedingTest {
         expected.put(MANAGE_ACTIVITY, ORGANIZATION);
         expected.put(ASSIGN_ACTIVITY, ORGANIZATION);
         expected.put(VIEW_PRICES, ORGANIZATION);
+        expected.put(VIEW_PLAN, PROJECT);
+        expected.put(MANAGE_PLAN, PROJECT);
         assertEquals(expected, grants("MEMBER"));
     }
 
@@ -65,6 +67,7 @@ class OrganizationRoleSeedingTest {
         expected.put(VIEW_GOAL, PROJECT);
         expected.put(VIEW_ACTIVITY, PROJECT);
         expected.put(MANAGE_ACTIVITY, OWN);
+        expected.put(VIEW_PLAN, PROJECT);
         assertEquals(expected, grants("WORKER"));
     }
 
