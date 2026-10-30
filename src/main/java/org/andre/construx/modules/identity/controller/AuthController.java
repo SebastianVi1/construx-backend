@@ -48,7 +48,8 @@ public class AuthController {
     }
 
     public record Credentials(@Email @NotBlank String email, @NotBlank String password) {}
-    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12, max = 72) String password) {}
+    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12, max = 72) String password,
+            @Size(max = 160) String name) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
     public record ResetRequest(@NotBlank String token, @NotBlank @Size(min = 12, max = 72) String newPassword) {}
@@ -56,7 +57,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<Void> register(@Valid @RequestBody Registration body) {
-        accounts.register(body.email(), body.password());
+        accounts.register(body.email(), body.password(), body.name());
         return ResponseEntity.accepted().build();
     }
 

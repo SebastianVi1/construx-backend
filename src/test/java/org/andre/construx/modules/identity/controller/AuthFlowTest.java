@@ -6,6 +6,7 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.modules.identity.repository.UserProfileRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +38,7 @@ class AuthFlowTest {
     @Autowired UserAccountRepository users;
     @Autowired PasswordEncoder passwords;
     @Autowired PasswordResetRepository resets;
+    @Autowired UserProfileRepository profiles;
     @MockitoBean JavaMailSender sender;
 
     @Test
@@ -52,6 +54,26 @@ class AuthFlowTest {
                         .contentType("application/json")
                         .content("{\"email\":\"short-" + UUID.randomUUID() + "@example.test\",\"password\":\"12345678901\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void registrationStoresTheSubmittedNameAsTheProfileFullName() throws Exception {
+        String email = "named-" + UUID.randomUUID() + "@example.test";
+        MvcResult csrfResult = mvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk()).andReturn();
+        String csrf = JsonPath.read(csrfResult.getResponse().getContentAsString(), "$.token");
+        String headerName = JsonPath.read(csrfResult.getResponse().getContentAsString(), "$.headerName");
+        Cookie csrfCookie = csrfResult.getResponse().getCookie("XSRF-TOKEN");
+
+        mvc.perform(post("/api/auth/register").cookie(csrfCookie)
+                        .header(headerName, csrf)
+                        .contentType("application/json")
+                        .content("{\"email\":\"" + email + "\",\"password\":\"long-password-here\",\"name\":\" Ana López \"}"))
+                .andExpect(status().isAccepted());
+        UserAccount user = users.findByEmail(email).orElseThrow();
+        var profile = profiles.findById(user.getId()).orElseThrow();
+        assertEquals("Ana López", profile.getFullName());
+        assertNull(profile.getPhoneNumber());
     }
 
     @Test
