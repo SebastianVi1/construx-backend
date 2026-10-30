@@ -34,7 +34,8 @@ public class UserProfile {
     @Column(name = "full_name", nullable = false, length = 160)
     private String fullName;
 
-    @Column(name = "phone_number", nullable = false, length = 16)
+    /** Null until the user adds one; registration only collects the name. */
+    @Column(name = "phone_number", length = 16)
     private String phoneNumber;
 
     /** Free-text specialty such as "electrician". Profile data, never a permission. */
@@ -46,16 +47,27 @@ public class UserProfile {
         update(fullName, phoneNumber);
     }
 
+    /** A name-only profile, as created at registration. */
+    public UserProfile(UserAccount account, String fullName) {
+        this.account = account;
+        this.fullName = normalizeName(fullName);
+    }
+
     public void update(String fullName, String phoneNumber) {
-        if (fullName == null || fullName.isBlank() || fullName.strip().length() > 160) {
-            throw new IllegalArgumentException("Full name must have 1 to 160 characters");
-        }
+        String normalizedName = normalizeName(fullName);
         String normalizedPhone = phoneNumber == null ? "" : phoneNumber.strip();
         if (!normalizedPhone.matches("\\+[1-9][0-9]{1,14}")) {
             throw new IllegalArgumentException("Phone number must use international E.164 format");
         }
-        this.fullName = fullName.strip();
+        this.fullName = normalizedName;
         this.phoneNumber = normalizedPhone;
+    }
+
+    private static String normalizeName(String fullName) {
+        if (fullName == null || fullName.isBlank() || fullName.strip().length() > 160) {
+            throw new IllegalArgumentException("Full name must have 1 to 160 characters");
+        }
+        return fullName.strip();
     }
 
     /** A blank trade clears it. */

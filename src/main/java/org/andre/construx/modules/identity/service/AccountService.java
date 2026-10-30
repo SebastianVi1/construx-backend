@@ -27,6 +27,7 @@ public class AccountService {
     private final UserAccountRepository users;
     private final EmailVerificationRepository verifications;
     private final GoogleIdentityRepository google;
+    private final UserProfileRepository profiles;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
     private final AuthMailer mailer;
@@ -34,11 +35,12 @@ public class AccountService {
     private final SecureRandom random = new SecureRandom();
 
     public AccountService(UserAccountRepository users, EmailVerificationRepository verifications,
-            GoogleIdentityRepository google, PasswordEncoder passwords, TokenService tokens,
+            GoogleIdentityRepository google, UserProfileRepository profiles, PasswordEncoder passwords, TokenService tokens,
             AuthMailer mailer, @Value("${app.security.frontend-url}") String frontendUrl) {
         this.users = users;
         this.verifications = verifications;
         this.google = google;
+        this.profiles = profiles;
         this.passwords = passwords;
         this.tokens = tokens;
         this.mailer = mailer;
@@ -57,9 +59,21 @@ public class AccountService {
      */
     @Transactional
     public void register(String email, String password) {
+        register(email, password, null);
+    }
+
+    /**
+     * Creates a password-based account like {@link #register(String, String)}
+     * and, when a full name is given, a name-only profile for it.
+     *
+     * @param fullName the name entered at sign-up; blank or {@code null} skips the profile
+     */
+    @Transactional
+    public void register(String email, String password, String fullName) {
         String normalized = UserAccount.normalizeEmail(email);
         if (users.findByEmail(normalized).isPresent()) return;
         UserAccount user = users.save(new UserAccount(normalized, passwords.encode(password)));
+        if (fullName != null && !fullName.isBlank()) profiles.save(new UserProfile(user, fullName));
         sendVerification(user);
     }
 

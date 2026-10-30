@@ -22,6 +22,7 @@ class AccountServiceTest {
     private UserAccountRepository users;
     private EmailVerificationRepository proofs;
     private GoogleIdentityRepository google;
+    private UserProfileRepository profiles;
     private JavaMailSender sender;
     private AccountService service;
 
@@ -30,8 +31,9 @@ class AccountServiceTest {
         users = mock(UserAccountRepository.class);
         proofs = mock(EmailVerificationRepository.class);
         google = mock(GoogleIdentityRepository.class);
+        profiles = mock(UserProfileRepository.class);
         sender = mock(JavaMailSender.class);
-        service = new AccountService(users, proofs, google,
+        service = new AccountService(users, proofs, google, profiles,
                 PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
                 mailerWith(sender), "https://app.example.test");
         when(users.save(any(UserAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -58,6 +60,21 @@ class AccountServiceTest {
     }
 
     @Test
+    void registrationStoresTheFullNameInTheProfile() {
+        service.register("person@example.com", "long-password-here", "  Ana López ");
+        var profileCaptor = org.mockito.ArgumentCaptor.forClass(UserProfile.class);
+        verify(profiles).save(profileCaptor.capture());
+        assertEquals("Ana López", profileCaptor.getValue().getFullName());
+        assertNull(profileCaptor.getValue().getPhoneNumber());
+    }
+
+    @Test
+    void registrationWithoutNameCreatesNoProfile() {
+        service.register("person@example.com", "long-password-here", " ");
+        verify(profiles, never()).save(any());
+    }
+
+    @Test
     void resendInvalidatesPreviouslyIssuedLinks() {
         UserAccount pending = new UserAccount("person@example.com", "hash");
         when(users.findByEmail("person@example.com")).thenReturn(Optional.of(pending));
@@ -77,7 +94,7 @@ class AccountServiceTest {
 
     @Test
     void registrationSucceedsWhenNoMailSenderIsConfigured() {
-        AccountService withoutMail = new AccountService(users, proofs, google,
+        AccountService withoutMail = new AccountService(users, proofs, google, profiles,
                 PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
                 mailerWith(null), "https://app.example.test");
         assertDoesNotThrow(() -> withoutMail.register("person@example.com", "long-password-here"));
