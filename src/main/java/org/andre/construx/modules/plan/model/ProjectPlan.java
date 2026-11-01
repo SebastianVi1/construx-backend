@@ -72,6 +72,17 @@ public class ProjectPlan {
 
     private Instant completedAt;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "folder_id")
+    private PlanFolder folder;
+
+    public void moveTo(PlanFolder folder) {
+        if (folder != null && !folder.getOrganization().getId().equals(project.getOrganization().getId())) {
+            throw new IllegalArgumentException("Folder belongs to another organization");
+        }
+        this.folder = folder;
+    }
+
     /** A blank {@code name} falls back to the file name without its extension. */
     public ProjectPlan(Project project, OrganizationMembership uploadedBy, String fileName, String contentType,
                        long sizeBytes, String name, String description) {

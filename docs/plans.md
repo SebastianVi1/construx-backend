@@ -38,8 +38,29 @@ non-member -> 404, unknown site -> 404, missing permission -> 403, plan outside 
 { "id": "uuid", "projectId": "uuid", "name": "Ground floor", "description": null,
   "fileName": "Ground floor.png", "contentType": "image/png", "sizeBytes": 2048,
   "createdAt": "2026-10-28T18:00:00Z", "completedAt": "2026-10-28T18:00:05Z",
-  "viewUrl": "https://...", "viewUrlExpiresAt": "2026-10-28T18:10:05Z" }
+  "viewUrl": "https://...", "viewUrlExpiresAt": "2026-10-28T18:10:05Z",
+  "folderId": null }
 ```
+
+## Shared library and folders
+
+Schema `V22__shared_plan_folders.sql`. Plans stay owned by their site; folders only organize them for the whole
+organization. Every plan is at the library root (`folderId: null`) until it is moved.
+
+Base path `/api/organizations/{organizationId}`. All checks require active membership; plan permissions keep their
+existing organization or assigned-project scope, and folder edits never grant plan access.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /plan-library` | `VIEW_PLAN` | 200 `{folders, sites, plans, canManageFolders}`. Only sites and plans visible to the caller. Each site is `{id, name, canManage}`. |
+| `POST /plan-folders` | Owner/Administrator and `MANAGE_PLAN` | Body `{name, parentId}` -> 201 folder. |
+| `PATCH /plan-folders/{folderId}` | Owner/Administrator and `MANAGE_PLAN` | Full `{name, parentId}` replacement -> 200 folder; `parentId: null` is the root. |
+| `DELETE /plan-folders/{folderId}` | Owner/Administrator and `MANAGE_PLAN` | Moves child folders and plans to the parent (root when absent), then deletes the folder. 204. Never deletes files. |
+| `PUT /projects/{projectId}/plans/{planId}/folder` | `MANAGE_PLAN` on that site | Body `{folderId}` -> 200 `PlanResponse`; `null` is the root. |
+
+Folder records are `{id, name, parentId}`. Names are 1 to 120 characters after trimming. A folder cannot be moved
+into itself or a descendant, and references to another organization's folders are rejected. Structural edits and
+plan moves serialize on the organization row (`PESSIMISTIC_WRITE`).
 
 ## Rules
 
