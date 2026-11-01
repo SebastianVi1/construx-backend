@@ -53,7 +53,7 @@ public class ProjectPlanService {
     /** {@code viewUrl} is a short-lived download link, valid until {@code viewUrlExpiresAt}. */
     public record PlanData(UUID id, UUID projectId, String name, String description, String fileName,
                            String contentType, long sizeBytes, Instant createdAt, Instant completedAt, URI viewUrl,
-                           Instant viewUrlExpiresAt) {}
+                           Instant viewUrlExpiresAt, UUID folderId) {}
 
     @Transactional
     public UploadData requestUpload(UUID userId, UUID organizationId, UUID projectId, String fileName,
@@ -120,11 +120,12 @@ public class ProjectPlanService {
                 .orElseThrow(() -> new ResourceNotFoundException("Plan not found"));
     }
 
-    private PlanData toData(ProjectPlan plan) {
+    PlanData toData(ProjectPlan plan) {
         Instant viewExpiresAt = Instant.now().plus(VIEW_TTL);
         URI viewUrl = plan.isReady() ? storage.presignDownload(plan.getStorageKey(), VIEW_TTL) : null;
         return new PlanData(plan.getId(), plan.getProject().getId(), plan.getName(), plan.getDescription(),
                 plan.getOriginalFileName(), plan.getContentType(), plan.getSizeBytes(), plan.getCreatedAt(),
-                plan.getCompletedAt(), viewUrl, viewUrl == null ? null : viewExpiresAt);
+                plan.getCompletedAt(), viewUrl, viewUrl == null ? null : viewExpiresAt,
+                plan.getFolder() == null ? null : plan.getFolder().getId());
     }
 }
