@@ -20,9 +20,10 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void newOrganizationSeedsFiveRoles() {
-        assertEquals(5, organization.getRoles().size());
-        for (String code : new String[] {"OWNER", "ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE"}) {
+    void newOrganizationSeedsAllRoles() {
+        assertEquals(8, organization.getRoles().size());
+        for (String code : new String[] {"OWNER", "ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE",
+                "RESIDENT", "SITE_MANAGER", "SUPERINTENDENT"}) {
             assertNotNull(role(code), code);
         }
     }
@@ -30,7 +31,8 @@ class OrganizationRoleSeedingTest {
     @Test
     void onlyOwnerIsSystemRoleAndTheRestAreSeeded() {
         assertTrue(role("OWNER").isSystemRole());
-        for (String code : new String[] {"ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE"}) {
+        for (String code : new String[] {"ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE",
+                "RESIDENT", "SITE_MANAGER", "SUPERINTENDENT"}) {
             assertFalse(role(code).isSystemRole(), code);
             assertTrue(role(code).isSeeded(), code);
         }
@@ -96,8 +98,54 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
+    void residentManagesSiteLevelWorkAndPlans() {
+        Map<PermissionAction, PermissionScope> expected = new EnumMap<>(PermissionAction.class);
+        expected.put(VIEW_PROJECT, PROJECT);
+        expected.put(VIEW_GOAL, PROJECT);
+        expected.put(MANAGE_GOAL, PROJECT);
+        expected.put(VIEW_ACTIVITY, PROJECT);
+        expected.put(MANAGE_ACTIVITY, PROJECT);
+        expected.put(ASSIGN_ACTIVITY, PROJECT);
+        expected.put(VIEW_PLAN, PROJECT);
+        expected.put(MANAGE_PLAN, PROJECT);
+        assertEquals(expected, grants("RESIDENT"));
+    }
+
+    @Test
+    void siteManagerHasFullSiteScopeIncludingManageProject() {
+        Map<PermissionAction, PermissionScope> expected = new EnumMap<>(PermissionAction.class);
+        expected.put(VIEW_PROJECT, PROJECT);
+        expected.put(MANAGE_PROJECT, PROJECT);
+        expected.put(VIEW_GOAL, PROJECT);
+        expected.put(MANAGE_GOAL, PROJECT);
+        expected.put(VIEW_ACTIVITY, PROJECT);
+        expected.put(MANAGE_ACTIVITY, PROJECT);
+        expected.put(ASSIGN_ACTIVITY, PROJECT);
+        expected.put(VIEW_PLAN, PROJECT);
+        expected.put(MANAGE_PLAN, PROJECT);
+        assertEquals(expected, grants("SITE_MANAGER"));
+    }
+
+    @Test
+    void superintendentOverseesAllSitesWithPricesAndBudgetVisibility() {
+        Map<PermissionAction, PermissionScope> expected = new EnumMap<>(PermissionAction.class);
+        expected.put(VIEW_PROJECT, ORGANIZATION);
+        expected.put(VIEW_GOAL, ORGANIZATION);
+        expected.put(MANAGE_GOAL, ORGANIZATION);
+        expected.put(VIEW_ACTIVITY, ORGANIZATION);
+        expected.put(MANAGE_ACTIVITY, ORGANIZATION);
+        expected.put(ASSIGN_ACTIVITY, ORGANIZATION);
+        expected.put(VIEW_PLAN, ORGANIZATION);
+        expected.put(MANAGE_PLAN, ORGANIZATION);
+        expected.put(VIEW_PRICES, ORGANIZATION);
+        expected.put(VIEW_BUDGET, ORGANIZATION);
+        assertEquals(expected, grants("SUPERINTENDENT"));
+    }
+
+    @Test
     void seededCodesAreReservedForCustomRoles() {
-        for (String code : new String[] {"ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE"}) {
+        for (String code : new String[] {"ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE",
+                "RESIDENT", "SITE_MANAGER", "SUPERINTENDENT"}) {
             assertThrows(IllegalArgumentException.class, () -> new OrganizationRole(organization, code, "Custom"), code);
         }
     }
