@@ -1,5 +1,7 @@
-package org.andre.construx.shared.storage;
+package org.andre.construx.shared.storage.config;
 
+import org.andre.construx.shared.storage.ObjectStorage;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -51,6 +53,13 @@ public class S3ObjectStorage implements ObjectStorage {
         } catch (NoSuchKeyException ex) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    public void put(String key, byte[] bytes, String contentType) {
+        client.putObject(
+                PutObjectRequest.builder().bucket(bucket).key(key).contentType(contentType).build(),
+                RequestBody.fromBytes(bytes));
     }
 
     @Override

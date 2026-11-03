@@ -24,6 +24,9 @@ public interface ObjectStorage {
 
     Optional<StoredObject> head(String key);
 
+    /** Uploads bytes directly from the server side (e.g. a server-generated PDF). */
+    void put(String key, byte[] bytes, String contentType);
+
     /** Deleting a missing key is not an error. */
     void delete(String key);
 }
