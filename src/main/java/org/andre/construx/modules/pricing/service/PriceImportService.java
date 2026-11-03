@@ -51,8 +51,8 @@ import java.util.regex.Pattern;
  */
 @Service
 public class PriceImportService {
-    public static final int MAX_BYTES = 1024 * 1024;
-    public static final int MAX_ROWS = 2000;
+    public static final int MAX_BYTES = 20 * 1024 * 1024;
+    public static final int MAX_ROWS = 50_000;
     public static final List<String> HEADER = List.of(
             "material", "unit", "category", "brand", "supplier", "branch", "price", "observed_on", "sku");
 
@@ -170,7 +170,7 @@ public class PriceImportService {
 
     private static List<CsvRecord> read(byte[] content) {
         if (content.length > MAX_BYTES) {
-            throw new PricingValidationException("The file is larger than 1 MB.");
+            throw new PricingValidationException("The file is larger than 20 MB.");
         }
         String text;
         try {
@@ -194,7 +194,7 @@ public class PriceImportService {
             throw new PricingValidationException("The file has no rows after the header.");
         }
         if (records.size() - 1 > MAX_ROWS) {
-            throw new PricingValidationException("The file has more than " + MAX_ROWS + " rows.");
+            throw new PricingValidationException("The file has more than " + MAX_ROWS + " rows (limit: 50 000).");
         }
         return records;
     }
