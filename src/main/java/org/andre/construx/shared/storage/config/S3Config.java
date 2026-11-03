@@ -1,5 +1,6 @@
-package org.andre.construx.shared.storage;
+package org.andre.construx.shared.storage.config;
 
+import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +14,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  * or an instance role. Nothing is resolved until the first call, so the context starts without them.
  */
 @Configuration
-public class StorageConfig {
+public class S3Config {
 
     @Bean(destroyMethod = "close")
     S3Client s3Client(@Value("${aws.region}") String region) {
