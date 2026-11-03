@@ -43,10 +43,12 @@ public class ActivityController {
 
     public record ActivityCreate(@NotBlank @Size(max = 160) String name, @NotNull Instant startAt, @NotNull Instant dueAt,
                                  @NotEmpty @Size(max = 100) List<@Valid @NotNull TeamPlace> assignees,
-                                 @Pattern(regexp = GoalController.COLOR) String color) {}
+                                 @Pattern(regexp = GoalController.COLOR) String color,
+                                 @Size(max = 500) String description) {}
 
     public record ActivityPatch(@Size(max = 160) String name, Instant startAt, Instant dueAt,
-                                @Pattern(regexp = GoalController.COLOR) String color) {}
+                                @Pattern(regexp = GoalController.COLOR) String color,
+                                @Size(max = 500) String description) {}
 
     public record TeamPlace(@NotNull UUID accessId, @NotNull TaskRole taskRole) {}
 
@@ -58,7 +60,7 @@ public class ActivityController {
                                @PathVariable UUID goalId, @Valid @RequestBody ActivityCreate body,
                                Authentication authentication) {
         return activities.create(userId(authentication), organizationId, projectId, goalId,
-                body.name(), body.startAt(), body.dueAt(), team(body.assignees()), body.color());
+                body.name(), body.startAt(), body.dueAt(), team(body.assignees()), body.color(), body.description());
     }
 
     @GetMapping(TASKS)
@@ -80,7 +82,7 @@ public class ActivityController {
                                @PathVariable UUID goalId, @PathVariable UUID activityId,
                                @Valid @RequestBody ActivityPatch body, Authentication authentication) {
         return activities.update(userId(authentication), organizationId, projectId, goalId, activityId,
-                body.name(), body.startAt(), body.dueAt(), body.color());
+                body.name(), body.startAt(), body.dueAt(), body.color(), body.description());
     }
 
     /** Owner and Finance carve the task budget out of its phase budget; null clears it. */

@@ -62,6 +62,10 @@ public class Activity {
     @Column(length = 7)
     private String color;
 
+    /** Optional free-text notes; null when not set. */
+    @Column(length = 500)
+    private String description;
+
     /** Optional share of the phase budget; null means not set. */
     @Column(precision = 14, scale = 2)
     private BigDecimal allocatedBudget;
@@ -124,6 +128,14 @@ public class Activity {
     /** Null clears the custom color. */
     public void changeColor(String color) {
         this.color = BarColor.normalize(color);
+    }
+
+    /** Null or blank clears the description. */
+    public void describe(String description) {
+        if (description != null && !description.isBlank() && description.strip().length() > 500) {
+            throw new IllegalArgumentException("Activity description must have at most 500 characters");
+        }
+        this.description = description == null || description.isBlank() ? null : description.strip();
     }
 
     /** Sets or, with null, clears the task budget; it must fit in what the phase has left after its other tasks. */

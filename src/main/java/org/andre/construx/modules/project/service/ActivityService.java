@@ -63,18 +63,19 @@ public class ActivityService {
      * is null without VIEW_BUDGET.
      */
     public record ActivityData(UUID id, UUID goalId, String goalName, UUID projectId, String projectName,
-                               String name, Instant startAt, Instant dueAt, String color, ActivityStatus status, Instant completedAt,
+                               String name, String description, Instant startAt, Instant dueAt, String color, ActivityStatus status, Instant completedAt,
                                List<AssigneeData> assignees, BigDecimal allocatedBudget) {}
 
     @Transactional
     public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
-                               String name, Instant startAt, Instant dueAt, List<TeamInput> team, String color) {
+                               String name, Instant startAt, Instant dueAt, List<TeamInput> team, String color, String description) {
         guard.requireActive(userId, organizationId);
         Goal goal = goals.load(organizationId, projectId, goalId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
         Activity activity = new Activity(goal, name, resolve(projectId, team), startAt, dueAt);
         activity.changeColor(GoalService.blankAsNull(color));
+        if (description != null) activity.describe(description);
         return toData(userId, organizationId, List.of(activities.save(activity))).get(0);
     }
 
@@ -105,10 +106,10 @@ public class ActivityService {
         return toData(userId, organizationId, List.of(activity)).get(0);
     }
 
-    /** Null arguments keep the stored value; an empty color goes back to the default. Not for status or team. */
+    /** Null arguments keep the stored value; an empty color or description goes back to the default. Not for status or team. */
     @Transactional
     public ActivityData update(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
-                               String name, Instant startAt, Instant dueAt, String color) {
+                               String name, Instant startAt, Instant dueAt, String color, String description) {
         guard.requireActive(userId, organizationId);
         Activity activity = load(organizationId, projectId, goalId, activityId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
@@ -121,6 +122,9 @@ public class ActivityService {
         }
         if (color != null) {
             activity.changeColor(GoalService.blankAsNull(color));
+        }
+        if (description != null) {
+            activity.describe(description);
         }
         return toData(userId, organizationId, List.of(activity)).get(0);
     }
@@ -223,6 +227,7 @@ public class ActivityService {
                 .collect(Collectors.toMap(UserProfile::getId, UserProfile::getFullName));
         return list.stream().map(a -> new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getName(),
                 a.getGoal().getProject().getId(), a.getGoal().getProject().getName(), a.getName(),
+                a.getDescription(),
                 a.getStartAt(), a.getDueAt(), a.getColor(), a.getStatus(), a.getCompletedAt(), team(a, names),
                 budgetVisible ? a.getAllocatedBudget() : null)).toList();
     }
