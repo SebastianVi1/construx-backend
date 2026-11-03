@@ -302,14 +302,13 @@ class PriceImportFlowTest {
     }
 
     @Test
-    void filesOverOneMegabyteOrTwoThousandRowsAreRejected() throws Exception {
+    void filesOverTwentyMegabytesOrFiftyThousandRowsAreRejected() throws Exception {
         String row = "Arena,m3,cemento y agregados,,Depot,,10,2026-10-20,\n";
         upload(owner, HEADER + row.repeat(2000), "true").andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary.rows").value(2000));
-        upload(owner, HEADER + row.repeat(2001), "true").andExpect(status().isBadRequest())
+        upload(owner, HEADER + row.repeat(50001), "true").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-        byte[] big = (HEADER + "Arena,m3,acero,,Depot,,10,2026-10-20," + "x".repeat(1024 * 1024) + "\n")
-                .getBytes(StandardCharsets.UTF_8);
+        byte[] big = new byte[PriceImportService.MAX_BYTES + 1];
         upload(owner, big, "false").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         assertNothingWritten();
