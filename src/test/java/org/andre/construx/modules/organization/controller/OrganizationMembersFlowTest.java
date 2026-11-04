@@ -88,9 +88,10 @@ class OrganizationMembersFlowTest {
     @Test
     void rolesListsTheSeededRolesForInviters() throws Exception {
         api.get(owner, org + "/roles").andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$.length()").value(8))
                 .andExpect(jsonPath("$[*].code").value(containsInAnyOrder(
-                        "OWNER", "ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE")))
+                        "OWNER", "ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE",
+                        "RESIDENT", "SITE_MANAGER", "SUPERINTENDENT")))
                 .andExpect(jsonPath("$[?(@.code == 'WORKER')].system").value(hasItem(true)))
                 .andExpect(jsonPath("$[0].id").isNotEmpty());
         api.get(worker, org + "/roles").andExpect(status().isForbidden());

@@ -33,6 +33,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 @Component
+@org.springframework.context.annotation.Profile("!test")
 public class Startup {
 
     @Autowired AccountService accountService;
