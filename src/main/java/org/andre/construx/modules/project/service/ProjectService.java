@@ -1,5 +1,6 @@
 package org.andre.construx.modules.project.service;
 
+import org.andre.construx.modules.documents.service.DocumentService;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
@@ -14,6 +15,8 @@ import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.security.DomainAuthorization;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +43,9 @@ public class ProjectService {
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
     private final EntityManager entityManager;
+    // @Lazy breaks the circular dependency: DocumentService → ProjectService → DocumentService
+    @Autowired @Lazy
+    private DocumentService documentService;
 
     public ProjectService(ProjectRepository projects, ProjectAccessRepository accesses, ActivityRepository activities,
                           GoalRepository goals, MembershipGuard guard, DomainAuthorization authorization,
@@ -79,7 +85,9 @@ public class ProjectService {
         if (input.status() != null) {
             project.changeStatus(input.status());
         }
-        return withCounts(userId, organizationId, member, List.of(projects.save(project))).get(0);
+        Project saved = projects.save(project);
+        documentService.seedStandardFolders(saved.getId(), saved);
+        return withCounts(userId, organizationId, member, List.of(saved)).get(0);
     }
 
     @Transactional(readOnly = true)
