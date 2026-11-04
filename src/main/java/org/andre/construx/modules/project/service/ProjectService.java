@@ -177,6 +177,11 @@ public class ProjectService {
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
     }
 
+    /** All non-archived sites of the organization, ordered by name. Used by org-level aggregation. */
+    public List<Project> inOrganization(UUID organizationId) {
+        return projects.findInOrganization(organizationId, NOT_ARCHIVED);
+    }
+
     /** Whether the caller's VIEW_ACTIVITY scope covers this site's tasks. */
     public boolean canViewActivities(UUID userId, UUID organizationId, UUID membershipId, UUID projectId) {
         PermissionScope scope = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_ACTIVITY)
