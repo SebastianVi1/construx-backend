@@ -57,6 +57,10 @@ public class Organization {
         this.name = name.strip();
     }
 
+    public void deactivate() {
+        this.status = OrganizationStatus.INACTIVE;
+    }
+
     public boolean sameAs(Organization other) {
         return this == other || (other != null && id != null && id.equals(other.getId()));
     }

@@ -8,6 +8,7 @@ import org.andre.construx.modules.organization.service.OrganizationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,6 +60,12 @@ public class OrganizationController {
     public OrganizationResponse rename(@PathVariable UUID organizationId,
                                        @Valid @RequestBody OrganizationInput body, Authentication authentication) {
         return OrganizationResponse.from(organizations.rename(userId(authentication), organizationId, body.name()));
+    }
+
+    @DeleteMapping("/{organizationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID organizationId, Authentication authentication) {
+        organizations.delete(userId(authentication), organizationId);
     }
 
     private static UUID userId(Authentication authentication) {

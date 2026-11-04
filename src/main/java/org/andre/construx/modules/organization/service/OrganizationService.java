@@ -74,6 +74,13 @@ public class OrganizationService {
         return OrganizationData.from(member);
     }
 
+    @Transactional
+    public void delete(UUID userId, UUID organizationId) {
+        guard.requireActive(userId, organizationId);
+        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_ORGANIZATION);
+        load(organizationId).deactivate();
+    }
+
     private Organization load(UUID organizationId) {
         return organizations.findById(organizationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));

@@ -18,7 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Exercises additive Hibernate schema update against a database with an existing account. */
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:profile-upgrade;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
-        "spring.jpa.hibernate.ddl-auto=update"
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.flyway.target=21"
 })
 @ActiveProfiles("test")
 @ContextConfiguration(initializers = UserProfileUpgradeTest.ExistingAccount.class)
