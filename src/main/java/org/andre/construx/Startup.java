@@ -10,6 +10,7 @@ import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.documents.service.DocumentService;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.project.model.Activity;
 import org.andre.construx.modules.project.model.Goal;
@@ -35,6 +36,7 @@ import java.util.List;
 public class Startup {
 
     @Autowired AccountService accountService;
+    @Autowired DocumentService documentService;
     @Autowired UserAccountRepository userAccounts;
     @Autowired OrganizationRepository organizationRepository;
     @Autowired OrganizationMembershipRepository membershipRepository;
@@ -109,6 +111,7 @@ public class Startup {
         site.changeStatus(ProjectStatus.ACTIVE);
         site.assignBudget(new BigDecimal("4500000.00"), BigDecimal.ZERO);
         site = projectRepository.save(site);
+        documentService.seedStandardFolders(site.getId(), site);
 
         ProjectAccess aCarmen  = accessRepository.save(new ProjectAccess(site, mCarmen));
         ProjectAccess aLuis    = accessRepository.save(new ProjectAccess(site, mLuis));
@@ -172,6 +175,7 @@ public class Startup {
         site.changeStatus(ProjectStatus.ACTIVE);
         site.assignBudget(new BigDecimal("2200000.00"), BigDecimal.ZERO);
         site = projectRepository.save(site);
+        documentService.seedStandardFolders(site.getId(), site);
 
         ProjectAccess aLuis    = accessRepository.save(new ProjectAccess(site, mLuis));
         ProjectAccess aElena   = accessRepository.save(new ProjectAccess(site, mElena));
@@ -222,6 +226,7 @@ public class Startup {
         site.changeStatus(ProjectStatus.PLANNED);
         site.assignBudget(new BigDecimal("6800000.00"), BigDecimal.ZERO);
         site = projectRepository.save(site);
+        documentService.seedStandardFolders(site.getId(), site);
 
         ProjectAccess aCarmen = accessRepository.save(new ProjectAccess(site, mCarmen));
         ProjectAccess aAndrea = accessRepository.save(new ProjectAccess(site, mAndrea));
