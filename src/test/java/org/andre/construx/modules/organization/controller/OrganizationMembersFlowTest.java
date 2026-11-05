@@ -169,4 +169,51 @@ class OrganizationMembersFlowTest {
         api.patch(api.signUp(), org + "/members/" + workerMembership, "{\"roleCode\":\"MEMBER\"}")
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void ownerCanSuspendAndReactivateButNotSelfOrOwner() throws Exception {
+        UUID ownerMembership = memberships.findByOrganizationIdAndUserAccountId(orgId, owner.user().getId())
+                .orElseThrow().getId();
+
+        api.patch(owner, org + "/members/" + workerMembership + "/status", "{\"status\":\"SUSPENDED\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipId").value(workerMembership.toString()))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"));
+
+        api.get(owner, org + "/members").andExpect(jsonPath("$.length()").value(1));
+
+        api.patch(owner, org + "/members/" + workerMembership + "/status", "{\"status\":\"ACTIVE\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        // Trying to change your own status is forbidden
+        api.patch(owner, org + "/members/" + ownerMembership + "/status", "{\"status\":\"SUSPENDED\"}")
+                .andExpect(status().isForbidden());
+
+        // An admin trying to suspend the owner hits the domain rule → 409
+        Session admin = api.signUp();
+        members.add(orgId, admin.user(), "ADMINISTRATOR");
+        api.patch(admin, org + "/members/" + ownerMembership + "/status", "{\"status\":\"SUSPENDED\"}")
+                .andExpect(status().isConflict());
+
+        api.patch(owner, org + "/members/" + UUID.randomUUID() + "/status", "{\"status\":\"SUSPENDED\"}")
+                .andExpect(status().isNotFound());
+
+        api.patch(worker, org + "/members/" + ownerMembership + "/status", "{\"status\":\"SUSPENDED\"}")
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ownerCanRemoveMemberButNotSelf() throws Exception {
+        UUID ownerMembership = memberships.findByOrganizationIdAndUserAccountId(orgId, owner.user().getId())
+                .orElseThrow().getId();
+
+        api.delete(owner, org + "/members/" + ownerMembership).andExpect(status().isForbidden());
+
+        api.delete(owner, org + "/members/" + workerMembership).andExpect(status().isNoContent());
+
+        api.get(owner, org + "/members").andExpect(jsonPath("$.length()").value(1));
+
+        api.delete(owner, org + "/members/" + UUID.randomUUID()).andExpect(status().isNotFound());
+    }
 }

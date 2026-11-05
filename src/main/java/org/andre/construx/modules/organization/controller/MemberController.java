@@ -6,13 +6,17 @@ import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.service.MemberService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -36,6 +40,8 @@ public class MemberController {
                                  OrganizationController.RoleSummary role, MembershipStatus status) {}
 
     public record RoleChange(@NotBlank String roleCode) {}
+
+    public record StatusChange(@NotNull MembershipStatus status) {}
 
     @GetMapping("/me")
     public MeResponse me(@PathVariable UUID organizationId, Authentication authentication) {
@@ -62,6 +68,23 @@ public class MemberController {
     public MemberResponse changeRole(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
                                      @Valid @RequestBody RoleChange body, Authentication authentication) {
         return toResponse(members.changeRole(userId(authentication), organizationId, membershipId, body.roleCode()));
+    }
+
+    @PatchMapping("/members/{membershipId}/status")
+    public MemberResponse setStatus(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
+                                    @Valid @RequestBody StatusChange body, Authentication authentication) {
+        return switch (body.status()) {
+            case ACTIVE -> toResponse(members.reactivate(userId(authentication), organizationId, membershipId));
+            case SUSPENDED -> toResponse(members.suspend(userId(authentication), organizationId, membershipId));
+            case LEFT -> throw new IllegalArgumentException("Use DELETE to remove a member");
+        };
+    }
+
+    @DeleteMapping("/members/{membershipId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void remove(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
+                       Authentication authentication) {
+        members.removeMember(userId(authentication), organizationId, membershipId);
     }
 
     private static MemberResponse toResponse(MemberService.MemberData m) {

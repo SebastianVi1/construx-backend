@@ -15,6 +15,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.function.Consumer;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -99,8 +101,50 @@ public class MemberService {
             throw new IllegalArgumentException("The owner role cannot be granted");
         }
         member.changeRole(role);
-        String fullName = profiles.findById(member.getUserAccount().getId()).map(UserProfile::getFullName).orElse(null);
-        return new MemberData(member.getId(), member.getUserAccount().getId(), member.getUserAccount().getEmail(),
-                fullName, role.getCode(), role.getName(), member.getStatus());
+        return toData(member);
+    }
+
+    /** Suspend a member so they can no longer access the organization. */
+    @Transactional
+    public MemberData suspend(UUID userId, UUID organizationId, UUID membershipId) {
+        return changeStatus(userId, organizationId, membershipId, OrganizationMembership::suspend);
+    }
+
+    /** Re-activate a previously suspended member. */
+    @Transactional
+    public MemberData reactivate(UUID userId, UUID organizationId, UUID membershipId) {
+        return changeStatus(userId, organizationId, membershipId, OrganizationMembership::activate);
+    }
+
+    /** Permanently remove a member from the organization (sets their status to LEFT). */
+    @Transactional
+    public void removeMember(UUID userId, UUID organizationId, UUID membershipId) {
+        OrganizationMembership caller = guard.requireActive(userId, organizationId);
+        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
+        OrganizationMembership member = memberships.findByIdAndOrganizationId(membershipId, organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (member.getId().equals(caller.getId())) {
+            throw new AccessDeniedException("You cannot remove yourself");
+        }
+        member.leave();
+    }
+
+    private MemberData changeStatus(UUID userId, UUID organizationId, UUID membershipId,
+                                    Consumer<OrganizationMembership> change) {
+        OrganizationMembership caller = guard.requireActive(userId, organizationId);
+        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
+        OrganizationMembership member = memberships.findByIdAndOrganizationId(membershipId, organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (member.getId().equals(caller.getId())) {
+            throw new AccessDeniedException("You cannot change your own membership status");
+        }
+        change.accept(member);
+        return toData(member);
+    }
+
+    private MemberData toData(OrganizationMembership m) {
+        String fullName = profiles.findById(m.getUserAccount().getId()).map(UserProfile::getFullName).orElse(null);
+        return new MemberData(m.getId(), m.getUserAccount().getId(), m.getUserAccount().getEmail(),
+                fullName, m.getRole().getCode(), m.getRole().getName(), m.getStatus());
     }
 }
