@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.andre.construx.shared.security.SecurityUtils;
+
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -51,7 +53,7 @@ public class FloorPlanController {
     public FloorPlanService.UploadData requestUpload(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                                       @Valid @RequestBody UploadRequest body,
                                                       Authentication authentication) {
-        return floorPlans.requestUpload(userId(authentication), organizationId, projectId,
+        return floorPlans.requestUpload(SecurityUtils.userId(authentication), organizationId, projectId,
                 body.name(), body.description(), body.level(),
                 body.pageNumber() == null ? 1 : body.pageNumber(),
                 body.contentType(), body.sizeBytes());
@@ -60,26 +62,26 @@ public class FloorPlanController {
     @PostMapping("/{floorPlanId}/complete")
     public FloorPlanService.FloorPlanData complete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                                     @PathVariable UUID floorPlanId, Authentication authentication) {
-        return floorPlans.completeUpload(userId(authentication), organizationId, projectId, floorPlanId);
+        return floorPlans.completeUpload(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
     @GetMapping
     public List<FloorPlanService.FloorPlanData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                                       Authentication authentication) {
-        return floorPlans.listFloorPlans(userId(authentication), organizationId, projectId);
+        return floorPlans.listFloorPlans(SecurityUtils.userId(authentication), organizationId, projectId);
     }
 
     @GetMapping("/{floorPlanId}")
     public FloorPlanService.FloorPlanData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                                                @PathVariable UUID floorPlanId, Authentication authentication) {
-        return floorPlans.getFloorPlan(userId(authentication), organizationId, projectId, floorPlanId);
+        return floorPlans.getFloorPlan(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
     @DeleteMapping("/{floorPlanId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                        @PathVariable UUID floorPlanId, Authentication authentication) {
-        floorPlans.deleteFloorPlan(userId(authentication), organizationId, projectId, floorPlanId);
+        floorPlans.deleteFloorPlan(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
     @GetMapping("/{floorPlanId}/state")
@@ -88,10 +90,7 @@ public class FloorPlanController {
                                      @RequestParam(required = false) String date,
                                      Authentication authentication) {
         LocalDate localDate = date != null ? LocalDate.parse(date) : LocalDate.now();
-        return zoneService.getFloorPlanState(userId(authentication), organizationId, projectId, floorPlanId, localDate);
+        return zoneService.getFloorPlanState(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, localDate);
     }
 
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
-    }
 }

@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.andre.construx.shared.security.SecurityUtils;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -31,13 +33,13 @@ public class CrewController {
     public CrewService.CrewData create(@PathVariable UUID organizationId,
                                        @Valid @RequestBody CreateCrewRequest body,
                                        Authentication authentication) {
-        return crewService.createCrew(userId(authentication), organizationId, body.name(), body.leaderMembershipId());
+        return crewService.createCrew(SecurityUtils.userId(authentication), organizationId, body.name(), body.leaderMembershipId());
     }
 
     @GetMapping
     public List<CrewService.CrewData> list(@PathVariable UUID organizationId,
                                            Authentication authentication) {
-        return crewService.listCrews(userId(authentication), organizationId);
+        return crewService.listCrews(SecurityUtils.userId(authentication), organizationId);
     }
 
     @PostMapping("/{crewId}/members")
@@ -45,7 +47,7 @@ public class CrewController {
                                           @PathVariable UUID crewId,
                                           @Valid @RequestBody AddMemberRequest body,
                                           Authentication authentication) {
-        return crewService.addMember(userId(authentication), organizationId, crewId, body.membershipId());
+        return crewService.addMember(SecurityUtils.userId(authentication), organizationId, crewId, body.membershipId());
     }
 
     @DeleteMapping("/{crewId}/members/{membershipId}")
@@ -54,7 +56,7 @@ public class CrewController {
                              @PathVariable UUID crewId,
                              @PathVariable UUID membershipId,
                              Authentication authentication) {
-        crewService.removeMember(userId(authentication), organizationId, crewId, membershipId);
+        crewService.removeMember(SecurityUtils.userId(authentication), organizationId, crewId, membershipId);
     }
 
     @DeleteMapping("/{crewId}")
@@ -62,10 +64,7 @@ public class CrewController {
     public void delete(@PathVariable UUID organizationId,
                        @PathVariable UUID crewId,
                        Authentication authentication) {
-        crewService.deleteCrew(userId(authentication), organizationId, crewId);
+        crewService.deleteCrew(SecurityUtils.userId(authentication), organizationId, crewId);
     }
 
-    private UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
-    }
 }

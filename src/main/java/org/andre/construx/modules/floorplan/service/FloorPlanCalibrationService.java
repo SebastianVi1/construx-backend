@@ -60,7 +60,8 @@ public class FloorPlanCalibrationService {
 
         double dx = pointBX - pointAX;
         double dy = pointBY - pointAY;
-        if (dx == 0 && dy == 0) {
+        double dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1e-9) {
             throw new RuleViolationException("CALIBRATION_ZERO_DISTANCE",
                     "The two calibration points must not be at the same location");
         }

@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.andre.construx.shared.security.SecurityUtils;
+
 import java.util.UUID;
 
 @RestController
@@ -39,7 +41,7 @@ public class FloorPlanCalibrationController {
             @PathVariable UUID floorPlanId,
             @Valid @RequestBody SaveCalibrationRequest body,
             Authentication authentication) {
-        return calibrations.save(userId(authentication), organizationId, projectId, floorPlanId,
+        return calibrations.save(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId,
                 body.pointAX(), body.pointAY(), body.pointBX(), body.pointBY(), body.lengthMeters());
     }
 
@@ -49,10 +51,7 @@ public class FloorPlanCalibrationController {
             @PathVariable UUID projectId,
             @PathVariable UUID floorPlanId,
             Authentication authentication) {
-        return calibrations.get(userId(authentication), organizationId, projectId, floorPlanId);
+        return calibrations.get(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
-    }
 }
