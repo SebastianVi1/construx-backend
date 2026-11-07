@@ -27,6 +27,9 @@ public interface ObjectStorage {
     /** Uploads bytes directly from the server side (e.g. a server-generated PDF). */
     void put(String key, byte[] bytes, String contentType);
 
+    /** Downloads the full content of a key as a byte array. Use sparingly; large files are expensive. */
+    byte[] getBytes(String key);
+
     /** Deleting a missing key is not an error. */
     void delete(String key);
 }

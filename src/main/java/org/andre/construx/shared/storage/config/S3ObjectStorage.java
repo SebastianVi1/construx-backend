@@ -1,10 +1,12 @@
 package org.andre.construx.shared.storage.config;
 
 import org.andre.construx.shared.storage.ObjectStorage;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -53,6 +55,13 @@ public class S3ObjectStorage implements ObjectStorage {
         } catch (NoSuchKeyException ex) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    public byte[] getBytes(String key) {
+        ResponseBytes<GetObjectResponse> response = client.getObjectAsBytes(
+                GetObjectRequest.builder().bucket(bucket).key(key).build());
+        return response.asByteArray();
     }
 
     @Override
