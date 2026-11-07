@@ -16,6 +16,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.project.service.ProjectService;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class ZoneAssignmentService {
     private final ProjectService projects;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
+    private final AuditService auditService;
 
     public ZoneAssignmentService(ZoneAssignmentRepository assignments,
                                   FloorPlanZoneRepository zones,
@@ -49,7 +51,8 @@ public class ZoneAssignmentService {
                                   EquipmentRepository equipment,
                                   ProjectService projects,
                                   MembershipGuard guard,
-                                  DomainAuthorization authorization) {
+                                  DomainAuthorization authorization,
+                                  AuditService auditService) {
         this.assignments = assignments;
         this.zones = zones;
         this.floorPlans = floorPlans;
@@ -59,6 +62,7 @@ public class ZoneAssignmentService {
         this.projects = projects;
         this.guard = guard;
         this.authorization = authorization;
+        this.auditService = auditService;
     }
 
     public record AssignmentData(
@@ -126,13 +130,15 @@ public class ZoneAssignmentService {
                 request.activity(), request.startDate(), request.endDate(),
                 request.shift(), assignedBy));
 
+        auditService.record("ZoneAssignment", assignment.getId(), "CREATE",
+                assignedBy.getId(), null, assignmentSnapshot(assignment));
         return new CreateAssignmentResponse(toData(assignment), hasOverlapWarning);
     }
 
     @Transactional
     public AssignmentData closeAssignment(UUID userId, UUID organizationId, UUID projectId,
                                            UUID floorPlanId, UUID zoneId, UUID assignmentId) {
-        guard.requireActive(userId, organizationId);
+        OrganizationMembership actor = guard.requireActive(userId, organizationId);
         projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
 
@@ -141,7 +147,10 @@ public class ZoneAssignmentService {
 
         ZoneAssignment assignment = assignments.findByIdAndZoneId(assignmentId, zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
+        Map<String, Object> before = assignmentSnapshot(assignment);
         assignment.close();
+        auditService.record("ZoneAssignment", assignment.getId(), "CLOSE",
+                actor.getId(), before, assignmentSnapshot(assignment));
         return toData(assignment);
     }
 
@@ -173,6 +182,10 @@ public class ZoneAssignmentService {
                 old.getShift(),
                 assignedBy));
 
+        auditService.record("ZoneAssignment", old.getId(), "MOVE",
+                assignedBy.getId(),
+                Map.of("oldZoneId", zoneId.toString()),
+                Map.of("newZoneId", newZoneId.toString(), "newAssignmentId", newAssignment.getId().toString()));
         return toData(newAssignment);
     }
 
@@ -230,5 +243,17 @@ public class ZoneAssignmentService {
                 a.getCreatedAt(),
                 a.getClosedAt()
         );
+    }
+
+    private Map<String, Object> assignmentSnapshot(ZoneAssignment a) {
+        Map<String, Object> snap = new java.util.LinkedHashMap<>();
+        snap.put("id", a.getId().toString());
+        snap.put("zoneId", a.getZone().getId().toString());
+        snap.put("activity", a.getActivity());
+        snap.put("startDate", a.getStartDate() != null ? a.getStartDate().toString() : null);
+        snap.put("endDate", a.getEndDate() != null ? a.getEndDate().toString() : null);
+        snap.put("shift", a.getShift() != null ? a.getShift().name() : null);
+        snap.put("closedAt", a.getClosedAt() != null ? a.getClosedAt().toString() : null);
+        return snap;
     }
 }

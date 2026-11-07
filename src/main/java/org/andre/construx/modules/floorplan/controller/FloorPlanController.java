@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.floorplan.service.FloorPlanService;
+import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
+import org.andre.construx.modules.floorplan.service.FloorPlanZoneService.ZoneStateData;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -15,9 +17,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,9 +30,11 @@ import java.util.UUID;
 public class FloorPlanController {
 
     private final FloorPlanService floorPlans;
+    private final FloorPlanZoneService zoneService;
 
-    public FloorPlanController(FloorPlanService floorPlans) {
+    public FloorPlanController(FloorPlanService floorPlans, FloorPlanZoneService zoneService) {
         this.floorPlans = floorPlans;
+        this.zoneService = zoneService;
     }
 
     public record UploadRequest(
@@ -74,6 +80,15 @@ public class FloorPlanController {
     public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
                        @PathVariable UUID floorPlanId, Authentication authentication) {
         floorPlans.deleteFloorPlan(userId(authentication), organizationId, projectId, floorPlanId);
+    }
+
+    @GetMapping("/{floorPlanId}/state")
+    public List<ZoneStateData> state(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+                                     @PathVariable UUID floorPlanId,
+                                     @RequestParam(required = false) String date,
+                                     Authentication authentication) {
+        LocalDate localDate = date != null ? LocalDate.parse(date) : LocalDate.now();
+        return zoneService.getFloorPlanState(userId(authentication), organizationId, projectId, floorPlanId, localDate);
     }
 
     private static UUID userId(Authentication authentication) {
