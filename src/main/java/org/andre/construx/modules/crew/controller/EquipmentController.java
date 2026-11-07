@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.crew.service.EquipmentService;
+import org.andre.construx.shared.security.SecurityUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -36,7 +37,7 @@ public class EquipmentController {
     public EquipmentService.EquipmentData create(@PathVariable UUID organizationId,
                                                   @Valid @RequestBody CreateEquipmentRequest body,
                                                   Authentication authentication) {
-        return equipmentService.createEquipment(userId(authentication), organizationId,
+        return equipmentService.createEquipment(SecurityUtils.userId(authentication), organizationId,
                 body.type(), body.identifier(), body.dailyCostCents());
     }
 
@@ -44,7 +45,7 @@ public class EquipmentController {
     public List<EquipmentService.EquipmentData> list(@PathVariable UUID organizationId,
                                                       @RequestParam(required = false) Boolean activeOnly,
                                                       Authentication authentication) {
-        return equipmentService.listEquipment(userId(authentication), organizationId, activeOnly);
+        return equipmentService.listEquipment(SecurityUtils.userId(authentication), organizationId, activeOnly);
     }
 
     @PatchMapping("/{equipmentId}")
@@ -52,7 +53,7 @@ public class EquipmentController {
                                                   @PathVariable UUID equipmentId,
                                                   @Valid @RequestBody UpdateEquipmentRequest body,
                                                   Authentication authentication) {
-        return equipmentService.updateEquipment(userId(authentication), organizationId, equipmentId,
+        return equipmentService.updateEquipment(SecurityUtils.userId(authentication), organizationId, equipmentId,
                 body.type(), body.identifier(), body.dailyCostCents(), body.active());
     }
 
@@ -61,10 +62,7 @@ public class EquipmentController {
     public void delete(@PathVariable UUID organizationId,
                        @PathVariable UUID equipmentId,
                        Authentication authentication) {
-        equipmentService.deleteEquipment(userId(authentication), organizationId, equipmentId);
+        equipmentService.deleteEquipment(SecurityUtils.userId(authentication), organizationId, equipmentId);
     }
 
-    private UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
-    }
 }

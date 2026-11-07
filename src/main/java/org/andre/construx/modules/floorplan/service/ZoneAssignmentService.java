@@ -123,6 +123,10 @@ public class ZoneAssignmentService {
         if (membership != null) {
             hasOverlapWarning = assignments.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
                     membership.getId(), request.startDate(), request.shift());
+        } else if (crew != null) {
+            hasOverlapWarning = crew.getMembers().stream()
+                    .anyMatch(cm -> assignments.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
+                            cm.getMembershipId(), request.startDate(), request.shift()));
         }
 
         ZoneAssignment assignment = assignments.save(new ZoneAssignment(
