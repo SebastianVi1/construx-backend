@@ -16,6 +16,7 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.project.service.ProjectService;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.security.DomainAuthorization;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,8 +60,9 @@ class ZoneAssignmentServiceTest {
         guard = mock(MembershipGuard.class);
         authorization = mock(DomainAuthorization.class);
 
+        AuditService auditService = mock(AuditService.class);
         service = new ZoneAssignmentService(assignmentRepo, zoneRepo, floorPlanRepo,
-                membershipRepo, crewRepo, equipmentRepo, projects, guard, authorization);
+                membershipRepo, crewRepo, equipmentRepo, projects, guard, authorization, auditService);
 
         userId = UUID.randomUUID();
         orgId = UUID.randomUUID();

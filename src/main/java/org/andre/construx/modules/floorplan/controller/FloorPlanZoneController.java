@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.floorplan.model.ZoneStatus;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
+import org.andre.construx.shared.audit.AuditService.AuditEventData;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -80,6 +81,16 @@ public class FloorPlanZoneController {
             @PathVariable UUID zoneId,
             Authentication authentication) {
         zoneService.deleteZone(userId(authentication), organizationId, projectId, floorPlanId, zoneId);
+    }
+
+    @GetMapping("/{zoneId}/audit")
+    public List<AuditEventData> audit(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID projectId,
+            @PathVariable UUID floorPlanId,
+            @PathVariable UUID zoneId,
+            Authentication authentication) {
+        return zoneService.listAudit(userId(authentication), organizationId, projectId, floorPlanId, zoneId);
     }
 
     private static UUID userId(Authentication authentication) {
