@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.andre.construx.shared.security.SecurityUtils;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -47,7 +49,7 @@ public class FloorPlanZoneController {
             @PathVariable UUID floorPlanId,
             @Valid @RequestBody CreateZoneRequest body,
             Authentication authentication) {
-        return zoneService.createZone(userId(authentication), organizationId, projectId, floorPlanId,
+        return zoneService.createZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId,
                 new FloorPlanZoneService.CreateZoneRequest(body.name(), body.description(), body.status(), body.points()));
     }
 
@@ -57,7 +59,7 @@ public class FloorPlanZoneController {
             @PathVariable UUID projectId,
             @PathVariable UUID floorPlanId,
             Authentication authentication) {
-        return zoneService.listZones(userId(authentication), organizationId, projectId, floorPlanId);
+        return zoneService.listZones(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
     @PatchMapping("/{zoneId}")
@@ -68,7 +70,7 @@ public class FloorPlanZoneController {
             @PathVariable UUID zoneId,
             @Valid @RequestBody UpdateZoneRequest body,
             Authentication authentication) {
-        return zoneService.updateZone(userId(authentication), organizationId, projectId, floorPlanId, zoneId,
+        return zoneService.updateZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId,
                 new FloorPlanZoneService.UpdateZoneRequest(body.name(), body.description(), body.status(), body.points(), body.version()));
     }
 
@@ -80,7 +82,7 @@ public class FloorPlanZoneController {
             @PathVariable UUID floorPlanId,
             @PathVariable UUID zoneId,
             Authentication authentication) {
-        zoneService.deleteZone(userId(authentication), organizationId, projectId, floorPlanId, zoneId);
+        zoneService.deleteZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId);
     }
 
     @GetMapping("/{zoneId}/audit")
@@ -90,10 +92,7 @@ public class FloorPlanZoneController {
             @PathVariable UUID floorPlanId,
             @PathVariable UUID zoneId,
             Authentication authentication) {
-        return zoneService.listAudit(userId(authentication), organizationId, projectId, floorPlanId, zoneId);
+        return zoneService.listAudit(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId);
     }
 
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
-    }
 }

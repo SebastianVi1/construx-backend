@@ -69,6 +69,10 @@ public class FloorPlanService {
     public UploadData requestUpload(UUID userId, UUID organizationId, UUID projectId,
                                     String name, String description, String level,
                                     int pageNumber, String contentType, long sizeBytes) {
+        if (sizeBytes > 50L * 1024 * 1024) {
+            throw new RuleViolationException("FLOOR_PLAN_TOO_LARGE", "File exceeds the maximum allowed size of 50 MB");
+        }
+
         OrganizationMembership member = guard.requireActive(userId, organizationId);
         Project project = projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
