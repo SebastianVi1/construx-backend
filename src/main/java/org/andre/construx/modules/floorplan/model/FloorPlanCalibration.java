@@ -26,19 +26,19 @@ public class FloorPlanCalibration {
     @JoinColumn(name = "floor_plan_id", nullable = false, unique = true)
     private FloorPlan floorPlan;
 
-    @Column(nullable = false)
+    @Column(name = "meters_per_px", nullable = false)
     private double metersPerPx;
 
-    @Column(nullable = false)
+    @Column(name = "point_a_x", nullable = false)
     private double pointAX;
 
-    @Column(nullable = false)
+    @Column(name = "point_a_y", nullable = false)
     private double pointAY;
 
-    @Column(nullable = false)
+    @Column(name = "point_b_x", nullable = false)
     private double pointBX;
 
-    @Column(nullable = false)
+    @Column(name = "point_b_y", nullable = false)
     private double pointBY;
 
     @Column(nullable = false)
