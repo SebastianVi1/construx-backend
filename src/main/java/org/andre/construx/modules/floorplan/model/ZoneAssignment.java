@@ -37,7 +37,8 @@ public class ZoneAssignment {
     @JoinColumn(name = "equipment_id")
     private Equipment equipment;
 
-    @Column(nullable = false, length = 255)
+    /** Optional note on the work; null when the assignment was a plain drag and drop. */
+    @Column(length = 255)
     private String activity;
 
     @Column(nullable = false)
@@ -74,7 +75,7 @@ public class ZoneAssignment {
         this.membership = membership;
         this.crew = crew;
         this.equipment = equipment;
-        this.activity = activity.trim();
+        this.activity = activity == null || activity.isBlank() ? null : activity.trim();
         this.startDate = startDate;
         this.endDate = endDate;
         this.shift = shift;

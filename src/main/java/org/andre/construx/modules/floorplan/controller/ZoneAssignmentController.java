@@ -1,7 +1,6 @@
 package org.andre.construx.modules.floorplan.controller;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.floorplan.model.AssignmentShift;
@@ -31,10 +30,10 @@ public class ZoneAssignmentController {
             UUID membershipId,
             UUID crewId,
             UUID equipmentId,
-            @NotBlank @Size(max = 255) String activity,
-            @NotNull LocalDate startDate,
+            @Size(max = 255) String activity,
+            LocalDate startDate,
             LocalDate endDate,
-            @NotNull AssignmentShift shift
+            AssignmentShift shift
     ) {}
 
     public record ReassignRequest(@NotNull UUID newZoneId) {}
@@ -85,6 +84,16 @@ public class ZoneAssignmentController {
             @Valid @RequestBody ReassignRequest body,
             Authentication authentication) {
         return service.reassignToZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId, assignmentId, body.newZoneId());
+    }
+
+    /** Active assignments across every zone of the floor plan. */
+    @GetMapping("/assignments")
+    public List<ZoneAssignmentService.AssignmentData> listAll(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID projectId,
+            @PathVariable UUID floorPlanId,
+            Authentication authentication) {
+        return service.listFloorPlanAssignments(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
     }
 
     @GetMapping("/zones/assignment-counts")

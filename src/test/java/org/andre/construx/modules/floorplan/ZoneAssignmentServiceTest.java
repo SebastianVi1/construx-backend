@@ -146,4 +146,35 @@ class ZoneAssignmentServiceTest {
         verify(old).close();
         verify(assignmentRepo, times(1)).save(any(ZoneAssignment.class));
     }
+
+    @Test
+    void listFloorPlanAssignments_returnsActiveAssignmentsOfEveryZone() {
+        ZoneAssignment active = new ZoneAssignment(zone, member, null, null, "Framing",
+                LocalDate.of(2025, 3, 1), null, AssignmentShift.MORNING, member);
+        when(assignmentRepo.findActiveByFloorPlanId(floorPlanId)).thenReturn(java.util.List.of(active));
+
+        var result = service.listFloorPlanAssignments(userId, orgId, projectId, floorPlanId);
+
+        assertEquals(1, result.size());
+        assertEquals(zoneId, result.get(0).zoneId());
+        assertEquals(member.getId(), result.get(0).membershipId());
+    }
+
+    @Test
+    void createAssignment_withoutDetails_startsTodayForTheFullDay() {
+        UUID membershipId = UUID.randomUUID();
+        OrganizationMembership membership = mock(OrganizationMembership.class);
+        when(membership.getId()).thenReturn(membershipId);
+        when(membershipRepo.findByIdAndOrganizationId(membershipId, orgId)).thenReturn(Optional.of(membership));
+
+        ZoneAssignmentService.CreateAssignmentRequest request = new ZoneAssignmentService.CreateAssignmentRequest(
+                membershipId, null, null, null, null, null, null);
+
+        ZoneAssignmentService.CreateAssignmentResponse response =
+                service.createAssignment(userId, orgId, projectId, floorPlanId, zoneId, request);
+
+        assertNull(response.assignment().activity());
+        assertEquals(LocalDate.now(), response.assignment().startDate());
+        assertEquals(AssignmentShift.FULL_DAY, response.assignment().shift());
+    }
 }

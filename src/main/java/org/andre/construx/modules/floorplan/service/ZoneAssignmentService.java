@@ -119,20 +119,24 @@ public class ZoneAssignmentService {
                     .orElseThrow(() -> new ResourceNotFoundException("Equipment not found"));
         }
 
+        // A plain drag and drop sends no date or shift: the assignment starts today for the full day
+        LocalDate startDate = request.startDate() != null ? request.startDate() : LocalDate.now();
+        AssignmentShift shift = request.shift() != null ? request.shift() : AssignmentShift.FULL_DAY;
+
         boolean hasOverlapWarning = false;
         if (membership != null) {
             hasOverlapWarning = assignments.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
-                    membership.getId(), request.startDate(), request.shift());
+                    membership.getId(), startDate, shift);
         } else if (crew != null) {
             hasOverlapWarning = crew.getMembers().stream()
                     .anyMatch(cm -> assignments.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
-                            cm.getMembershipId(), request.startDate(), request.shift()));
+                            cm.getMembershipId(), startDate, shift));
         }
 
         ZoneAssignment assignment = assignments.save(new ZoneAssignment(
                 zone, membership, crew, equip,
-                request.activity(), request.startDate(), request.endDate(),
-                request.shift(), assignedBy));
+                request.activity(), startDate, request.endDate(),
+                shift, assignedBy));
 
         auditService.record("ZoneAssignment", assignment.getId(), "CREATE",
                 assignedBy.getId(), null, assignmentSnapshot(assignment));
@@ -204,6 +208,20 @@ public class ZoneAssignmentService {
         loadZone(zoneId, floorPlanId);
 
         return assignments.findByZoneIdAndClosedAtIsNull(zoneId).stream()
+                .map(this::toData)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssignmentData> listFloorPlanAssignments(UUID userId, UUID organizationId, UUID projectId,
+                                                         UUID floorPlanId) {
+        guard.requireActive(userId, organizationId);
+        projects.load(organizationId, projectId);
+        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
+
+        requireFloorPlan(floorPlanId, projectId);
+
+        return assignments.findActiveByFloorPlanId(floorPlanId).stream()
                 .map(this::toData)
                 .toList();
     }
