@@ -98,6 +98,12 @@ public class FloorPlanZone {
         return parsePoints(this.polygonPoints);
     }
 
+    /**
+     * Smallest area a zone may enclose, in m² (10 × 10 cm). Below it the points sit on a line or on
+     * top of each other: a click instead of a drag, or a polygon closed after two corners.
+     */
+    public static final double MIN_AREA_M2 = 0.01;
+
     // ---- geometry helpers ----
 
     public static double computeArea(List<double[]> points) {
@@ -131,12 +137,23 @@ public class FloorPlanZone {
             throw new RuleViolationException("ZONE_TOO_FEW_POINTS",
                     "A zone polygon must have at least 3 points");
         }
+        for (double[] point : points) {
+            if (point == null || point.length != 2 || !Double.isFinite(point[0]) || !Double.isFinite(point[1])) {
+                throw new RuleViolationException("ZONE_INVALID_POINT",
+                        "Each zone point must be a pair of finite coordinates");
+            }
+        }
+        double area = computeArea(points);
+        if (area < MIN_AREA_M2) {
+            throw new RuleViolationException("ZONE_NO_AREA",
+                    "A zone must enclose an area; its points lie on a line or on top of each other");
+        }
         try {
             this.polygonPoints = MAPPER.writeValueAsString(points);
         } catch (JacksonException e) {
             throw new IllegalArgumentException("Could not serialize polygon points", e);
         }
-        this.areaMSquared = computeArea(points);
+        this.areaMSquared = area;
         this.perimeterMeters = computePerimeter(points);
     }
 
