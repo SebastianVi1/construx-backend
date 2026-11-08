@@ -9,6 +9,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.shared.exception.RuleViolationException;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -39,6 +41,7 @@ public class FloorPlanZone {
     @Column(nullable = false, length = 20)
     private ZoneStatus status;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "polygon_points", nullable = false, columnDefinition = "jsonb")
     private String polygonPoints;
 
