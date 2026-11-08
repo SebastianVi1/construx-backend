@@ -18,6 +18,10 @@ Use `mvnw.cmd` instead of `./mvnw` on Windows.
 
 Follow the existing four-space Java indentation and package naming. Use `PascalCase` for classes and enums, `camelCase` for methods and fields, and descriptive domain names such as `OrganizationMembership` or `ProjectAccess`. Keep entity relationships and invariants inside the relevant model classes; use `shared` for code used across modules. The project uses Lombok for selected boilerplate. No formatter or lint plugin is configured, so match nearby code when editing.
 
+**JPA column naming**: Fields with consecutive uppercase letters in camelCase (e.g. `pointAX`, `metersPerPx`) require an explicit `@Column(name = "point_a_x")` — Hibernate's Spring naming strategy maps `pointAX` → `point_ax`, not `point_a_x`. Simple boundaries like `createdAt` → `created_at` are handled automatically; only consecutive-capital sequences need explicit names.
+
+**Navigation — entities and migrations**: Flyway migrations live in `src/main/resources/db/migration/` following `V<n>__<table_name>.sql`. The JPA entity for a table is in `modules/<module>/model/`.
+
 ## Testing Guidelines
 
 Tests use JUnit Jupiter and Spring's test support; MVC handler tests use standalone `MockMvc`. Name test classes `*Test` or `*Tests` and give test methods behavior-focused names. Add focused tests for changed behavior. `ConstruxApplicationTests` loads the full Spring context: its configured JPA `ddl-auto=update` may change the connected PostgreSQL schema. Run it against a disposable database.

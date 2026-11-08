@@ -39,9 +39,13 @@ class ProjectPlanTest {
     }
 
     @Test
-    void onlySmallEnoughImagesAreAccepted() {
+    void onlySmallEnoughFilesOfAcceptedTypesAreAccepted() {
+        // PDF and DWG are now accepted
+        assertDoesNotThrow(() -> plan("plan.pdf", "application/pdf", 10, null));
+        assertDoesNotThrow(() -> plan("plan.dwg", "application/acad", 10, null));
+        // Unknown types are still rejected
         RuleViolationException type = assertThrows(RuleViolationException.class,
-                () -> plan("plan.pdf", "application/pdf", 10, null));
+                () -> plan("plan.gif", "image/gif", 10, null));
         assertEquals("PLAN_FILE_TYPE", type.getCode());
         RuleViolationException large = assertThrows(RuleViolationException.class,
                 () -> plan("plan.png", "image/png", ProjectPlan.MAX_SIZE_BYTES + 1, null));
