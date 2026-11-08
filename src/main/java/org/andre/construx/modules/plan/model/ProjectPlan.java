@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * A plan of a site: one image file kept in private storage. The id is assigned up front because the storage
+ * A plan of a site: one file kept in private storage. The id is assigned up front because the storage
  * key contains it; the row exists (PENDING) before the file does, and turns READY once the stored file matches
  * the announced size and type.
  */
@@ -26,12 +26,14 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProjectPlan {
-    public static final long MAX_SIZE_BYTES = 20L * 1024 * 1024;
+    public static final long MAX_SIZE_BYTES = 50L * 1024 * 1024;
     public static final int MAX_NAME_LENGTH = 120;
     public static final int MAX_DESCRIPTION_LENGTH = 500;
     /** Accepted content types and the extension their files get in storage. */
     public static final Map<String, String> CONTENT_TYPES = Map.of(
-            "image/jpeg", "jpg", "image/png", "png", "image/webp", "webp");
+            "image/jpeg", "jpg", "image/png", "png", "image/webp", "webp",
+            "application/pdf", "pdf",
+            "application/acad", "dwg", "application/x-dwg", "dwg", "image/vnd.dwg", "dwg");
 
     @Id
     private UUID id;
@@ -95,10 +97,10 @@ public class ProjectPlan {
         this.contentType = contentType == null ? "" : contentType.strip().toLowerCase(Locale.ROOT);
         String extension = CONTENT_TYPES.get(this.contentType);
         if (extension == null) {
-            throw new RuleViolationException("PLAN_FILE_TYPE", "Plans must be JPEG, PNG or WebP images");
+            throw new RuleViolationException("PLAN_FILE_TYPE", "Plans must be JPEG, PNG, WebP, PDF or DWG files");
         }
         if (sizeBytes <= 0 || sizeBytes > MAX_SIZE_BYTES) {
-            throw new RuleViolationException("PLAN_FILE_TOO_LARGE", "Plans must be between 1 byte and 20 MB");
+            throw new RuleViolationException("PLAN_FILE_TOO_LARGE", "Plans must be between 1 byte and 50 MB");
         }
         this.sizeBytes = sizeBytes;
         rename(name == null || name.isBlank() ? defaultName(originalFileName) : name);
