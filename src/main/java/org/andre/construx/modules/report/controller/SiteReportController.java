@@ -1,5 +1,7 @@
 package org.andre.construx.modules.report.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -45,9 +47,5 @@ public class SiteReportController {
                                         @PathVariable UUID reportId, Authentication authentication) {
         URI url = reports.getDownloadUrl(userId(authentication), organizationId, projectId, reportId);
         return Map.of("downloadUrl", url.toString());
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

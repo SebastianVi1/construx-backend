@@ -5,18 +5,14 @@ import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.model.ZoneStatus;
 import org.andre.construx.modules.floorplan.model.ZoneAssignment;
 import org.andre.construx.modules.floorplan.repository.FloorPlanCalibrationRepository;
-import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.audit.AuditService.AuditEventData;
-import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.shared.security.SiteScope;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,29 +27,20 @@ import java.util.UUID;
 public class FloorPlanZoneService {
 
     private final FloorPlanZoneRepository zones;
-    private final FloorPlanRepository floorPlans;
     private final FloorPlanCalibrationRepository calibrations;
     private final ZoneAssignmentRepository zoneAssignments;
-    private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
+    private final FloorPlanLookup lookup;
     private final AuditService auditService;
 
     public FloorPlanZoneService(FloorPlanZoneRepository zones,
-                                FloorPlanRepository floorPlans,
                                 FloorPlanCalibrationRepository calibrations,
                                 ZoneAssignmentRepository zoneAssignments,
-                                ProjectService projects,
-                                MembershipGuard guard,
-                                DomainAuthorization authorization,
+                                FloorPlanLookup lookup,
                                 AuditService auditService) {
         this.zones = zones;
-        this.floorPlans = floorPlans;
         this.calibrations = calibrations;
         this.zoneAssignments = zoneAssignments;
-        this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
+        this.lookup = lookup;
         this.auditService = auditService;
     }
 
@@ -68,14 +55,10 @@ public class FloorPlanZoneService {
                                     List<double[]> points, long version) {}
 
     @Transactional
-    public ZoneData createZone(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId,
-                               CreateZoneRequest request) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        FloorPlan plan = floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
+    public ZoneData createZone(SiteScope site, UUID floorPlanId, CreateZoneRequest request) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership member = site.membership();
+        FloorPlan plan = lookup.floorPlan(site, floorPlanId);
 
         if (!plan.isReady()) {
             throw new RuleViolationException("FLOOR_PLAN_NOT_READY", "Floor plan must be READY to draw zones");
@@ -98,16 +81,10 @@ public class FloorPlanZoneService {
     }
 
     @Transactional
-    public ZoneData updateZone(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId,
-                               UUID zoneId, UpdateZoneRequest request) {
-        OrganizationMembership actor = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
-        FloorPlanZone zone = zones.findByIdAndFloorPlanIdAndDeletedAtIsNull(zoneId, floorPlanId)
-                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
+    public ZoneData updateZone(SiteScope site, UUID floorPlanId, UUID zoneId, UpdateZoneRequest request) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership actor = site.membership();
+        FloorPlanZone zone = lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         Map<String, Object> before = zoneSnapshot(zone);
         try {
@@ -125,16 +102,10 @@ public class FloorPlanZoneService {
     }
 
     @Transactional
-    public void deleteZone(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId, UUID zoneId) {
-        OrganizationMembership actor = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
-
-        FloorPlanZone zone = zones.findByIdAndFloorPlanIdAndDeletedAtIsNull(zoneId, floorPlanId)
-                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
+    public void deleteZone(SiteScope site, UUID floorPlanId, UUID zoneId) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership actor = site.membership();
+        FloorPlanZone zone = lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         Map<String, Object> before = zoneSnapshot(zone);
         zone.softDelete();
@@ -144,13 +115,9 @@ public class FloorPlanZoneService {
     }
 
     @Transactional(readOnly = true)
-    public List<ZoneData> listZones(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
+    public List<ZoneData> listZones(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.floorPlan(site, floorPlanId);
 
         return zones.findByFloorPlanIdAndDeletedAtIsNullOrderByCreatedAtAsc(floorPlanId)
                 .stream()
@@ -161,14 +128,9 @@ public class FloorPlanZoneService {
     public record ZoneStateData(ZoneData zone, List<ZoneAssignmentService.AssignmentData> activeAssignments) {}
 
     @Transactional(readOnly = true)
-    public List<ZoneStateData> getFloorPlanState(UUID userId, UUID organizationId, UUID projectId,
-                                                  UUID floorPlanId, LocalDate date) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
+    public List<ZoneStateData> getFloorPlanState(SiteScope site, UUID floorPlanId, LocalDate date) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.floorPlan(site, floorPlanId);
 
         List<FloorPlanZone> allZones = zones.findByFloorPlanIdAndDeletedAtIsNullOrderByCreatedAtAsc(floorPlanId);
 
@@ -195,16 +157,9 @@ public class FloorPlanZoneService {
     }
 
     @Transactional(readOnly = true)
-    public List<AuditEventData> listAudit(UUID userId, UUID organizationId, UUID projectId,
-                                          UUID floorPlanId, UUID zoneId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
-        zones.findByIdAndFloorPlanIdAndDeletedAtIsNull(zoneId, floorPlanId)
-                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
+    public List<AuditEventData> listAudit(SiteScope site, UUID floorPlanId, UUID zoneId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         return auditService.listForEntity("FloorPlanZone", zoneId);
     }

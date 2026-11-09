@@ -8,10 +8,9 @@ import org.andre.construx.modules.floorplan.model.ZoneStatus;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
 import org.andre.construx.shared.audit.AuditService.AuditEventData;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import org.andre.construx.shared.security.SecurityUtils;
+import org.andre.construx.shared.security.SiteScope;
 
 import java.util.List;
 import java.util.UUID;
@@ -44,55 +43,45 @@ public class FloorPlanZoneController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public FloorPlanZoneService.ZoneData create(
-            @PathVariable UUID organizationId,
-            @PathVariable UUID projectId,
+            SiteScope site,
             @PathVariable UUID floorPlanId,
-            @Valid @RequestBody CreateZoneRequest body,
-            Authentication authentication) {
-        return zoneService.createZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId,
+            @Valid @RequestBody CreateZoneRequest body) {
+        return zoneService.createZone(site, floorPlanId,
                 new FloorPlanZoneService.CreateZoneRequest(body.name(), body.description(), body.status(), body.points()));
     }
 
     @GetMapping
     public List<FloorPlanZoneService.ZoneData> list(
-            @PathVariable UUID organizationId,
-            @PathVariable UUID projectId,
-            @PathVariable UUID floorPlanId,
-            Authentication authentication) {
-        return zoneService.listZones(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
+            SiteScope site,
+            @PathVariable UUID floorPlanId) {
+        return zoneService.listZones(site, floorPlanId);
     }
 
     @PatchMapping("/{zoneId}")
     public FloorPlanZoneService.ZoneData update(
-            @PathVariable UUID organizationId,
-            @PathVariable UUID projectId,
+            SiteScope site,
             @PathVariable UUID floorPlanId,
             @PathVariable UUID zoneId,
-            @Valid @RequestBody UpdateZoneRequest body,
-            Authentication authentication) {
-        return zoneService.updateZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId,
+            @Valid @RequestBody UpdateZoneRequest body) {
+        return zoneService.updateZone(site, floorPlanId, zoneId,
                 new FloorPlanZoneService.UpdateZoneRequest(body.name(), body.description(), body.status(), body.points(), body.version()));
     }
 
     @DeleteMapping("/{zoneId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
-            @PathVariable UUID organizationId,
-            @PathVariable UUID projectId,
+            SiteScope site,
             @PathVariable UUID floorPlanId,
-            @PathVariable UUID zoneId,
-            Authentication authentication) {
-        zoneService.deleteZone(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId);
+            @PathVariable UUID zoneId) {
+        zoneService.deleteZone(site, floorPlanId, zoneId);
     }
 
     @GetMapping("/{zoneId}/audit")
     public List<AuditEventData> audit(
-            @PathVariable UUID organizationId,
-            @PathVariable UUID projectId,
+            SiteScope site,
             @PathVariable UUID floorPlanId,
-            @PathVariable UUID zoneId,
-            Authentication authentication) {
-        return zoneService.listAudit(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, zoneId);
+            @PathVariable UUID zoneId) {
+        return zoneService.listAudit(site, floorPlanId, zoneId);
     }
 
 }

@@ -1,5 +1,7 @@
 package org.andre.construx.modules.pricing.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -74,9 +76,5 @@ public class MaterialController {
     public MaterialService.MaterialData archive(@PathVariable UUID organizationId, @PathVariable UUID materialId,
                                                 Authentication authentication) {
         return materials.archive(userId(authentication), organizationId, materialId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

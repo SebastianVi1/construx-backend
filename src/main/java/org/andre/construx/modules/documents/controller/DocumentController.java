@@ -1,5 +1,7 @@
 package org.andre.construx.modules.documents.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.andre.construx.modules.documents.service.DocumentService;
@@ -108,9 +110,5 @@ public class DocumentController {
                                                    @RequestParam @NotBlank @Size(max = 100) String q,
                                                    Authentication auth) {
         return documents.search(userId(auth), organizationId, projectId, q);
-    }
-
-    private static UUID userId(Authentication auth) {
-        return UUID.fromString(auth.getName());
     }
 }

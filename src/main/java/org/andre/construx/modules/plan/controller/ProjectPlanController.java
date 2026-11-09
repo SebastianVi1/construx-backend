@@ -1,5 +1,7 @@
 package org.andre.construx.modules.plan.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -66,9 +68,5 @@ public class ProjectPlanController {
     public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID planId,
                        Authentication authentication) {
         plans.delete(userId(authentication), organizationId, projectId, planId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

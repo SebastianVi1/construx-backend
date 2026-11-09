@@ -3,14 +3,10 @@ package org.andre.construx.modules.floorplan.service;
 import org.andre.construx.modules.floorplan.model.FloorPlan;
 import org.andre.construx.modules.floorplan.model.FloorPlanStatus;
 import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
-import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.model.Project;
-import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.shared.security.SiteScope;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -45,17 +41,12 @@ public class FloorPlanService {
     static final Duration VIEW_TTL = Duration.ofHours(1);
 
     private final FloorPlanRepository floorPlans;
-    private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
+    private final FloorPlanLookup lookup;
     private final ObjectStorage storage;
 
-    public FloorPlanService(FloorPlanRepository floorPlans, ProjectService projects, MembershipGuard guard,
-                            DomainAuthorization authorization, ObjectStorage storage) {
+    public FloorPlanService(FloorPlanRepository floorPlans, FloorPlanLookup lookup, ObjectStorage storage) {
         this.floorPlans = floorPlans;
-        this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
+        this.lookup = lookup;
         this.storage = storage;
     }
 
@@ -66,18 +57,15 @@ public class FloorPlanService {
                                 URI viewUrl, Instant viewUrlExpiresAt, Instant createdAt, Instant completedAt) {}
 
     @Transactional
-    public UploadData requestUpload(UUID userId, UUID organizationId, UUID projectId,
-                                    String name, String description, String level,
+    public UploadData requestUpload(SiteScope site, String name, String description, String level,
                                     int pageNumber, String contentType, long sizeBytes) {
         if (sizeBytes > 50L * 1024 * 1024) {
             throw new RuleViolationException("FLOOR_PLAN_TOO_LARGE", "File exceeds the maximum allowed size of 50 MB");
         }
 
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Project project = projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
+        site.require(PermissionAction.MANAGE_PLAN);
 
-        FloorPlan plan = new FloorPlan(project, member, name, description, level, pageNumber, contentType, sizeBytes);
+        FloorPlan plan = new FloorPlan(site.site(), site.membership(), name, description, level, pageNumber, contentType, sizeBytes);
         floorPlans.save(plan);
 
         ObjectStorage.PresignedUpload upload = storage.presignUpload(
@@ -90,11 +78,9 @@ public class FloorPlanService {
      * Returns immediately with status=PROCESSING.
      */
     @Transactional
-    public FloorPlanData completeUpload(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-        FloorPlan plan = load(projectId, floorPlanId);
+    public FloorPlanData completeUpload(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        FloorPlan plan = lookup.floorPlan(site, floorPlanId);
         storage.head(plan.getOriginalKey())
                 .orElseThrow(() -> new RuleViolationException("FLOOR_PLAN_UPLOAD_MISSING",
                         "The floor plan file was not uploaded"));
@@ -144,28 +130,22 @@ public class FloorPlanService {
     }
 
     @Transactional(readOnly = true)
-    public FloorPlanData getFloorPlan(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-        return toData(load(projectId, floorPlanId));
+    public FloorPlanData getFloorPlan(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        return toData(lookup.floorPlan(site, floorPlanId));
     }
 
     @Transactional(readOnly = true)
-    public List<FloorPlanData> listFloorPlans(UUID userId, UUID organizationId, UUID projectId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-        return floorPlans.findByProjectIdOrderByCreatedAtDesc(projectId).stream()
+    public List<FloorPlanData> listFloorPlans(SiteScope site) {
+        site.require(PermissionAction.VIEW_PLAN);
+        return floorPlans.findByProjectIdOrderByCreatedAtDesc(site.siteId()).stream()
                 .map(this::toData).toList();
     }
 
     @Transactional
-    public void deleteFloorPlan(UUID userId, UUID organizationId, UUID projectId, UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-        FloorPlan plan = load(projectId, floorPlanId);
+    public void deleteFloorPlan(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        FloorPlan plan = lookup.floorPlan(site, floorPlanId);
         floorPlans.delete(plan);
         floorPlans.flush();
         storage.delete(plan.getOriginalKey());
@@ -175,11 +155,6 @@ public class FloorPlanService {
     }
 
     // ── internals ───────────────────────────────────────────────────────────
-
-    private FloorPlan load(UUID projectId, UUID floorPlanId) {
-        return floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
-    }
 
     FloorPlanData toData(FloorPlan plan) {
         URI viewUrl = null;

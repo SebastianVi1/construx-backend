@@ -14,10 +14,11 @@ import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.modules.floorplan.service.ZoneAssignmentService;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.service.ProjectService;
+import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
+import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.audit.AuditService;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.shared.security.TestScopes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,13 +38,11 @@ class ZoneAssignmentServiceTest {
     private OrganizationMembershipRepository membershipRepo;
     private CrewRepository crewRepo;
     private EquipmentRepository equipmentRepo;
-    private ProjectService projects;
-    private MembershipGuard guard;
-    private DomainAuthorization authorization;
 
     private ZoneAssignmentService service;
 
-    private UUID userId, orgId, projectId, floorPlanId, zoneId;
+    private UUID orgId, projectId, floorPlanId, zoneId;
+    private SiteScope site;
     private OrganizationMembership member;
     private FloorPlan floorPlan;
     private FloorPlanZone zone;
@@ -56,15 +55,11 @@ class ZoneAssignmentServiceTest {
         membershipRepo = mock(OrganizationMembershipRepository.class);
         crewRepo = mock(CrewRepository.class);
         equipmentRepo = mock(EquipmentRepository.class);
-        projects = mock(ProjectService.class);
-        guard = mock(MembershipGuard.class);
-        authorization = mock(DomainAuthorization.class);
 
         AuditService auditService = mock(AuditService.class);
-        service = new ZoneAssignmentService(assignmentRepo, zoneRepo, floorPlanRepo,
-                membershipRepo, crewRepo, equipmentRepo, projects, guard, authorization, auditService);
+        service = new ZoneAssignmentService(assignmentRepo, new FloorPlanLookup(floorPlanRepo, zoneRepo),
+                membershipRepo, crewRepo, equipmentRepo, auditService);
 
-        userId = UUID.randomUUID();
         orgId = UUID.randomUUID();
         projectId = UUID.randomUUID();
         floorPlanId = UUID.randomUUID();
@@ -73,11 +68,15 @@ class ZoneAssignmentServiceTest {
         member = mock(OrganizationMembership.class);
         when(member.getId()).thenReturn(UUID.randomUUID());
 
+        Project project = mock(Project.class);
+        when(project.getId()).thenReturn(projectId);
+        site = TestScopes.fullAccess(orgId, project, member);
+
         floorPlan = mock(FloorPlan.class);
+        when(floorPlan.getId()).thenReturn(floorPlanId);
         zone = mock(FloorPlanZone.class);
         when(zone.getId()).thenReturn(zoneId);
 
-        when(guard.requireActive(any(), any())).thenReturn(member);
         when(floorPlanRepo.findByIdAndProjectId(floorPlanId, projectId)).thenReturn(Optional.of(floorPlan));
         when(zoneRepo.findByIdAndFloorPlanIdAndDeletedAtIsNull(zoneId, floorPlanId)).thenReturn(Optional.of(zone));
         when(assignmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -96,7 +95,7 @@ class ZoneAssignmentServiceTest {
                 membershipId, null, null, "Foundation work", LocalDate.of(2025, 1, 15), null, AssignmentShift.MORNING);
 
         ZoneAssignmentService.CreateAssignmentResponse response =
-                service.createAssignment(userId, orgId, projectId, floorPlanId, zoneId, request);
+                service.createAssignment(site, floorPlanId, zoneId, request);
 
         assertFalse(response.hasOverlapWarning());
         assertNotNull(response.assignment());
@@ -115,7 +114,7 @@ class ZoneAssignmentServiceTest {
                 membershipId, null, null, "Foundation work", LocalDate.of(2025, 1, 15), null, AssignmentShift.MORNING);
 
         ZoneAssignmentService.CreateAssignmentResponse response =
-                service.createAssignment(userId, orgId, projectId, floorPlanId, zoneId, request);
+                service.createAssignment(site, floorPlanId, zoneId, request);
 
         assertTrue(response.hasOverlapWarning());
         assertNotNull(response.assignment());
@@ -141,7 +140,7 @@ class ZoneAssignmentServiceTest {
         when(old.getShift()).thenReturn(AssignmentShift.FULL_DAY);
         when(assignmentRepo.findByIdAndZoneId(assignmentId, zoneId)).thenReturn(Optional.of(old));
 
-        service.reassignToZone(userId, orgId, projectId, floorPlanId, zoneId, assignmentId, newZoneId);
+        service.reassignToZone(site, floorPlanId, zoneId, assignmentId, newZoneId);
 
         verify(old).close();
         verify(assignmentRepo, times(1)).save(any(ZoneAssignment.class));
@@ -153,7 +152,7 @@ class ZoneAssignmentServiceTest {
                 LocalDate.of(2025, 3, 1), null, AssignmentShift.MORNING, member);
         when(assignmentRepo.findActiveByFloorPlanId(floorPlanId)).thenReturn(java.util.List.of(active));
 
-        var result = service.listFloorPlanAssignments(userId, orgId, projectId, floorPlanId);
+        var result = service.listFloorPlanAssignments(site, floorPlanId);
 
         assertEquals(1, result.size());
         assertEquals(zoneId, result.get(0).zoneId());
@@ -171,7 +170,7 @@ class ZoneAssignmentServiceTest {
                 membershipId, null, null, null, null, null, null);
 
         ZoneAssignmentService.CreateAssignmentResponse response =
-                service.createAssignment(userId, orgId, projectId, floorPlanId, zoneId, request);
+                service.createAssignment(site, floorPlanId, zoneId, request);
 
         assertNull(response.assignment().activity());
         assertEquals(LocalDate.now(), response.assignment().startDate());

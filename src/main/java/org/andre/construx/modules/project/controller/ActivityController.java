@@ -1,5 +1,7 @@
 package org.andre.construx.modules.project.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -132,9 +134,5 @@ public class ActivityController {
 
     private static List<ActivityService.TeamInput> team(List<TeamPlace> places) {
         return places.stream().map(p -> new ActivityService.TeamInput(p.accessId(), p.taskRole())).toList();
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

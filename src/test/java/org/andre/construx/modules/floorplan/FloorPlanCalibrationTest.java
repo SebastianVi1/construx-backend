@@ -5,14 +5,14 @@ import org.andre.construx.modules.floorplan.model.FloorPlanCalibration;
 import org.andre.construx.modules.floorplan.repository.FloorPlanCalibrationRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.floorplan.service.FloorPlanCalibrationService;
+import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
+import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
-import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.project.model.Project;
-import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.shared.security.TestScopes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,14 +28,11 @@ class FloorPlanCalibrationTest {
 
     private FloorPlanCalibrationRepository calibrationRepo;
     private FloorPlanRepository floorPlanRepo;
-    private MembershipGuard guard;
-    private DomainAuthorization authorization;
-    private ProjectService projectService;
     private FloorPlanCalibrationService service;
 
     private UUID orgId;
     private UUID projectId;
-    private UUID userId;
+    private SiteScope site;
     private UUID floorPlanId;
 
     private FloorPlan readyPlan;
@@ -45,16 +42,11 @@ class FloorPlanCalibrationTest {
     void setUp() {
         calibrationRepo = mock(FloorPlanCalibrationRepository.class);
         floorPlanRepo = mock(FloorPlanRepository.class);
-        guard = mock(MembershipGuard.class);
-        authorization = mock(DomainAuthorization.class);
-        projectService = mock(ProjectService.class);
-
-        service = new FloorPlanCalibrationService(calibrationRepo, floorPlanRepo,
-                projectService, guard, authorization);
+        service = new FloorPlanCalibrationService(calibrationRepo,
+                new FloorPlanLookup(floorPlanRepo, mock(FloorPlanZoneRepository.class)));
 
         orgId = UUID.randomUUID();
         projectId = UUID.randomUUID();
-        userId = UUID.randomUUID();
         floorPlanId = UUID.randomUUID();
 
         Organization org = mock(Organization.class);
@@ -65,7 +57,7 @@ class FloorPlanCalibrationTest {
         when(project.getOrganization()).thenReturn(org);
 
         member = mock(OrganizationMembership.class);
-        when(guard.requireActive(userId, orgId)).thenReturn(member);
+        site = TestScopes.fullAccess(orgId, project, member);
 
         readyPlan = new FloorPlan(project, member, "Level 1", null, "Ground", 1, "image/png", 1024L);
         readyPlan.startProcessing();
@@ -79,7 +71,7 @@ class FloorPlanCalibrationTest {
     void metersPerPxComputedCorrectly() {
         // 100 px horizontal distance, 5.0 m → 0.05 m/px
         FloorPlanCalibrationService.CalibrationData result = service.save(
-                userId, orgId, projectId, floorPlanId,
+                site, floorPlanId,
                 0, 0, 100, 0, 5.0);
 
         assertEquals(0.05, result.metersPerPx(), 1e-10);
@@ -89,7 +81,7 @@ class FloorPlanCalibrationTest {
     void metersPerPxWithDiagonalDistance() {
         // 3-4-5 right triangle: pixel distance = 5, 10 m → 2 m/px
         FloorPlanCalibrationService.CalibrationData result = service.save(
-                userId, orgId, projectId, floorPlanId,
+                site, floorPlanId,
                 0, 0, 3, 4, 10.0);
 
         assertEquals(2.0, result.metersPerPx(), 1e-10);
@@ -98,7 +90,7 @@ class FloorPlanCalibrationTest {
     @Test
     void zeroDistanceRejected() {
         RuleViolationException ex = assertThrows(RuleViolationException.class,
-                () -> service.save(userId, orgId, projectId, floorPlanId,
+                () -> service.save(site, floorPlanId,
                         10, 20, 10, 20, 5.0));
         assertEquals("CALIBRATION_ZERO_DISTANCE", ex.getCode());
     }
@@ -115,7 +107,7 @@ class FloorPlanCalibrationTest {
         when(floorPlanRepo.findByIdAndProjectId(any(), eq(projectId))).thenReturn(Optional.of(pending));
 
         RuleViolationException ex = assertThrows(RuleViolationException.class,
-                () -> service.save(userId, orgId, projectId, floorPlanId,
+                () -> service.save(site, floorPlanId,
                         0, 0, 100, 0, 5.0));
         assertEquals("FLOOR_PLAN_NOT_READY", ex.getCode());
     }

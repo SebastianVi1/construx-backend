@@ -1,5 +1,7 @@
 package org.andre.construx.modules.pricing.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -62,9 +64,5 @@ public class SupplierController {
     public SupplierService.SupplierData archive(@PathVariable UUID organizationId, @PathVariable UUID supplierId,
                                                 Authentication authentication) {
         return suppliers.archive(userId(authentication), organizationId, supplierId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

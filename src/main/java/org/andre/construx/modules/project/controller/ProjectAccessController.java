@@ -1,5 +1,7 @@
 package org.andre.construx.modules.project.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.andre.construx.modules.project.service.ProjectAccessService;
@@ -58,9 +60,5 @@ public class ProjectAccessController {
     public void remove(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID accessId,
                        Authentication authentication) {
         accesses.remove(userId(authentication), organizationId, projectId, accessId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

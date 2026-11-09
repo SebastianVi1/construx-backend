@@ -10,7 +10,6 @@ import org.andre.construx.modules.floorplan.service.FloorPlanService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService.ZoneStateData;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import org.andre.construx.shared.security.SecurityUtils;
+import org.andre.construx.shared.security.SiteScope;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -50,47 +49,44 @@ public class FloorPlanController {
 
     @PostMapping("/uploads")
     @ResponseStatus(HttpStatus.CREATED)
-    public FloorPlanService.UploadData requestUpload(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                      @Valid @RequestBody UploadRequest body,
-                                                      Authentication authentication) {
-        return floorPlans.requestUpload(SecurityUtils.userId(authentication), organizationId, projectId,
+    public FloorPlanService.UploadData requestUpload(SiteScope site,
+                                                      @Valid @RequestBody UploadRequest body) {
+        return floorPlans.requestUpload(site,
                 body.name(), body.description(), body.level(),
                 body.pageNumber() == null ? 1 : body.pageNumber(),
                 body.contentType(), body.sizeBytes());
     }
 
     @PostMapping("/{floorPlanId}/complete")
-    public FloorPlanService.FloorPlanData complete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                    @PathVariable UUID floorPlanId, Authentication authentication) {
-        return floorPlans.completeUpload(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
+    public FloorPlanService.FloorPlanData complete(SiteScope site,
+                                                    @PathVariable UUID floorPlanId) {
+        return floorPlans.completeUpload(site, floorPlanId);
     }
 
     @GetMapping
-    public List<FloorPlanService.FloorPlanData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                      Authentication authentication) {
-        return floorPlans.listFloorPlans(SecurityUtils.userId(authentication), organizationId, projectId);
+    public List<FloorPlanService.FloorPlanData> list(SiteScope site) {
+        return floorPlans.listFloorPlans(site);
     }
 
     @GetMapping("/{floorPlanId}")
-    public FloorPlanService.FloorPlanData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                               @PathVariable UUID floorPlanId, Authentication authentication) {
-        return floorPlans.getFloorPlan(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
+    public FloorPlanService.FloorPlanData get(SiteScope site,
+                                               @PathVariable UUID floorPlanId) {
+        return floorPlans.getFloorPlan(site, floorPlanId);
     }
 
     @DeleteMapping("/{floorPlanId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                       @PathVariable UUID floorPlanId, Authentication authentication) {
-        floorPlans.deleteFloorPlan(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId);
+    public void delete(SiteScope site,
+                       @PathVariable UUID floorPlanId) {
+        floorPlans.deleteFloorPlan(site, floorPlanId);
     }
 
     @GetMapping("/{floorPlanId}/state")
-    public List<ZoneStateData> state(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public List<ZoneStateData> state(SiteScope site,
                                      @PathVariable UUID floorPlanId,
-                                     @RequestParam(required = false) String date,
-                                     Authentication authentication) {
+                                     @RequestParam(required = false) String date) {
         LocalDate localDate = date != null ? LocalDate.parse(date) : LocalDate.now();
-        return zoneService.getFloorPlanState(SecurityUtils.userId(authentication), organizationId, projectId, floorPlanId, localDate);
+        return zoneService.getFloorPlanState(site, floorPlanId, localDate);
     }
 
 }

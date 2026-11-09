@@ -1,5 +1,7 @@
 package org.andre.construx.modules.pricing.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -68,9 +70,5 @@ public class PriceObservationController {
     public void delete(@PathVariable UUID organizationId, @PathVariable UUID observationId,
                        Authentication authentication) {
         observations.delete(userId(authentication), organizationId, observationId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

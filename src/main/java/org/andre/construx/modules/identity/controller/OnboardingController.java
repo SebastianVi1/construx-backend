@@ -1,5 +1,7 @@
 package org.andre.construx.modules.identity.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.andre.construx.modules.identity.model.BusinessType;
@@ -35,12 +37,12 @@ public class OnboardingController {
 
     @GetMapping
     public OnboardingResponse get(Authentication authentication) {
-        return OnboardingResponse.from(onboarding.get(UUID.fromString(authentication.getName())));
+        return OnboardingResponse.from(onboarding.get(userId(authentication)));
     }
 
     @PutMapping
     public OnboardingResponse answer(@Valid @RequestBody OnboardingUpdate body, Authentication authentication) {
-        return OnboardingResponse.from(onboarding.answer(UUID.fromString(authentication.getName()),
+        return OnboardingResponse.from(onboarding.answer(userId(authentication),
                 body.intent(), body.businessType()));
     }
 }

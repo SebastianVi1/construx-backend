@@ -1,5 +1,7 @@
 package org.andre.construx.modules.finance.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
@@ -105,9 +107,5 @@ public class ExpenseController {
                                                     Authentication authentication) {
         return expenses.createForTask(userId(authentication), organizationId, projectId, goalId, activityId,
                 body.amount(), body.spentOn(), body.description(), body.category());
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

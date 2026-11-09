@@ -8,17 +8,13 @@ import org.andre.construx.modules.floorplan.model.AssignmentShift;
 import org.andre.construx.modules.floorplan.model.FloorPlan;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.model.ZoneAssignment;
-import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
-import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.shared.security.SiteScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,35 +29,23 @@ import java.util.stream.Collectors;
 public class ZoneAssignmentService {
 
     private final ZoneAssignmentRepository assignments;
-    private final FloorPlanZoneRepository zones;
-    private final FloorPlanRepository floorPlans;
+    private final FloorPlanLookup lookup;
     private final OrganizationMembershipRepository memberships;
     private final CrewRepository crews;
     private final EquipmentRepository equipment;
-    private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
     private final AuditService auditService;
 
     public ZoneAssignmentService(ZoneAssignmentRepository assignments,
-                                  FloorPlanZoneRepository zones,
-                                  FloorPlanRepository floorPlans,
+                                  FloorPlanLookup lookup,
                                   OrganizationMembershipRepository memberships,
                                   CrewRepository crews,
                                   EquipmentRepository equipment,
-                                  ProjectService projects,
-                                  MembershipGuard guard,
-                                  DomainAuthorization authorization,
                                   AuditService auditService) {
         this.assignments = assignments;
-        this.zones = zones;
-        this.floorPlans = floorPlans;
+        this.lookup = lookup;
         this.memberships = memberships;
         this.crews = crews;
         this.equipment = equipment;
-        this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
         this.auditService = auditService;
     }
 
@@ -94,15 +78,12 @@ public class ZoneAssignmentService {
     public record ReassignRequest(UUID newZoneId) {}
 
     @Transactional
-    public CreateAssignmentResponse createAssignment(UUID userId, UUID organizationId, UUID projectId,
-                                                      UUID floorPlanId, UUID zoneId,
+    public CreateAssignmentResponse createAssignment(SiteScope site, UUID floorPlanId, UUID zoneId,
                                                       CreateAssignmentRequest request) {
-        OrganizationMembership assignedBy = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
-        FloorPlanZone zone = loadZone(zoneId, floorPlanId);
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership assignedBy = site.membership();
+        UUID organizationId = site.organizationId();
+        FloorPlanZone zone = lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         OrganizationMembership membership = null;
         Crew crew = null;
@@ -144,14 +125,10 @@ public class ZoneAssignmentService {
     }
 
     @Transactional
-    public AssignmentData closeAssignment(UUID userId, UUID organizationId, UUID projectId,
-                                           UUID floorPlanId, UUID zoneId, UUID assignmentId) {
-        OrganizationMembership actor = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
-        loadZone(zoneId, floorPlanId);
+    public AssignmentData closeAssignment(SiteScope site, UUID floorPlanId, UUID zoneId, UUID assignmentId) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership actor = site.membership();
+        lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         ZoneAssignment assignment = assignments.findByIdAndZoneId(assignmentId, zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
@@ -163,16 +140,13 @@ public class ZoneAssignmentService {
     }
 
     @Transactional
-    public AssignmentData reassignToZone(UUID userId, UUID organizationId, UUID projectId,
-                                          UUID floorPlanId, UUID zoneId, UUID assignmentId,
+    public AssignmentData reassignToZone(SiteScope site, UUID floorPlanId, UUID zoneId, UUID assignmentId,
                                           UUID newZoneId) {
-        OrganizationMembership assignedBy = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
-        loadZone(zoneId, floorPlanId);
-        FloorPlanZone targetZone = loadZone(newZoneId, floorPlanId);
+        site.require(PermissionAction.MANAGE_PLAN);
+        OrganizationMembership assignedBy = site.membership();
+        FloorPlan plan = lookup.floorPlan(site, floorPlanId);
+        lookup.zone(plan, zoneId);
+        FloorPlanZone targetZone = lookup.zone(plan, newZoneId);
 
         ZoneAssignment old = assignments.findByIdAndZoneId(assignmentId, zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
@@ -198,14 +172,9 @@ public class ZoneAssignmentService {
     }
 
     @Transactional(readOnly = true)
-    public List<AssignmentData> listAssignments(UUID userId, UUID organizationId, UUID projectId,
-                                                 UUID floorPlanId, UUID zoneId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
-        loadZone(zoneId, floorPlanId);
+    public List<AssignmentData> listAssignments(SiteScope site, UUID floorPlanId, UUID zoneId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
         return assignments.findByZoneIdAndClosedAtIsNull(zoneId).stream()
                 .map(this::toData)
@@ -213,13 +182,9 @@ public class ZoneAssignmentService {
     }
 
     @Transactional(readOnly = true)
-    public List<AssignmentData> listFloorPlanAssignments(UUID userId, UUID organizationId, UUID projectId,
-                                                         UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
+    public List<AssignmentData> listFloorPlanAssignments(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.floorPlan(site, floorPlanId);
 
         return assignments.findActiveByFloorPlanId(floorPlanId).stream()
                 .map(this::toData)
@@ -227,28 +192,14 @@ public class ZoneAssignmentService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Long> getZoneAssignmentCounts(UUID userId, UUID organizationId, UUID projectId,
-                                                      UUID floorPlanId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PLAN);
-
-        requireFloorPlan(floorPlanId, projectId);
+    public Map<String, Long> getZoneAssignmentCounts(SiteScope site, UUID floorPlanId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        lookup.floorPlan(site, floorPlanId);
 
         return assignments.findActiveByFloorPlanId(floorPlanId).stream()
                 .collect(Collectors.groupingBy(
                         a -> a.getZone().getId().toString(),
                         Collectors.counting()));
-    }
-
-    private FloorPlan requireFloorPlan(UUID floorPlanId, UUID projectId) {
-        return floorPlans.findByIdAndProjectId(floorPlanId, projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("Floor plan not found"));
-    }
-
-    private FloorPlanZone loadZone(UUID zoneId, UUID floorPlanId) {
-        return zones.findByIdAndFloorPlanIdAndDeletedAtIsNull(zoneId, floorPlanId)
-                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
     }
 
     private AssignmentData toData(ZoneAssignment a) {

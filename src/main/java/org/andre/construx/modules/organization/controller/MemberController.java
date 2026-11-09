@@ -1,5 +1,7 @@
 package org.andre.construx.modules.organization.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
@@ -91,9 +93,5 @@ public class MemberController {
         return new MemberResponse(m.membershipId(), m.userId(), m.email(), m.fullName(),
                 new OrganizationController.RoleSummary(m.roleCode(), m.roleName()), m.status(),
                 m.avatarUrl() != null ? m.avatarUrl().toString() : null);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

@@ -1,5 +1,7 @@
 package org.andre.construx.modules.identity.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -50,12 +52,12 @@ public class UserProfileController {
 
     @GetMapping
     public ProfileResponse get(Authentication authentication) {
-        return ProfileResponse.from(profiles.get(UUID.fromString(authentication.getName())));
+        return ProfileResponse.from(profiles.get(userId(authentication)));
     }
 
     @PutMapping
     public ProfileResponse update(@Valid @RequestBody ProfileUpdate body, Authentication authentication) {
-        return ProfileResponse.from(profiles.update(UUID.fromString(authentication.getName()),
+        return ProfileResponse.from(profiles.update(userId(authentication),
                 body.fullName(), body.phoneNumber(), body.trade()));
     }
 
@@ -63,18 +65,18 @@ public class UserProfileController {
     @ResponseStatus(HttpStatus.CREATED)
     public UserProfileService.AvatarUploadData requestAvatarUpload(@Valid @RequestBody AvatarUploadRequest body,
                                                                    Authentication authentication) {
-        return profiles.requestAvatarUpload(UUID.fromString(authentication.getName()),
+        return profiles.requestAvatarUpload(userId(authentication),
                 body.contentType(), body.sizeBytes());
     }
 
     @PutMapping("/avatar")
     public ProfileResponse setAvatar(@Valid @RequestBody AvatarUpdate body, Authentication authentication) {
-        return ProfileResponse.from(profiles.setAvatar(UUID.fromString(authentication.getName()), body.key()));
+        return ProfileResponse.from(profiles.setAvatar(userId(authentication), body.key()));
     }
 
     @DeleteMapping("/avatar")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeAvatar(Authentication authentication) {
-        profiles.removeAvatar(UUID.fromString(authentication.getName()));
+        profiles.removeAvatar(userId(authentication));
     }
 }

@@ -1,5 +1,7 @@
 package org.andre.construx.modules.organization.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -31,7 +33,7 @@ public class InvitationAcceptController {
 
     @PostMapping("/accept")
     public AcceptResponse accept(@Valid @RequestBody AcceptInput body, Authentication authentication) {
-        InvitationService.AcceptedData data = invitations.accept(UUID.fromString(authentication.getName()), body.token());
+        InvitationService.AcceptedData data = invitations.accept(userId(authentication), body.token());
         return new AcceptResponse(new OrganizationSummary(data.organizationId(), data.organizationName()),
                 data.membershipId(), new InvitationController.RoleSummary(data.roleCode(), data.roleName()),
                 data.projectId());

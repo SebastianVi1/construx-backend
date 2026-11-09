@@ -1,5 +1,7 @@
 package org.andre.construx.modules.finance.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import org.andre.construx.modules.finance.service.OrgFinanceService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.Authentication;
@@ -40,9 +42,5 @@ public class OrgFinanceController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             Authentication authentication) {
         return orgFinance.monthlyExpenses(userId(authentication), organizationId, from, to);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

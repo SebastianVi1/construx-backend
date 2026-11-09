@@ -1,5 +1,7 @@
 package org.andre.construx.modules.project.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -76,9 +78,5 @@ public class ProjectController {
                                                    Authentication authentication) {
         return projects.assignBudget(userId(authentication), organizationId, projectId,
                 body.requireAllocatedBudget());
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

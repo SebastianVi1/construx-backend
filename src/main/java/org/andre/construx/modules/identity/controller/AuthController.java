@@ -1,5 +1,7 @@
 package org.andre.construx.modules.identity.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -98,7 +100,7 @@ public class AuthController {
     @PostMapping("/password")
     public ResponseEntity<Void> changePassword(@Valid @RequestBody PasswordChange body,
             Authentication authentication, HttpServletResponse response) {
-        accounts.changePassword(currentUserId(authentication),
+        accounts.changePassword(userId(authentication),
                 body.currentPassword(), body.newPassword());
         cookies.clear(response);
         return ResponseEntity.noContent().build();
@@ -119,14 +121,14 @@ public class AuthController {
 
     @GetMapping("/me")
     public Map<String, String> me(Authentication authentication) {
-        UUID id = currentUserId(authentication);
+        UUID id = userId(authentication);
         UserAccount user = users.findById(id).orElseThrow(() -> new UsernameNotFoundException("Unknown account"));
         return Map.of("id", id.toString(), "email", user.getEmail());
     }
 
     @PostMapping("/google/link")
     public Map<String, String> linkGoogle(Authentication authentication, HttpServletRequest request) {
-        UUID id = currentUserId(authentication);
+        UUID id = userId(authentication);
         HttpSession session = request.getSession(true);
         session.setAttribute("linkUserId", id);
         session.setMaxInactiveInterval(LINK_SESSION_SECONDS);
@@ -141,9 +143,5 @@ public class AuthController {
     private String cookie(HttpServletRequest request, String name) {
         Cookie cookie = WebUtils.getCookie(request, name);
         return cookie == null ? null : cookie.getValue();
-    }
-
-    private static UUID currentUserId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }

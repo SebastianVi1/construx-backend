@@ -1,5 +1,7 @@
 package org.andre.construx.modules.organization.controller;
 
+import static org.andre.construx.shared.security.SecurityUtils.userId;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -65,9 +67,5 @@ public class InvitationController {
     public void revoke(@PathVariable UUID organizationId, @PathVariable UUID invitationId,
                        Authentication authentication) {
         invitations.revoke(userId(authentication), organizationId, invitationId);
-    }
-
-    private static UUID userId(Authentication authentication) {
-        return UUID.fromString(authentication.getName());
     }
 }
