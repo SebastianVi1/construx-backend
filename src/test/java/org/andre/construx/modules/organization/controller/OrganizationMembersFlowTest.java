@@ -11,10 +11,15 @@ import org.andre.construx.modules.project.repository.ProjectRepository;
 import org.andre.construx.support.Api;
 import org.andre.construx.support.Api.Session;
 import org.andre.construx.support.Members;
+import org.andre.construx.shared.storage.InMemoryObjectStorage;
+import org.andre.construx.shared.storage.ObjectStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -25,6 +30,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -32,6 +38,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class OrganizationMembersFlowTest {
+    @TestConfiguration
+    static class Storage {
+        @Bean @Primary ObjectStorage inMemoryStorage() {
+            return new InMemoryObjectStorage();
+        }
+    }
+
     @Autowired MockMvc mvc;
     @Autowired UserAccountRepository users;
     @Autowired UserProfileRepository profiles;
@@ -114,6 +127,22 @@ class OrganizationMembersFlowTest {
         api.get(owner, org + "/members").andExpect(jsonPath("$.length()").value(1));
         api.get(owner, org + "/members?status=SUSPENDED").andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].status").value("SUSPENDED"));
+    }
+
+    @Test
+    void membersAndMemberUpdatesCarryTheProfilePhoto() throws Exception {
+        UserProfile profile = profiles.findById(worker.user().getId()).orElseThrow();
+        profile.changeAvatarKey("users/" + worker.user().getId() + "/avatar/1");
+        profiles.save(profile);
+        String photo = "memory://download/users/" + worker.user().getId() + "/avatar/1";
+
+        api.get(owner, org + "/members")
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].avatarUrl").value(hasItem(photo)))
+                .andExpect(jsonPath("$[?(@.membershipId != '" + workerMembership + "')].avatarUrl")
+                        .value(hasItem(nullValue())));
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"MEMBER\"}")
+                .andExpect(jsonPath("$.fullName").value("Ana Perez"))
+                .andExpect(jsonPath("$.avatarUrl").value(photo));
     }
 
     @Test

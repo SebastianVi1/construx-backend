@@ -12,7 +12,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** Name and photo of accounts, for lists that show people beside their work. */
+/**
+ * Name and photo of accounts, for every response that shows a person. The only place that reads
+ * profiles for display or turns an avatar key into a link, so the photo link policy lives here.
+ */
 @Service
 public class PersonDirectory {
     private static final Duration AVATAR_VIEW_TTL = Duration.ofHours(1);
@@ -34,14 +37,24 @@ public class PersonDirectory {
     public Map<UUID, Person> byUserId(Collection<UUID> userIds) {
         Map<UUID, Person> people = new HashMap<>();
         for (UserProfile profile : profiles.findAllById(userIds.stream().distinct().toList())) {
-            URI avatarUrl = profile.getAvatarKey() != null
-                    ? storage.presignDownload(profile.getAvatarKey(), AVATAR_VIEW_TTL) : null;
-            people.put(profile.getId(), new Person(profile.getFullName(), avatarUrl));
+            people.put(profile.getId(), of(profile));
         }
         return people;
     }
 
+    /** One account; without a profile both fields are null. */
+    public Person of(UUID userId) {
+        return profiles.findById(userId).map(this::of).orElse(Person.UNKNOWN);
+    }
+
     public static Person of(Map<UUID, Person> people, UUID userId) {
         return people.getOrDefault(userId, Person.UNKNOWN);
+    }
+
+    /** For identity services that already hold the profile, so it is not read twice. */
+    Person of(UserProfile profile) {
+        URI avatarUrl = profile.getAvatarKey() != null
+                ? storage.presignDownload(profile.getAvatarKey(), AVATAR_VIEW_TTL) : null;
+        return new Person(profile.getFullName(), avatarUrl);
     }
 }
