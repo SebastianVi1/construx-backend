@@ -77,7 +77,7 @@ class PlanPermissionBackfillTest {
     }
 
     private Flyway flyway(String target) {
-        var config = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration");
+        var config = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration", "classpath:db/h2");
         if (target != null) config.target(target);
         return config.load();
     }
