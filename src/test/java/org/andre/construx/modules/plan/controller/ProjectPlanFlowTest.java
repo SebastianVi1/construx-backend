@@ -154,9 +154,9 @@ class ProjectPlanFlowTest {
 
     @Test
     void wrongTypesSizesAndShapesAreRejectedWithoutTouchingStorage() throws Exception {
-        api.post(owner, plans + "/uploads", upload("plan.pdf", "application/pdf", 10))
+        api.post(owner, plans + "/uploads", upload("plan.gif", "image/gif", 10))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("PLAN_FILE_TYPE"));
-        api.post(owner, plans + "/uploads", upload("plan.png", "image/png", 20L * 1024 * 1024 + 1))
+        api.post(owner, plans + "/uploads", upload("plan.png", "image/png", 50L * 1024 * 1024 + 1))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("PLAN_FILE_TOO_LARGE"));
         api.post(owner, plans + "/uploads", upload("plan.png", "image/png", 0))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
