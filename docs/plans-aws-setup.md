@@ -36,13 +36,15 @@ aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-conf
 
 ## 4. CORS
 
-The browser uploads straight to S3, so the bucket must accept `PUT` and `GET` from the dashboard origins.
+The browser uploads straight to S3, so the bucket must accept `PUT` and `GET` from every dashboard origin:
+the Vite server (`http://localhost:5173`), the dev nginx gateway (`http://app.localhost`) and production. A
+missing origin makes the browser block the upload before it reaches S3 (the dashboard reports a connection error).
 
 ```bash
 cat > cors.json <<JSON
 {
   "CORSRules": [{
-    "AllowedOrigins": ["http://localhost:5173", "$PROD_ORIGIN"],
+    "AllowedOrigins": ["http://localhost:5173", "http://app.localhost", "$PROD_ORIGIN"],
     "AllowedMethods": ["PUT", "GET"],
     "AllowedHeaders": ["Content-Type"],
     "ExposeHeaders": ["ETag"],
@@ -65,7 +67,7 @@ aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-conf
 
 ## 6. Backend IAM user
 
-Only object read, write and delete under `orgs/`, plus listing the bucket: that lets `HeadObject` answer 404 for a file
+Only object read, write and delete under `orgs/` (company files) and `users/` (profile photos), plus listing the bucket: that lets `HeadObject` answer 404 for a file
 that was never uploaded (without it S3 answers 403 and the backend cannot tell a missing file from a denied one).
 
 ```bash
@@ -77,7 +79,7 @@ cat > plans-policy.json <<JSON
   "Statement": [{
     "Effect": "Allow",
     "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-    "Resource": "arn:aws:s3:::$BUCKET/orgs/*"
+    "Resource": ["arn:aws:s3:::$BUCKET/orgs/*", "arn:aws:s3:::$BUCKET/users/*"]
   }, {
     "Effect": "Allow",
     "Action": "s3:ListBucket",
