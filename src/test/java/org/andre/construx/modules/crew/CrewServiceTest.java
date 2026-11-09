@@ -9,12 +9,10 @@ import org.andre.construx.modules.crew.service.EquipmentService;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
-import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
-import org.andre.construx.modules.organization.repository.OrganizationRepository;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.OrgScopeFixtures;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,15 +27,13 @@ class CrewServiceTest {
 
     private CrewRepository crewRepo;
     private EquipmentRepository equipmentRepo;
-    private OrganizationRepository orgRepo;
-    private OrganizationMembershipRepository membershipRepo;
-    private MembershipGuard guard;
-    private DomainAuthorization authorization;
+    private MembershipDirectory membershipRepo;
+    private OrgScope scope;
 
     private CrewService crewService;
     private EquipmentService equipmentService;
 
-    private UUID userId, orgId;
+    private UUID orgId;
     private Organization org;
     private OrganizationMembership leaderMembership;
     private OrganizationMembership otherMembership;
@@ -46,15 +42,11 @@ class CrewServiceTest {
     void setUp() {
         crewRepo = mock(CrewRepository.class);
         equipmentRepo = mock(EquipmentRepository.class);
-        orgRepo = mock(OrganizationRepository.class);
-        membershipRepo = mock(OrganizationMembershipRepository.class);
-        guard = mock(MembershipGuard.class);
-        authorization = mock(DomainAuthorization.class);
+        membershipRepo = mock(MembershipDirectory.class);
 
-        crewService = new CrewService(crewRepo, orgRepo, membershipRepo, guard, authorization);
-        equipmentService = new EquipmentService(equipmentRepo, orgRepo, guard, authorization);
+        crewService = new CrewService(crewRepo, membershipRepo);
+        equipmentService = new EquipmentService(equipmentRepo);
 
-        userId = UUID.randomUUID();
         orgId = UUID.randomUUID();
         org = mock(Organization.class);
         when(org.getId()).thenReturn(orgId);
@@ -67,11 +59,10 @@ class CrewServiceTest {
         when(otherMembership.getId()).thenReturn(otherId);
         when(otherMembership.getStatus()).thenReturn(MembershipStatus.ACTIVE);
 
-        when(orgRepo.findById(orgId)).thenReturn(Optional.of(org));
-        when(membershipRepo.findByIdAndOrganizationId(leaderId, orgId)).thenReturn(Optional.of(leaderMembership));
-        when(membershipRepo.findByIdAndOrganizationId(otherId, orgId)).thenReturn(Optional.of(otherMembership));
-        when(guard.requireActive(any(), any())).thenReturn(leaderMembership);
-        doNothing().when(authorization).require(any(), any(), any(), any(), any(PermissionAction.class));
+        when(leaderMembership.getOrganization()).thenReturn(org);
+        when(membershipRepo.find(orgId, leaderId)).thenReturn(Optional.of(leaderMembership));
+        when(membershipRepo.find(orgId, otherId)).thenReturn(Optional.of(otherMembership));
+        scope = OrgScopeFixtures.fullAccess(orgId, leaderMembership);
     }
 
     @Test
@@ -82,7 +73,7 @@ class CrewServiceTest {
         when(crewRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         RuleViolationException ex = assertThrows(RuleViolationException.class,
-                () -> crewService.removeMember(userId, orgId, crewId, leaderMembership.getId()));
+                () -> crewService.removeMember(scope, crewId, leaderMembership.getId()));
         assertEquals("CREW_LEADER_CANNOT_BE_REMOVED", ex.getCode());
     }
 
@@ -92,10 +83,10 @@ class CrewServiceTest {
         crew.addMember(otherMembership);
         UUID crewId = crew.getId();
         when(crewRepo.findByIdAndOrganizationId(crewId, orgId)).thenReturn(Optional.of(crew));
-        when(membershipRepo.findByIdAndOrganizationId(otherMembership.getId(), orgId))
+        when(membershipRepo.find(orgId, otherMembership.getId()))
                 .thenReturn(Optional.of(otherMembership));
 
-        assertDoesNotThrow(() -> crewService.removeMember(userId, orgId, crewId, otherMembership.getId()));
+        assertDoesNotThrow(() -> crewService.removeMember(scope, crewId, otherMembership.getId()));
     }
 
     @Test
@@ -105,7 +96,7 @@ class CrewServiceTest {
         when(equipmentRepo.findByIdAndOrganizationId(equipId, orgId)).thenReturn(Optional.of(equipment));
 
         assertTrue(equipment.isActive());
-        equipmentService.deactivateEquipment(userId, orgId, equipId);
+        equipmentService.deactivateEquipment(scope, equipId);
         assertFalse(equipment.isActive());
     }
 
@@ -116,7 +107,7 @@ class CrewServiceTest {
         when(equipmentRepo.findByIdAndOrganizationId(equipId, orgId)).thenReturn(Optional.of(equipment));
 
         EquipmentService.EquipmentData result = equipmentService.updateEquipment(
-                userId, orgId, equipId, "Tower Crane", null, 20000L, null);
+                scope, equipId, "Tower Crane", null, 20000L, null);
 
         assertEquals("Tower Crane", result.type());
         assertEquals("CR-01", result.identifier());

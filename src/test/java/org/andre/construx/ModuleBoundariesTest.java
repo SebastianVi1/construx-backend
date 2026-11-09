@@ -33,9 +33,6 @@ class ModuleBoundariesTest {
     private static final Pattern MODULE = Pattern.compile("^" + Pattern.quote(ROOT) + "\\.modules\\.([a-z]+)\\.(.*)$");
 
     private static final Set<String> ALLOWED = Set.of(
-            "modules.crew.service.CrewService -> modules.organization.repository.OrganizationMembershipRepository",
-            "modules.crew.service.CrewService -> modules.organization.repository.OrganizationRepository",
-            "modules.crew.service.EquipmentService -> modules.organization.repository.OrganizationRepository",
             "modules.floorplan.service.AssignmentViews -> modules.organization.repository.OrganizationMembershipRepository",
             "modules.floorplan.service.ZoneAssignmentService -> modules.organization.repository.OrganizationMembershipRepository",
             "modules.organization.service.InvitationService -> modules.identity.repository.UserAccountRepository",

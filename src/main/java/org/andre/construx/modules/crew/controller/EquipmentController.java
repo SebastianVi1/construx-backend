@@ -1,13 +1,12 @@
 package org.andre.construx.modules.crew.controller;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.crew.service.EquipmentService;
-import org.andre.construx.shared.security.SecurityUtils;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -34,35 +33,31 @@ public class EquipmentController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public EquipmentService.EquipmentData create(@PathVariable UUID organizationId,
-                                                  @Valid @RequestBody CreateEquipmentRequest body,
-                                                  Authentication authentication) {
-        return equipmentService.createEquipment(SecurityUtils.userId(authentication), organizationId,
+    public EquipmentService.EquipmentData create(OrgScope org,
+                                                  @Valid @RequestBody CreateEquipmentRequest body) {
+        return equipmentService.createEquipment(org,
                 body.type(), body.identifier(), body.dailyCostCents());
     }
 
     @GetMapping
-    public List<EquipmentService.EquipmentData> list(@PathVariable UUID organizationId,
-                                                      @RequestParam(required = false) Boolean activeOnly,
-                                                      Authentication authentication) {
-        return equipmentService.listEquipment(SecurityUtils.userId(authentication), organizationId, activeOnly);
+    public List<EquipmentService.EquipmentData> list(OrgScope org,
+                                                      @RequestParam(required = false) Boolean activeOnly) {
+        return equipmentService.listEquipment(org, activeOnly);
     }
 
     @PatchMapping("/{equipmentId}")
-    public EquipmentService.EquipmentData update(@PathVariable UUID organizationId,
+    public EquipmentService.EquipmentData update(OrgScope org,
                                                   @PathVariable UUID equipmentId,
-                                                  @Valid @RequestBody UpdateEquipmentRequest body,
-                                                  Authentication authentication) {
-        return equipmentService.updateEquipment(SecurityUtils.userId(authentication), organizationId, equipmentId,
+                                                  @Valid @RequestBody UpdateEquipmentRequest body) {
+        return equipmentService.updateEquipment(org, equipmentId,
                 body.type(), body.identifier(), body.dailyCostCents(), body.active());
     }
 
     @DeleteMapping("/{equipmentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId,
-                       @PathVariable UUID equipmentId,
-                       Authentication authentication) {
-        equipmentService.deleteEquipment(SecurityUtils.userId(authentication), organizationId, equipmentId);
+    public void delete(OrgScope org,
+                       @PathVariable UUID equipmentId) {
+        equipmentService.deleteEquipment(org, equipmentId);
     }
 
 }
