@@ -1,7 +1,8 @@
 package org.andre.construx.modules.project.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -14,7 +15,6 @@ import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.ActivityData;
 import org.andre.construx.shared.validation.BudgetUpdate;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -58,78 +58,74 @@ public class ActivityController {
 
     @PostMapping(TASKS)
     @ResponseStatus(HttpStatus.CREATED)
-    public ActivityData create(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                               @PathVariable UUID goalId, @Valid @RequestBody ActivityCreate body,
-                               Authentication authentication) {
-        return activities.create(userId(authentication), organizationId, projectId, goalId,
+    public ActivityData create(SiteScope site,
+                               @PathVariable UUID goalId, @Valid @RequestBody ActivityCreate body) {
+        return activities.create(site, goalId,
                 body.name(), body.startAt(), body.dueAt(), team(body.assignees()), body.color(), body.description());
     }
 
     @GetMapping(TASKS)
-    public List<ActivityData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public List<ActivityData> list(SiteScope site,
                                    @PathVariable UUID goalId, @RequestParam(required = false) ActivityStatus status,
-                                   @RequestParam(required = false) UUID assigneeAccessId,
-                                   Authentication authentication) {
-        return activities.list(userId(authentication), organizationId, projectId, goalId, status, assigneeAccessId);
+                                   @RequestParam(required = false) UUID assigneeAccessId) {
+        return activities.list(site, goalId, status, assigneeAccessId);
     }
 
     @GetMapping(TASK)
-    public ActivityData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                            @PathVariable UUID goalId, @PathVariable UUID activityId, Authentication authentication) {
-        return activities.get(userId(authentication), organizationId, projectId, goalId, activityId);
+    public ActivityData get(SiteScope site,
+                            @PathVariable UUID goalId, @PathVariable UUID activityId) {
+        return activities.get(site, goalId, activityId);
     }
 
     @PatchMapping(TASK)
-    public ActivityData update(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public ActivityData update(SiteScope site,
                                @PathVariable UUID goalId, @PathVariable UUID activityId,
-                               @Valid @RequestBody ActivityPatch body, Authentication authentication) {
-        return activities.update(userId(authentication), organizationId, projectId, goalId, activityId,
+                               @Valid @RequestBody ActivityPatch body) {
+        return activities.update(site, goalId, activityId,
                 body.name(), body.startAt(), body.dueAt(), body.color(), body.description());
     }
 
     /** Owner and Finance carve the task budget out of its phase budget; null clears it. */
     @PutMapping(TASK + "/budget")
-    public ActivityData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public ActivityData assignBudget(SiteScope site,
                                      @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                     @Valid @RequestBody BudgetUpdate body, Authentication authentication) {
-        return activities.assignBudget(userId(authentication), organizationId, projectId, goalId, activityId,
+                                     @Valid @RequestBody BudgetUpdate body) {
+        return activities.assignBudget(site, goalId, activityId,
                 body.requireAllocatedBudget());
     }
 
     /** Replaces the whole team; exactly one member is the LEAD. */
     @PutMapping(TASK + "/assignees")
-    public ActivityData assignTeam(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public ActivityData assignTeam(SiteScope site,
                                    @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                   @Valid @RequestBody TeamInput body, Authentication authentication) {
-        return activities.assignTeam(userId(authentication), organizationId, projectId, goalId, activityId,
+                                   @Valid @RequestBody TeamInput body) {
+        return activities.assignTeam(site, goalId, activityId,
                 team(body.assignees()));
     }
 
     @PostMapping(TASK + "/start")
-    public ActivityData start(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                              @PathVariable UUID goalId, @PathVariable UUID activityId, Authentication authentication) {
-        return activities.start(userId(authentication), organizationId, projectId, goalId, activityId);
+    public ActivityData start(SiteScope site,
+                              @PathVariable UUID goalId, @PathVariable UUID activityId) {
+        return activities.start(site, goalId, activityId);
     }
 
     @PostMapping(TASK + "/complete")
-    public ActivityData complete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                 @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                 Authentication authentication) {
-        return activities.complete(userId(authentication), organizationId, projectId, goalId, activityId);
+    public ActivityData complete(SiteScope site,
+                                 @PathVariable UUID goalId, @PathVariable UUID activityId) {
+        return activities.complete(site, goalId, activityId);
     }
 
     @DeleteMapping(TASK)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID goalId,
-                       @PathVariable UUID activityId, Authentication authentication) {
-        activities.delete(userId(authentication), organizationId, projectId, goalId, activityId);
+    public void delete(SiteScope site, @PathVariable UUID goalId,
+                       @PathVariable UUID activityId) {
+        activities.delete(site, goalId, activityId);
     }
 
     @GetMapping("/activities/mine")
-    public List<ActivityData> mine(@PathVariable UUID organizationId,
-                                   @RequestParam(required = false) ActivityStatus status,
-                                   Authentication authentication) {
-        return activities.mine(userId(authentication), organizationId, status);
+    public List<ActivityData> mine(OrgScope org,
+                                   @RequestParam(required = false) ActivityStatus status) {
+        return activities.mine(org, status);
     }
 
     private static List<ActivityService.TeamInput> team(List<TeamPlace> places) {

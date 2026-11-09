@@ -1,7 +1,7 @@
 package org.andre.construx.modules.project.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -12,7 +12,6 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.service.GoalService;
 import org.andre.construx.shared.validation.BudgetUpdate;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -50,53 +49,48 @@ public class GoalController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public GoalService.GoalData create(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                       @Valid @RequestBody GoalCreate body, Authentication authentication) {
-        return goals.create(userId(authentication), organizationId, projectId, body.name(), body.startAt(), body.dueAt(),
+    public GoalService.GoalData create(SiteScope site,
+                                       @Valid @RequestBody GoalCreate body) {
+        return goals.create(site, body.name(), body.startAt(), body.dueAt(),
                 body.color());
     }
 
     @GetMapping
-    public List<GoalService.GoalData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                           Authentication authentication) {
-        return goals.list(userId(authentication), organizationId, projectId);
+    public List<GoalService.GoalData> list(SiteScope site) {
+        return goals.list(site);
     }
 
     @GetMapping("/{goalId}")
-    public GoalService.GoalData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                    @PathVariable UUID goalId, Authentication authentication) {
-        return goals.get(userId(authentication), organizationId, projectId, goalId);
+    public GoalService.GoalData get(SiteScope site,
+                                    @PathVariable UUID goalId) {
+        return goals.get(site, goalId);
     }
 
     @PatchMapping("/{goalId}")
-    public GoalService.GoalData update(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                       @PathVariable UUID goalId, @Valid @RequestBody GoalPatch body,
-                                       Authentication authentication) {
-        return goals.update(userId(authentication), organizationId, projectId, goalId, body.name(), body.startAt(),
+    public GoalService.GoalData update(SiteScope site,
+                                       @PathVariable UUID goalId, @Valid @RequestBody GoalPatch body) {
+        return goals.update(site, goalId, body.name(), body.startAt(),
                 body.dueAt(), body.color());
     }
 
     /** Owner and Finance carve the phase budget out of the site budget; null clears it. */
     @PutMapping("/{goalId}/budget")
-    public GoalService.GoalData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                             @PathVariable UUID goalId, @Valid @RequestBody BudgetUpdate body,
-                                             Authentication authentication) {
-        return goals.assignBudget(userId(authentication), organizationId, projectId, goalId,
+    public GoalService.GoalData assignBudget(SiteScope site,
+                                             @PathVariable UUID goalId, @Valid @RequestBody BudgetUpdate body) {
+        return goals.assignBudget(site, goalId,
                 body.requireAllocatedBudget());
     }
 
     /** Moves the phase and all its tasks by whole days. */
     @PostMapping("/{goalId}/shift")
-    public GoalService.GoalData shift(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                      @PathVariable UUID goalId, @Valid @RequestBody GoalShift body,
-                                      Authentication authentication) {
-        return goals.shift(userId(authentication), organizationId, projectId, goalId, body.days());
+    public GoalService.GoalData shift(SiteScope site,
+                                      @PathVariable UUID goalId, @Valid @RequestBody GoalShift body) {
+        return goals.shift(site, goalId, body.days());
     }
 
     @DeleteMapping("/{goalId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID goalId,
-                       Authentication authentication) {
-        goals.delete(userId(authentication), organizationId, projectId, goalId);
+    public void delete(SiteScope site, @PathVariable UUID goalId) {
+        goals.delete(site, goalId);
     }
 }

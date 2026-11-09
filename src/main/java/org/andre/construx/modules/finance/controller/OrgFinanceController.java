@@ -1,10 +1,9 @@
 package org.andre.construx.modules.finance.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.finance.service.OrgFinanceService;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,9 +25,8 @@ public class OrgFinanceController {
 
     /** Company-wide budget summary: totals, per-category breakdown, and per-site status. */
     @GetMapping("/summary")
-    public OrgFinanceService.OrgFinanceSummary summary(@PathVariable UUID organizationId,
-                                                       Authentication authentication) {
-        return orgFinance.summary(userId(authentication), organizationId);
+    public OrgFinanceService.OrgFinanceSummary summary(OrgScope org) {
+        return orgFinance.summary(org);
     }
 
     /**
@@ -37,10 +35,9 @@ public class OrgFinanceController {
      */
     @GetMapping("/expenses/monthly")
     public OrgFinanceService.MonthlyExpenseSummary monthlyExpenses(
-            @PathVariable UUID organizationId,
+            OrgScope org,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            Authentication authentication) {
-        return orgFinance.monthlyExpenses(userId(authentication), organizationId, from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return orgFinance.monthlyExpenses(org, from, to);
     }
 }

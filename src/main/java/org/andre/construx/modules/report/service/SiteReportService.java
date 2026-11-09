@@ -1,23 +1,24 @@
 package org.andre.construx.modules.report.service;
 
-import org.andre.construx.modules.finance.model.Expense;
 import org.andre.construx.modules.finance.model.ExpenseCategory;
-import org.andre.construx.modules.finance.repository.ExpenseRepository;
+import org.andre.construx.modules.finance.service.ExpenseService;
+import org.andre.construx.modules.finance.service.ExpenseService.ExpenseData;
 import org.andre.construx.modules.identity.service.PersonDirectory;
-import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.model.*;
-import org.andre.construx.modules.project.repository.ActivityRepository;
-import org.andre.construx.modules.project.repository.GoalRepository;
-import org.andre.construx.modules.project.repository.ProjectAccessRepository;
-import org.andre.construx.modules.project.service.ProjectService;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.model.ActivityStatus;
+import org.andre.construx.modules.project.model.Project;
+import org.andre.construx.modules.project.service.ActivityService;
+import org.andre.construx.modules.project.service.ActivityService.PhaseOverview;
+import org.andre.construx.modules.project.service.ActivityService.TaskOverview;
+import org.andre.construx.modules.project.service.ProjectAccessService;
+import org.andre.construx.modules.project.service.ProjectAccessService.AccessData;
 import org.andre.construx.modules.report.dto.SiteReportResponse;
 import org.andre.construx.modules.report.model.SiteReport;
 import org.andre.construx.modules.report.repository.SiteReportRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +32,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Generates, lists, and provides download URLs for Site Reports.
@@ -44,47 +45,37 @@ public class SiteReportService {
     private static final Duration DOWNLOAD_TTL = Duration.ofMinutes(10);
 
     private final SiteReportRepository reports;
-    private final ProjectService projectService;
-    private final ExpenseRepository expenseRepository;
-    private final GoalRepository goalRepository;
-    private final ActivityRepository activityRepository;
-    private final ProjectAccessRepository projectAccessRepository;
+    private final ExpenseService expenseService;
+    private final ActivityService activityService;
+    private final ProjectAccessService accessService;
+    private final MembershipDirectory memberships;
     private final PersonDirectory directory;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
     private final ObjectStorage storage;
     private final PdfGenerationService pdfService;
 
-    public SiteReportService(SiteReportRepository reports, ProjectService projectService,
-                             ExpenseRepository expenseRepository, GoalRepository goalRepository,
-                             ActivityRepository activityRepository,
-                             ProjectAccessRepository projectAccessRepository,
-                             PersonDirectory directory,
-                             MembershipGuard guard, DomainAuthorization authorization,
+    public SiteReportService(SiteReportRepository reports, ExpenseService expenseService,
+                             ActivityService activityService, ProjectAccessService accessService,
+                             MembershipDirectory memberships, PersonDirectory directory,
                              ObjectStorage storage, PdfGenerationService pdfService) {
         this.reports = reports;
-        this.projectService = projectService;
-        this.expenseRepository = expenseRepository;
-        this.goalRepository = goalRepository;
-        this.activityRepository = activityRepository;
-        this.projectAccessRepository = projectAccessRepository;
+        this.expenseService = expenseService;
+        this.activityService = activityService;
+        this.accessService = accessService;
+        this.memberships = memberships;
         this.directory = directory;
-        this.guard = guard;
-        this.authorization = authorization;
         this.storage = storage;
         this.pdfService = pdfService;
     }
 
     @Transactional
-    public SiteReportResponse generate(UUID userId, UUID organizationId, UUID projectId, String title) {
-        OrganizationMembership membership = guard.requireActive(userId, organizationId);
-        Project project = projectService.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
+    public SiteReportResponse generate(SiteScope site, String title) {
+        site.require(PermissionAction.MANAGE_PROJECT);
+        OrganizationMembership membership = site.membership();
 
-        SiteReport report = new SiteReport(project, membership, title);
+        SiteReport report = new SiteReport(site.site(), membership, title);
         reports.save(report);
 
-        PdfGenerationService.SiteReportData data = collectData(project, membership);
+        PdfGenerationService.SiteReportData data = collectData(site.site(), membership);
 
         byte[] pdf;
         try {
@@ -106,19 +97,15 @@ public class SiteReportService {
     }
 
     @Transactional(readOnly = true)
-    public List<SiteReportResponse> list(UUID userId, UUID organizationId, UUID projectId) {
-        guard.requireActive(userId, organizationId);
-        Project project = projectService.load(organizationId, projectId);
-        return reports.findByProjectIdOrderByCreatedAtDesc(project.getId()).stream()
+    public List<SiteReportResponse> list(SiteScope site) {
+        return reports.findByProjectIdOrderByCreatedAtDesc(site.siteId()).stream()
                 .map(r -> toResponse(r, generatedByName(r)))
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public URI getDownloadUrl(UUID userId, UUID organizationId, UUID projectId, UUID reportId) {
-        guard.requireActive(userId, organizationId);
-        Project project = projectService.load(organizationId, projectId);
-        SiteReport report = reports.findByIdAndProjectId(reportId, project.getId())
+    public URI getDownloadUrl(SiteScope site, UUID reportId) {
+        SiteReport report = reports.findByIdAndProjectId(reportId, site.siteId())
                 .filter(SiteReport::isReady)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found or not ready"));
         return storage.presignDownload(report.getStorageKey(), DOWNLOAD_TTL);
@@ -130,13 +117,13 @@ public class SiteReportService {
         UUID projectId = project.getId();
 
         // Expenses
-        List<Expense> expenseList = expenseRepository.findByProjectIdOrderBySpentOnDescCreatedAtDesc(projectId);
-        BigDecimal totalSpent = expenseList.stream().map(Expense::getAmount)
+        List<ExpenseData> expenseList = expenseService.ofSite(projectId);
+        BigDecimal totalSpent = expenseList.stream().map(ExpenseData::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
 
         Map<ExpenseCategory, BigDecimal> catTotals = new EnumMap<>(ExpenseCategory.class);
-        for (Expense e : expenseList) {
-            catTotals.merge(e.getCategory(), e.getAmount(), BigDecimal::add);
+        for (ExpenseData e : expenseList) {
+            catTotals.merge(e.category(), e.amount(), BigDecimal::add);
         }
         List<PdfGenerationService.CategoryTotal> byCategory = Arrays.stream(ExpenseCategory.values())
                 .map(c -> new PdfGenerationService.CategoryTotal(c,
@@ -147,61 +134,37 @@ public class SiteReportService {
         BigDecimal remaining = budget == null ? null : budget.subtract(totalSpent);
 
         List<PdfGenerationService.ExpenseRow> expenses = expenseList.stream()
-                .map(e -> new PdfGenerationService.ExpenseRow(e.getSpentOn(), e.getDescription(),
-                        e.getCategory(), e.getAmount()))
+                .map(e -> new PdfGenerationService.ExpenseRow(e.spentOn(), e.description(), e.category(), e.amount()))
                 .toList();
 
-        // Phases + tasks — single pass to avoid loading activities twice
-        List<Goal> goals = goalRepository.findByProjectIdOrderByDueAtAsc(projectId);
-        Map<UUID, List<Activity>> activitiesByGoal = new LinkedHashMap<>();
-        Map<UUID, UUID> taskMembershipToUser = new HashMap<>(); // membershipId → userAccountId
-        for (Goal goal : goals) {
-            List<Activity> acts = activityRepository.findByGoalWithTeam(goal.getId());
-            activitiesByGoal.put(goal.getId(), acts);
-            for (Activity a : acts) {
-                for (ActivityAssignee t : a.getTeam()) {
-                    taskMembershipToUser.put(
-                            t.getAccess().getOrganizationMembership().getId(),
-                            t.getAccess().getOrganizationMembership().getUserAccount().getId());
-                }
-            }
-        }
-        Map<UUID, String> profileNames = fetchProfileNames(taskMembershipToUser);
+        // Phases + tasks; a Lead without a profile name shows their email
+        List<PhaseOverview> overview = activityService.overviewOf(projectId);
+        List<AccessData> staff = accessService.staff(projectId);
+        Map<UUID, String> emails = emailsOf(overview.stream().flatMap(p -> p.tasks().stream())
+                .filter(t -> t.leadMembershipId() != null && t.leadName() == null)
+                .map(TaskOverview::leadMembershipId), staff.stream()
+                .filter(a -> a.fullName() == null).map(AccessData::membershipId));
 
-        List<PdfGenerationService.PhaseData> phases = goals.stream().map(goal -> {
-            List<Activity> activities = activitiesByGoal.get(goal.getId());
-            long done = activities.stream().filter(a -> a.getStatus() == ActivityStatus.DONE).count();
-            List<PdfGenerationService.TaskRow> tasks = activities.stream().map(a -> {
-                String leadName = a.getTeam().stream()
-                        .filter(t -> t.getTaskRole() == TaskRole.LEAD)
-                        .findFirst()
-                        .map(t -> profileNames.getOrDefault(
-                                t.getAccess().getOrganizationMembership().getId(),
-                                t.getAccess().getOrganizationMembership().getUserAccount().getEmail()))
-                        .orElse(null);
-                return new PdfGenerationService.TaskRow(
-                        a.getName(), a.getStatus(), leadName,
-                        a.getStartAt().atZone(ZoneOffset.UTC).toLocalDate(),
-                        a.getDueAt().atZone(ZoneOffset.UTC).toLocalDate());
-            }).toList();
+        List<PdfGenerationService.PhaseData> phases = overview.stream().map(phase -> {
+            long done = phase.tasks().stream().filter(t -> t.status() == ActivityStatus.DONE).count();
+            List<PdfGenerationService.TaskRow> tasks = phase.tasks().stream().map(t ->
+                    new PdfGenerationService.TaskRow(
+                            t.name(), t.status(),
+                            t.leadMembershipId() == null ? null
+                                    : t.leadName() != null ? t.leadName() : emails.get(t.leadMembershipId()),
+                            t.startAt().atZone(ZoneOffset.UTC).toLocalDate(),
+                            t.dueAt().atZone(ZoneOffset.UTC).toLocalDate())).toList();
             return new PdfGenerationService.PhaseData(
-                    goal.getName(),
-                    goal.getStartAt().atZone(ZoneOffset.UTC).toLocalDate(),
-                    goal.getDueAt().atZone(ZoneOffset.UTC).toLocalDate(),
-                    activities.size(), (int) done, tasks);
+                    phase.name(),
+                    phase.startAt().atZone(ZoneOffset.UTC).toLocalDate(),
+                    phase.dueAt().atZone(ZoneOffset.UTC).toLocalDate(),
+                    phase.tasks().size(), (int) done, tasks);
         }).toList();
 
         // Team
-        List<ProjectAccess> teamAccess = projectAccessRepository.findActiveByProject(projectId);
-        List<UUID> teamMembershipIds = teamAccess.stream()
-                .map(a -> a.getOrganizationMembership().getId()).toList();
-        Map<UUID, String> teamProfiles = loadProfiles(teamMembershipIds, teamAccess);
-
-        List<PdfGenerationService.TeamMember> team = teamAccess.stream()
+        List<PdfGenerationService.TeamMember> team = staff.stream()
                 .map(a -> new PdfGenerationService.TeamMember(
-                        teamProfiles.getOrDefault(a.getOrganizationMembership().getId(),
-                                a.getOrganizationMembership().getUserAccount().getEmail()),
-                        a.getOrganizationMembership().getRole().getName()))
+                        a.fullName() != null ? a.fullName() : emails.get(a.membershipId()), a.roleName()))
                 .toList();
 
         return new PdfGenerationService.SiteReportData(
@@ -223,30 +186,13 @@ public class SiteReportService {
                 team);
     }
 
-    /** Maps membershipId → display name using (membershipId → userAccountId) for the profile lookup. */
-    private Map<UUID, String> fetchProfileNames(Map<UUID, UUID> membershipToUser) {
-        if (membershipToUser.isEmpty()) return Map.of();
-        List<UUID> userIds = new ArrayList<>(membershipToUser.values());
-        Map<UUID, Person> people = directory.byUserId(userIds);
+    /** Email per membership, in one query, for the people the report has no name for. */
+    private Map<UUID, String> emailsOf(Stream<UUID> leads, Stream<UUID> staff) {
+        List<UUID> ids = Stream.concat(leads, staff).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
         Map<UUID, String> result = new HashMap<>();
-        for (var entry : membershipToUser.entrySet()) {
-            String name = PersonDirectory.of(people, entry.getValue()).fullName();
-            if (name != null) result.put(entry.getKey(), name);
-        }
-        return result;
-    }
-
-    private Map<UUID, String> loadProfiles(List<UUID> membershipIds, List<ProjectAccess> access) {
-        if (membershipIds.isEmpty()) return Map.of();
-        Map<UUID, UUID> membershipToUser = access.stream().collect(Collectors.toMap(
-                a -> a.getOrganizationMembership().getId(),
-                a -> a.getOrganizationMembership().getUserAccount().getId()));
-        List<UUID> userIds = new ArrayList<>(membershipToUser.values());
-        Map<UUID, Person> people = directory.byUserId(userIds);
-        Map<UUID, String> result = new HashMap<>();
-        for (var entry : membershipToUser.entrySet()) {
-            String name = PersonDirectory.of(people, entry.getValue()).fullName();
-            if (name != null) result.put(entry.getKey(), name);
+        for (OrganizationMembership m : memberships.byIds(ids)) {
+            result.put(m.getId(), m.getUserAccount().getEmail());
         }
         return result;
     }

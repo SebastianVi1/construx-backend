@@ -1,7 +1,7 @@
 package org.andre.construx.modules.plan.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -9,7 +9,6 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.plan.service.ProjectPlanService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,35 +37,32 @@ public class ProjectPlanController {
 
     @PostMapping("/uploads")
     @ResponseStatus(HttpStatus.CREATED)
-    public ProjectPlanService.UploadData requestUpload(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                       @Valid @RequestBody UploadRequest body,
-                                                       Authentication authentication) {
-        return plans.requestUpload(userId(authentication), organizationId, projectId, body.fileName(),
+    public ProjectPlanService.UploadData requestUpload(SiteScope site,
+                                                       @Valid @RequestBody UploadRequest body) {
+        return plans.requestUpload(site, body.fileName(),
                 body.contentType(), body.sizeBytes(), body.name(), body.description());
     }
 
     @PostMapping("/{planId}/complete")
-    public ProjectPlanService.PlanData complete(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                @PathVariable UUID planId, Authentication authentication) {
-        return plans.complete(userId(authentication), organizationId, projectId, planId);
+    public ProjectPlanService.PlanData complete(SiteScope site,
+                                                @PathVariable UUID planId) {
+        return plans.complete(site, planId);
     }
 
     @GetMapping
-    public List<ProjectPlanService.PlanData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                  Authentication authentication) {
-        return plans.list(userId(authentication), organizationId, projectId);
+    public List<ProjectPlanService.PlanData> list(SiteScope site) {
+        return plans.list(site);
     }
 
     @GetMapping("/{planId}")
-    public ProjectPlanService.PlanData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                           @PathVariable UUID planId, Authentication authentication) {
-        return plans.get(userId(authentication), organizationId, projectId, planId);
+    public ProjectPlanService.PlanData get(SiteScope site,
+                                           @PathVariable UUID planId) {
+        return plans.get(site, planId);
     }
 
     @DeleteMapping("/{planId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID planId,
-                       Authentication authentication) {
-        plans.delete(userId(authentication), organizationId, projectId, planId);
+    public void delete(SiteScope site, @PathVariable UUID planId) {
+        plans.delete(site, planId);
     }
 }

@@ -1,14 +1,13 @@
 package org.andre.construx.modules.report.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.report.dto.SiteReportResponse;
 import org.andre.construx.modules.report.service.SiteReportService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -30,22 +29,20 @@ public class SiteReportController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public SiteReportResponse generate(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                       @Valid @RequestBody GenerateReportRequest body,
-                                       Authentication authentication) {
-        return reports.generate(userId(authentication), organizationId, projectId, body.title());
+    public SiteReportResponse generate(SiteScope site,
+                                       @Valid @RequestBody GenerateReportRequest body) {
+        return reports.generate(site, body.title());
     }
 
     @GetMapping
-    public List<SiteReportResponse> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                         Authentication authentication) {
-        return reports.list(userId(authentication), organizationId, projectId);
+    public List<SiteReportResponse> list(SiteScope site) {
+        return reports.list(site);
     }
 
     @GetMapping("/{reportId}/download")
-    public Map<String, String> download(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                        @PathVariable UUID reportId, Authentication authentication) {
-        URI url = reports.getDownloadUrl(userId(authentication), organizationId, projectId, reportId);
+    public Map<String, String> download(SiteScope site,
+                                        @PathVariable UUID reportId) {
+        URI url = reports.getDownloadUrl(site, reportId);
         return Map.of("downloadUrl", url.toString());
     }
 }

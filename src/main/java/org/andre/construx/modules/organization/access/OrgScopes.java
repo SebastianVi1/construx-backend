@@ -14,6 +14,8 @@ import java.util.UUID;
  * inactive membership is a 404, the same as a missing organization, so identifiers cannot be enumerated.
  */
 @Component
+// Not read-only: under open-session-in-view the loaded entities stay in the request's persistence context, and a
+// read-only transaction would leave them read-only, so a service could not change the membership it was handed.
 public class OrgScopes {
     private final OrganizationMembershipRepository memberships;
 
@@ -22,7 +24,7 @@ public class OrgScopes {
     }
 
     /** The caller's active membership in the organization; 404 when there is none. */
-    @Transactional(readOnly = true)
+    @Transactional
     public OrgScope org(UUID userId, UUID organizationId) {
         OrganizationMembership membership = memberships.findByOrganizationIdAndUserAccountId(organizationId, userId)
                 .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)

@@ -3,15 +3,15 @@ package org.andre.construx.modules.plan.service;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.andre.construx.modules.organization.model.*;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.plan.model.*;
 import org.andre.construx.modules.plan.repository.*;
 import org.andre.construx.modules.project.model.ProjectStatus;
-import org.andre.construx.modules.project.repository.ProjectAccessRepository;
-import org.andre.construx.modules.project.repository.ProjectRepository;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.service.ProjectAccessService;
+import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,22 +23,17 @@ public class PlanLibraryService {
     private final PlanFolderRepository folders;
     private final ProjectPlanRepository plans;
     private final ProjectPlanService planService;
-    private final ProjectRepository projects;
-    private final ProjectAccessRepository accesses;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
+    private final ProjectService projects;
+    private final ProjectAccessService accesses;
     private final EntityManager entityManager;
 
     public PlanLibraryService(PlanFolderRepository folders, ProjectPlanRepository plans, ProjectPlanService planService,
-            ProjectRepository projects, ProjectAccessRepository accesses, MembershipGuard guard,
-            DomainAuthorization authorization, EntityManager entityManager) {
+            ProjectService projects, ProjectAccessService accesses, EntityManager entityManager) {
         this.folders = folders;
         this.plans = plans;
         this.planService = planService;
         this.projects = projects;
         this.accesses = accesses;
-        this.guard = guard;
-        this.authorization = authorization;
         this.entityManager = entityManager;
     }
 
@@ -48,18 +43,18 @@ public class PlanLibraryService {
                               List<ProjectPlanService.PlanData> plans, boolean canManageFolders) {}
 
     @Transactional(readOnly = true)
-    public LibraryData library(UUID userId, UUID orgId) {
-        OrganizationMembership member = guard.requireActive(userId, orgId);
-        PermissionScope view = authorization.scopeOf(userId, orgId, PermissionAction.VIEW_PLAN)
+    public LibraryData library(OrgScope org) {
+        UUID orgId = org.organizationId();
+        PermissionScope view = org.scopeOf(PermissionAction.VIEW_PLAN)
                 .orElseThrow(() -> new AccessDeniedException("Plan permission required"));
-        Set<UUID> assigned = accesses.findProjectIdsByMembership(member.getId());
-        PermissionScope manage = authorization.scopeOf(userId, orgId, PermissionAction.MANAGE_PLAN).orElse(null);
-        List<SiteData> sites = projects.findInOrganization(orgId, List.of(ProjectStatus.values())).stream()
+        Set<UUID> assigned = accesses.siteIdsOf(org.membershipId());
+        PermissionScope manage = org.scopeOf(PermissionAction.MANAGE_PLAN).orElse(null);
+        List<SiteData> sites = projects.inOrganization(orgId, EnumSet.allOf(ProjectStatus.class)).stream()
                 .filter(site -> view == PermissionScope.ORGANIZATION
-                        || view == PermissionScope.PROJECT && assigned.contains(site.getId()))
-                .map(site -> new SiteData(site.getId(), site.getName(), site.getStatus() != ProjectStatus.ARCHIVED
+                        || view == PermissionScope.PROJECT && assigned.contains(site.id()))
+                .map(site -> new SiteData(site.id(), site.name(), site.status() != ProjectStatus.ARCHIVED
                         && (manage == PermissionScope.ORGANIZATION
-                        || manage == PermissionScope.PROJECT && assigned.contains(site.getId()))))
+                        || manage == PermissionScope.PROJECT && assigned.contains(site.id()))))
                 .toList();
         // Only sign URLs for visible sites. Shared folder labels have no hidden-site counts or metadata.
         List<UUID> siteIds = sites.stream().map(SiteData::id).toList();
@@ -67,19 +62,21 @@ public class PlanLibraryService {
                 : plans.findByProjectIdInAndStatusOrderByCreatedAtDesc(siteIds, PlanStatus.READY).stream()
                         .map(planService::toData).toList();
         return new LibraryData(folders.findByOrganizationIdOrderByName(orgId).stream().map(this::data).toList(),
-                sites, visible, managesFolders(member));
+                sites, visible, managesFolders(org.membership()));
     }
 
     @Transactional
-    public FolderData create(UUID userId, UUID orgId, String name, UUID parentId) {
-        OrganizationMembership member = requireFolderManager(userId, orgId);
+    public FolderData create(OrgScope org, String name, UUID parentId) {
+        requireFolderManager(org);
+        UUID orgId = org.organizationId();
         lock(orgId);
-        return data(folders.save(new PlanFolder(member.getOrganization(), folder(orgId, parentId), name)));
+        return data(folders.save(new PlanFolder(org.membership().getOrganization(), folder(orgId, parentId), name)));
     }
 
     @Transactional
-    public FolderData update(UUID userId, UUID orgId, UUID id, String name, UUID parentId) {
-        requireFolderManager(userId, orgId);
+    public FolderData update(OrgScope org, UUID id, String name, UUID parentId) {
+        requireFolderManager(org);
+        UUID orgId = org.organizationId();
         lock(orgId);
         PlanFolder target = folder(orgId, id);
         PlanFolder parent = folder(orgId, parentId);
@@ -92,8 +89,9 @@ public class PlanLibraryService {
 
     /** Promote children and plans to the parent. Never delete a plan or its storage object. */
     @Transactional
-    public void delete(UUID userId, UUID orgId, UUID id) {
-        requireFolderManager(userId, orgId);
+    public void delete(OrgScope org, UUID id) {
+        requireFolderManager(org);
+        UUID orgId = org.organizationId();
         lock(orgId);
         PlanFolder target = folder(orgId, id);
         folders.findByParentId(id).forEach(child -> child.update(target.getParent(), child.getName()));
@@ -103,26 +101,22 @@ public class PlanLibraryService {
     }
 
     @Transactional
-    public ProjectPlanService.PlanData movePlan(UUID userId, UUID orgId, UUID siteId, UUID id, UUID folderId) {
-        guard.requireActive(userId, orgId);
-        projects.findByIdAndOrganizationId(siteId, orgId)
-                .orElseThrow(() -> new ResourceNotFoundException("Site not found"));
-        authorization.require(userId, orgId, siteId, null, PermissionAction.MANAGE_PLAN);
+    public ProjectPlanService.PlanData movePlan(SiteScope site, UUID id, UUID folderId) {
+        site.require(PermissionAction.MANAGE_PLAN);
+        UUID orgId = site.organizationId();
         lock(orgId);
-        ProjectPlan plan = plans.findByIdAndProjectId(id, siteId).filter(ProjectPlan::isReady)
+        ProjectPlan plan = plans.findByIdAndProjectId(id, site.siteId()).filter(ProjectPlan::isReady)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan not found"));
         plan.moveTo(folder(orgId, folderId));
         return planService.toData(plan);
     }
 
-    private OrganizationMembership requireFolderManager(UUID userId, UUID orgId) {
-        OrganizationMembership member = guard.requireActive(userId, orgId);
-        if (!managesFolders(member)) throw new AccessDeniedException("Only owners and administrators manage folders");
-        authorization.require(userId, orgId, null, null, PermissionAction.MANAGE_PLAN);
-        return member;
+    private static void requireFolderManager(OrgScope org) {
+        if (!managesFolders(org.membership())) throw new AccessDeniedException("Only owners and administrators manage folders");
+        org.require(PermissionAction.MANAGE_PLAN);
     }
 
-    private boolean managesFolders(OrganizationMembership member) {
+    private static boolean managesFolders(OrganizationMembership member) {
         return Set.of("OWNER", "ADMINISTRATOR").contains(member.getRole().getCode());
     }
 

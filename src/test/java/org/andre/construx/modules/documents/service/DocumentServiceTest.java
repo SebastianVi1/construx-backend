@@ -4,10 +4,12 @@ import org.andre.construx.modules.documents.model.DocumentEntry;
 import org.andre.construx.modules.documents.model.DocumentFolder;
 import org.andre.construx.modules.documents.repository.DocumentEntryRepository;
 import org.andre.construx.modules.documents.repository.DocumentFolderRepository;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.organization.model.PermissionAction;
+import org.andre.construx.modules.organization.model.PermissionScope;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.TestScopes;
 import org.andre.construx.modules.project.model.Project;
-import org.andre.construx.modules.project.service.ProjectService;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +19,9 @@ import org.springframework.security.access.AccessDeniedException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,9 +34,6 @@ class DocumentServiceTest {
 
     private DocumentFolderRepository folderRepo;
     private DocumentEntryRepository entryRepo;
-    private ProjectService projectService;
-    private MembershipGuard guard;
-    private DomainAuthorization authorization;
     private ObjectStorage storage;
     private DocumentService service;
 
@@ -44,11 +45,8 @@ class DocumentServiceTest {
     void setUp() {
         folderRepo    = mock(DocumentFolderRepository.class);
         entryRepo     = mock(DocumentEntryRepository.class);
-        projectService = mock(ProjectService.class);
-        guard         = mock(MembershipGuard.class);
-        authorization = mock(DomainAuthorization.class);
         storage       = mock(ObjectStorage.class);
-        service = new DocumentService(folderRepo, entryRepo, projectService, guard, authorization, storage);
+        service = new DocumentService(folderRepo, entryRepo, storage);
 
         when(folderRepo.save(any(DocumentFolder.class))).thenAnswer(inv -> inv.getArgument(0));
         when(entryRepo.save(any(DocumentEntry.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -161,12 +159,7 @@ class DocumentServiceTest {
     @Test
     void listFoldersExcludesFinancialFoldersWhenCallerLacksViewPrices() {
         Project project = mockProject(siteId);
-        when(guard.requireActive(userId, orgId)).thenReturn(null);
-        when(projectService.load(orgId, siteId)).thenReturn(project);
-        doNothing().when(authorization).require(any(), any(), any(), any(), any());
-        when(authorization.scopeOf(userId, orgId,
-                org.andre.construx.modules.organization.model.PermissionAction.VIEW_PRICES))
-                .thenReturn(Optional.empty());  // no VIEW_PRICES
+        SiteScope site = scope(project, false);
 
         DocumentFolder general  = folder(project, "Reports", "Reportes", false, null, 2);
         DocumentFolder financial = folder(project, "Budget & APU", "Presupuesto y APU", false, "VIEW_PRICES", 4);
@@ -174,7 +167,7 @@ class DocumentServiceTest {
                 .thenReturn(List.of(general, financial));
         when(entryRepo.countByFolder_Id(any())).thenReturn(0L);
 
-        List<DocumentService.FolderData> result = service.listFolders(userId, orgId, siteId);
+        List<DocumentService.FolderData> result = service.listFolders(site);
 
         assertEquals(1, result.size(), "Financial folder must be excluded");
         assertEquals("Reports", result.get(0).nameEn());
@@ -183,12 +176,7 @@ class DocumentServiceTest {
     @Test
     void listFoldersIncludesFinancialFoldersWhenCallerHasViewPrices() {
         Project project = mockProject(siteId);
-        when(guard.requireActive(userId, orgId)).thenReturn(null);
-        when(projectService.load(orgId, siteId)).thenReturn(project);
-        doNothing().when(authorization).require(any(), any(), any(), any(), any());
-        when(authorization.scopeOf(userId, orgId,
-                org.andre.construx.modules.organization.model.PermissionAction.VIEW_PRICES))
-                .thenReturn(Optional.of(org.andre.construx.modules.organization.model.PermissionScope.ORGANIZATION));
+        SiteScope site = scope(project, true);
 
         DocumentFolder general  = folder(project, "Reports", "Reportes", false, null, 2);
         DocumentFolder financial = folder(project, "Budget & APU", "Presupuesto y APU", false, "VIEW_PRICES", 4);
@@ -196,7 +184,7 @@ class DocumentServiceTest {
                 .thenReturn(List.of(general, financial));
         when(entryRepo.countByFolder_Id(any())).thenReturn(0L);
 
-        List<DocumentService.FolderData> result = service.listFolders(userId, orgId, siteId);
+        List<DocumentService.FolderData> result = service.listFolders(site);
 
         assertEquals(2, result.size(), "Both folders must be visible");
     }
@@ -207,28 +195,20 @@ class DocumentServiceTest {
     void deleteFolderThrowsAccessDeniedForStandardFolder() {
         UUID folderId = UUID.randomUUID();
         Project project = mockProject(siteId);
-        when(guard.requireActive(userId, orgId)).thenReturn(null);
-        when(projectService.load(orgId, siteId)).thenReturn(project);
-        doNothing().when(authorization).require(any(), any(), any(), any(), any());
 
         DocumentFolder standardFolder = folder(project, "Logbook", "Bitácora", true, null, 0);
         UUID standardFolderId = UUID.randomUUID();
         when(folderRepo.findById(any())).thenReturn(Optional.of(standardFolder));
 
         assertThrows(AccessDeniedException.class,
-                () -> service.deleteFolder(userId, orgId, siteId, standardFolderId),
+                () -> service.deleteFolder(scope(project, false), standardFolderId),
                 "Deleting a standard folder must throw AccessDeniedException");
     }
 
     @Test
     void searchFiltersFinancialFolderHitsWhenCallerLacksViewPrices() {
         Project project = mockProject(siteId);
-        when(guard.requireActive(userId, orgId)).thenReturn(null);
-        when(projectService.load(orgId, siteId)).thenReturn(project);
-        doNothing().when(authorization).require(any(), any(), any(), any(), any());
-        when(authorization.scopeOf(userId, orgId,
-                org.andre.construx.modules.organization.model.PermissionAction.VIEW_PRICES))
-                .thenReturn(Optional.empty());
+        SiteScope site = scope(project, false);
 
         DocumentFolder publicFolder   = folder(project, "Reports", "Reportes", true, null, 2);
         DocumentFolder financialFolder = folder(project, "Budget & APU", "Presupuesto y APU", true, "VIEW_PRICES", 4);
@@ -243,13 +223,22 @@ class DocumentServiceTest {
         when(storage.presignDownload(any(), any(Duration.class)))
                 .thenReturn(URI.create("https://example.test/download"));
 
-        List<DocumentService.SearchHit> hits = service.search(userId, orgId, siteId, "presupuesto");
+        List<DocumentService.SearchHit> hits = service.search(site, "presupuesto");
 
         assertEquals(1, hits.size(), "Financial folder hits must be excluded");
         assertEquals("presupuesto-public.pdf", hits.get(0).fileName());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /** Caller who can view and manage the site; VIEW_PRICES only when asked. */
+    private SiteScope scope(Project project, boolean viewPrices) {
+        Map<PermissionAction, PermissionScope> grants = new EnumMap<>(PermissionAction.class);
+        grants.put(PermissionAction.VIEW_PROJECT, PermissionScope.ORGANIZATION);
+        grants.put(PermissionAction.MANAGE_PROJECT, PermissionScope.ORGANIZATION);
+        if (viewPrices) grants.put(PermissionAction.VIEW_PRICES, PermissionScope.ORGANIZATION);
+        return TestScopes.site(orgId, project, mock(OrganizationMembership.class), grants, true);
+    }
 
     private Project mockProject(UUID id) {
         Project p = mock(Project.class);

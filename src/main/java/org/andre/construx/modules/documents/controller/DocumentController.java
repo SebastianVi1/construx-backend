@@ -1,12 +1,11 @@
 package org.andre.construx.modules.documents.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.andre.construx.modules.documents.service.DocumentService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -41,74 +40,58 @@ public class DocumentController {
     // — Endpoints —
 
     @GetMapping
-    public List<DocumentService.FolderData> listFolders(@PathVariable UUID organizationId,
-                                                         @PathVariable UUID projectId,
-                                                         Authentication auth) {
-        return documents.listFolders(userId(auth), organizationId, projectId);
+    public List<DocumentService.FolderData> listFolders(SiteScope site) {
+        return documents.listFolders(site);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public DocumentService.FolderData createFolder(@PathVariable UUID organizationId,
-                                                    @PathVariable UUID projectId,
-                                                    @Valid @RequestBody CreateFolderRequest body,
-                                                    Authentication auth) {
-        return documents.createFolder(userId(auth), organizationId, projectId, body.nameEn(), body.nameEs());
+    public DocumentService.FolderData createFolder(SiteScope site,
+                                                    @Valid @RequestBody CreateFolderRequest body) {
+        return documents.createFolder(site, body.nameEn(), body.nameEs());
     }
 
     @DeleteMapping("/{folderId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteFolder(@PathVariable UUID organizationId,
-                             @PathVariable UUID projectId,
-                             @PathVariable UUID folderId,
-                             Authentication auth) {
-        documents.deleteFolder(userId(auth), organizationId, projectId, folderId);
+    public void deleteFolder(SiteScope site,
+                             @PathVariable UUID folderId) {
+        documents.deleteFolder(site, folderId);
     }
 
     @GetMapping("/{folderId}/entries")
-    public List<DocumentService.EntryData> listEntries(@PathVariable UUID organizationId,
-                                                        @PathVariable UUID projectId,
-                                                        @PathVariable UUID folderId,
-                                                        Authentication auth) {
-        return documents.listEntries(userId(auth), organizationId, projectId, folderId);
+    public List<DocumentService.EntryData> listEntries(SiteScope site,
+                                                        @PathVariable UUID folderId) {
+        return documents.listEntries(site, folderId);
     }
 
     @PostMapping("/{folderId}/entries/upload-url")
-    public DocumentService.UploadUrlData requestUploadUrl(@PathVariable UUID organizationId,
-                                                           @PathVariable UUID projectId,
+    public DocumentService.UploadUrlData requestUploadUrl(SiteScope site,
                                                            @PathVariable UUID folderId,
-                                                           @Valid @RequestBody RequestUploadUrlRequest body,
-                                                           Authentication auth) {
-        return documents.requestUploadUrl(userId(auth), organizationId, projectId, folderId,
+                                                           @Valid @RequestBody RequestUploadUrlRequest body) {
+        return documents.requestUploadUrl(site, folderId,
                 body.fileName(), body.contentType(), body.sizeBytes());
     }
 
     @PostMapping("/{folderId}/entries")
     @ResponseStatus(HttpStatus.CREATED)
-    public DocumentService.EntryData confirmUpload(@PathVariable UUID organizationId,
-                                                    @PathVariable UUID projectId,
+    public DocumentService.EntryData confirmUpload(SiteScope site,
                                                     @PathVariable UUID folderId,
-                                                    @Valid @RequestBody ConfirmUploadRequest body,
-                                                    Authentication auth) {
-        return documents.confirmUpload(userId(auth), organizationId, projectId, folderId,
+                                                    @Valid @RequestBody ConfirmUploadRequest body) {
+        return documents.confirmUpload(site, folderId,
                 body.entryId(), body.s3Key(), body.fileName(), body.fileSize(), body.fileType(), body.sourceFeature());
     }
 
     @DeleteMapping("/{folderId}/entries/{entryId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteEntry(@PathVariable UUID organizationId,
-                            @PathVariable UUID projectId,
+    public void deleteEntry(SiteScope site,
                             @PathVariable UUID folderId,
-                            @PathVariable UUID entryId,
-                            Authentication auth) {
-        documents.deleteEntry(userId(auth), organizationId, projectId, folderId, entryId);
+                            @PathVariable UUID entryId) {
+        documents.deleteEntry(site, folderId, entryId);
     }
 
     @GetMapping("/search")
-    public List<DocumentService.SearchHit> search(@PathVariable UUID organizationId,
-                                                   @PathVariable UUID projectId,
-                                                   @RequestParam @NotBlank @Size(max = 100) String q,
-                                                   Authentication auth) {
-        return documents.search(userId(auth), organizationId, projectId, q);
+    public List<DocumentService.SearchHit> search(SiteScope site,
+                                                   @RequestParam @NotBlank @Size(max = 100) String q) {
+        return documents.search(site, q);
     }
 }

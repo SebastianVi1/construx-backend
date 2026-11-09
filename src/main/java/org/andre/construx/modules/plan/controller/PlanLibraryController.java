@@ -1,14 +1,14 @@
 package org.andre.construx.modules.plan.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.plan.service.PlanLibraryService;
 import org.andre.construx.modules.plan.service.ProjectPlanService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
@@ -21,34 +21,34 @@ public class PlanLibraryController {
     public record MoveRequest(UUID folderId) {}
 
     @GetMapping("/plan-library")
-    public PlanLibraryService.LibraryData library(@PathVariable UUID organizationId, Authentication auth) {
-        return library.library(userId(auth), organizationId);
+    public PlanLibraryService.LibraryData library(OrgScope org) {
+        return library.library(org);
     }
 
     @PostMapping("/plan-folders")
     @ResponseStatus(HttpStatus.CREATED)
-    public PlanLibraryService.FolderData create(@PathVariable UUID organizationId,
-            @Valid @RequestBody FolderRequest body, Authentication auth) {
-        return library.create(userId(auth), organizationId, body.name(), body.parentId());
+    public PlanLibraryService.FolderData create(OrgScope org,
+            @Valid @RequestBody FolderRequest body) {
+        return library.create(org, body.name(), body.parentId());
     }
 
     /** Full name/parent replacement: null parent means the library root. */
     @PatchMapping("/plan-folders/{folderId}")
-    public PlanLibraryService.FolderData update(@PathVariable UUID organizationId, @PathVariable UUID folderId,
-            @Valid @RequestBody FolderRequest body, Authentication auth) {
-        return library.update(userId(auth), organizationId, folderId, body.name(), body.parentId());
+    public PlanLibraryService.FolderData update(OrgScope org, @PathVariable UUID folderId,
+            @Valid @RequestBody FolderRequest body) {
+        return library.update(org, folderId, body.name(), body.parentId());
     }
 
     @DeleteMapping("/plan-folders/{folderId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID folderId, Authentication auth) {
-        library.delete(userId(auth), organizationId, folderId);
+    public void delete(OrgScope org, @PathVariable UUID folderId) {
+        library.delete(org, folderId);
     }
 
     @PutMapping("/projects/{projectId}/plans/{planId}/folder")
-    public ProjectPlanService.PlanData move(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-            @PathVariable UUID planId, @Valid @RequestBody MoveRequest body, Authentication auth) {
-        return library.movePlan(userId(auth), organizationId, projectId, planId, body.folderId());
+    public ProjectPlanService.PlanData move(SiteScope site,
+            @PathVariable UUID planId, @Valid @RequestBody MoveRequest body) {
+        return library.movePlan(site, planId, body.folderId());
     }
 
 }

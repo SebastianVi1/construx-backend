@@ -42,13 +42,6 @@ class ModuleBoundariesTest {
             "modules.organization.service.InvitationService -> modules.project.repository.ProjectAccessRepository",
             "modules.organization.service.InvitationService -> modules.project.repository.ProjectRepository",
             "modules.organization.service.OrganizationService -> modules.identity.repository.UserAccountRepository",
-            "modules.plan.service.PlanLibraryService -> modules.project.repository.ProjectAccessRepository",
-            "modules.plan.service.PlanLibraryService -> modules.project.repository.ProjectRepository",
-            "modules.project.service.ProjectAccessService -> modules.organization.repository.OrganizationMembershipRepository",
-            "modules.report.service.SiteReportService -> modules.finance.repository.ExpenseRepository",
-            "modules.report.service.SiteReportService -> modules.project.repository.ActivityRepository",
-            "modules.report.service.SiteReportService -> modules.project.repository.GoalRepository",
-            "modules.report.service.SiteReportService -> modules.project.repository.ProjectAccessRepository",
             "shared.security.DomainAuthorization -> modules.organization.model.MembershipStatus",
             "shared.security.DomainAuthorization -> modules.organization.model.Organization",
             "shared.security.DomainAuthorization -> modules.organization.model.OrganizationMembership",
@@ -61,8 +54,6 @@ class ModuleBoundariesTest {
             "shared.security.DomainAuthorization -> modules.project.repository.ProjectAccessRepository",
             "shared.security.DomainAuthorization -> modules.project.repository.ProjectRepository");
 
-    /** Public ProjectService methods that still return the Project entity; may only shrink. */
-    private static final Set<String> ALLOWED_PROJECT_LEAKS = Set.of("inOrganization", "load", "lockForBudget");
 
     private static JavaClasses classes;
 
@@ -94,8 +85,7 @@ class ModuleBoundariesTest {
                 leaks.add(method.getName());
             }
         }
-        assertTrue(leaks.equals(ALLOWED_PROJECT_LEAKS),
-                "ProjectService methods returning the Project entity: " + leaks + ", allowed: " + ALLOWED_PROJECT_LEAKS);
+        assertTrue(leaks.isEmpty(), "ProjectService methods returning the Project entity: " + leaks);
     }
 
     private static void assertOnlyAllowed(Set<String> found) {

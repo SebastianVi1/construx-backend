@@ -1,7 +1,7 @@
 package org.andre.construx.modules.finance.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
@@ -11,7 +11,6 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.service.ExpenseService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -48,64 +47,56 @@ public class ExpenseController {
 
     /** Allocated budget, total spent, what remains and the spend per category. */
     @GetMapping("/budget")
-    public ExpenseService.BudgetSummary budget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                               Authentication authentication) {
-        return expenses.summary(userId(authentication), organizationId, projectId);
+    public ExpenseService.BudgetSummary budget(SiteScope site) {
+        return expenses.summary(site);
     }
 
     @GetMapping("/expenses")
-    public List<ExpenseService.ExpenseData> list(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                 Authentication authentication) {
-        return expenses.list(userId(authentication), organizationId, projectId);
+    public List<ExpenseService.ExpenseData> list(SiteScope site) {
+        return expenses.list(site);
     }
 
     @PostMapping("/expenses")
     @ResponseStatus(HttpStatus.CREATED)
-    public ExpenseService.ExpenseData create(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                             @Valid @RequestBody ExpenseCreate body, Authentication authentication) {
-        return expenses.create(userId(authentication), organizationId, projectId, body.amount(), body.spentOn(),
+    public ExpenseService.ExpenseData create(SiteScope site,
+                                             @Valid @RequestBody ExpenseCreate body) {
+        return expenses.create(site, body.amount(), body.spentOn(),
                 body.description(), body.category());
     }
 
     @PatchMapping("/expenses/{expenseId}")
-    public ExpenseService.ExpenseData update(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                             @PathVariable UUID expenseId, @Valid @RequestBody ExpensePatch body,
-                                             Authentication authentication) {
-        return expenses.update(userId(authentication), organizationId, projectId, expenseId, body.amount(),
+    public ExpenseService.ExpenseData update(SiteScope site,
+                                             @PathVariable UUID expenseId, @Valid @RequestBody ExpensePatch body) {
+        return expenses.update(site, expenseId, body.amount(),
                 body.spentOn(), body.description(), body.category());
     }
 
     @DeleteMapping("/expenses/{expenseId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID projectId, @PathVariable UUID expenseId,
-                       Authentication authentication) {
-        expenses.delete(userId(authentication), organizationId, projectId, expenseId);
+    public void delete(SiteScope site, @PathVariable UUID expenseId) {
+        expenses.delete(site, expenseId);
     }
 
     /** The task's budget, what was charged to it and what remains; budget roles and the task's Lead. */
     @GetMapping(TASK + "/budget")
-    public ExpenseService.TaskBudget taskBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                                Authentication authentication) {
-        return expenses.taskBudget(userId(authentication), organizationId, projectId, goalId, activityId);
+    public ExpenseService.TaskBudget taskBudget(SiteScope site,
+                                                @PathVariable UUID goalId, @PathVariable UUID activityId) {
+        return expenses.taskBudget(site, goalId, activityId);
     }
 
     @GetMapping(TASK + "/expenses")
-    public List<ExpenseService.ExpenseData> listForTask(@PathVariable UUID organizationId,
-                                                        @PathVariable UUID projectId, @PathVariable UUID goalId,
-                                                        @PathVariable UUID activityId,
-                                                        Authentication authentication) {
-        return expenses.listForTask(userId(authentication), organizationId, projectId, goalId, activityId);
+    public List<ExpenseService.ExpenseData> listForTask(SiteScope site, @PathVariable UUID goalId,
+                                                        @PathVariable UUID activityId) {
+        return expenses.listForTask(site, goalId, activityId);
     }
 
     /** An expense charged to the task; it also counts against the site budget. Edit and delete use the site paths. */
     @PostMapping(TASK + "/expenses")
     @ResponseStatus(HttpStatus.CREATED)
-    public ExpenseService.ExpenseData createForTask(@PathVariable UUID organizationId, @PathVariable UUID projectId,
+    public ExpenseService.ExpenseData createForTask(SiteScope site,
                                                     @PathVariable UUID goalId, @PathVariable UUID activityId,
-                                                    @Valid @RequestBody ExpenseCreate body,
-                                                    Authentication authentication) {
-        return expenses.createForTask(userId(authentication), organizationId, projectId, goalId, activityId,
+                                                    @Valid @RequestBody ExpenseCreate body) {
+        return expenses.createForTask(site, goalId, activityId,
                 body.amount(), body.spentOn(), body.description(), body.category());
     }
 }

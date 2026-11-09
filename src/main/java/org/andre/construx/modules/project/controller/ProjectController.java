@@ -1,7 +1,8 @@
 package org.andre.construx.modules.project.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -9,7 +10,6 @@ import org.andre.construx.modules.project.model.ProjectStatus;
 import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.validation.BudgetUpdate;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,38 +45,34 @@ public class ProjectController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ProjectService.ProjectData create(@PathVariable UUID organizationId, @Valid @RequestBody ProjectCreate body,
-                                             Authentication authentication) {
-        return projects.create(userId(authentication), organizationId, new ProjectService.ProjectInput(
+    public ProjectService.ProjectData create(OrgScope org, @Valid @RequestBody ProjectCreate body) {
+        return projects.create(org, new ProjectService.ProjectInput(
                 body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status(), null));
     }
 
     @GetMapping
-    public List<ProjectService.ProjectData> list(@PathVariable UUID organizationId,
-                                                 @RequestParam(required = false) ProjectStatus status,
-                                                 Authentication authentication) {
-        return projects.list(userId(authentication), organizationId, status);
+    public List<ProjectService.ProjectData> list(OrgScope org,
+                                                 @RequestParam(required = false) ProjectStatus status) {
+        return projects.list(org, status);
     }
 
     @GetMapping("/{projectId}")
-    public ProjectService.ProjectData get(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                          Authentication authentication) {
-        return projects.get(userId(authentication), organizationId, projectId);
+    public ProjectService.ProjectData get(SiteScope site) {
+        return projects.get(site);
     }
 
     @PatchMapping("/{projectId}")
-    public ProjectService.ProjectData update(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                             @Valid @RequestBody ProjectPatch body, Authentication authentication) {
-        return projects.update(userId(authentication), organizationId, projectId, new ProjectService.ProjectInput(
+    public ProjectService.ProjectData update(SiteScope site,
+                                             @Valid @RequestBody ProjectPatch body) {
+        return projects.update(site, new ProjectService.ProjectInput(
                 body.name(), body.address(), body.startDate(), body.expectedEndDate(), body.status(),
                 body.clear()));
     }
 
     @PutMapping("/{projectId}/budget")
-    public ProjectService.ProjectData assignBudget(@PathVariable UUID organizationId, @PathVariable UUID projectId,
-                                                   @Valid @RequestBody BudgetUpdate body,
-                                                   Authentication authentication) {
-        return projects.assignBudget(userId(authentication), organizationId, projectId,
+    public ProjectService.ProjectData assignBudget(SiteScope site,
+                                                   @Valid @RequestBody BudgetUpdate body) {
+        return projects.assignBudget(site,
                 body.requireAllocatedBudget());
     }
 }

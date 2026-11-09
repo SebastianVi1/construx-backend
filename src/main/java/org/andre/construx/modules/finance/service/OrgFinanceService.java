@@ -4,10 +4,9 @@ import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.model.SiteBudgetStatus;
 import org.andre.construx.modules.finance.repository.ExpenseRepository;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
-import org.andre.construx.modules.project.model.Project;
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.project.service.ProjectService;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.modules.project.service.ProjectService.SiteSummary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +21,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -29,8 +29,8 @@ import java.util.UUID;
  * <p>
  * Check order on every call:
  * <ol>
- *   <li>MembershipGuard.requireActive — 404 for non-members and unknown organizations.</li>
- *   <li>DomainAuthorization.require(VIEW_BUDGET, projectId=null) — 403 for roles without it.</li>
+ *   <li>{@link OrgScope} — 404 for non-members and unknown organizations.</li>
+ *   <li>VIEW_BUDGET at organization scope — 403 for roles without it.</li>
  *   <li>Parameter validation (range checks) — 400.</li>
  * </ol>
  */
@@ -39,15 +39,10 @@ public class OrgFinanceService {
 
     private final ExpenseRepository expenses;
     private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
 
-    public OrgFinanceService(ExpenseRepository expenses, ProjectService projects,
-                             MembershipGuard guard, DomainAuthorization authorization) {
+    public OrgFinanceService(ExpenseRepository expenses, ProjectService projects) {
         this.expenses = expenses;
         this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
     }
 
     // ── Response records ──────────────────────────────────────────────────────
@@ -69,10 +64,11 @@ public class OrgFinanceService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public OrgFinanceSummary summary(UUID userId, UUID organizationId) {
-        checkAccess(userId, organizationId);
+    public OrgFinanceSummary summary(OrgScope org) {
+        org.require(PermissionAction.VIEW_BUDGET);
+        UUID organizationId = org.organizationId();
 
-        List<Project> allSites = projects.inOrganization(organizationId);
+        List<SiteSummary> allSites = projects.inOrganization(organizationId);
 
         // Build spent-by-project map (covers all sites, budget or not)
         Map<UUID, BigDecimal> spentByProject = new HashMap<>();
@@ -92,12 +88,12 @@ public class OrgFinanceService {
 
         // Per-site breakdown (all included sites, ordered by name from query)
         List<SiteFinance> siteList = allSites.stream().map(site -> {
-            BigDecimal budget = site.getAllocatedBudget();
-            BigDecimal spent = spentByProject.getOrDefault(site.getId(), BigDecimal.ZERO).setScale(2);
+            BigDecimal budget = site.allocatedBudget();
+            BigDecimal spent = spentByProject.getOrDefault(site.id(), BigDecimal.ZERO).setScale(2);
             BigDecimal remaining = budget == null ? null : budget.subtract(spent).setScale(2);
             BigDecimal pct = executionPct(budget, spent);
             SiteBudgetStatus status = SiteBudgetStatus.of(budget, spent);
-            return new SiteFinance(site.getId(), site.getName(),
+            return new SiteFinance(site.id(), site.name(),
                     budget == null ? null : budget.setScale(2),
                     spent, remaining, pct, status);
         }).toList();
@@ -129,9 +125,9 @@ public class OrgFinanceService {
     }
 
     @Transactional(readOnly = true)
-    public MonthlyExpenseSummary monthlyExpenses(UUID userId, UUID organizationId,
-                                                 LocalDate from, LocalDate to) {
-        checkAccess(userId, organizationId);
+    public MonthlyExpenseSummary monthlyExpenses(OrgScope org, LocalDate from, LocalDate to) {
+        org.require(PermissionAction.VIEW_BUDGET);
+        UUID organizationId = org.organizationId();
 
         // Apply defaults after auth checks, before validation
         LocalDate effectiveFrom = from != null ? from : LocalDate.now().withDayOfYear(1);
@@ -149,8 +145,8 @@ public class OrgFinanceService {
 
         // Company-level totalBudget (same calculation as summary)
         BigDecimal totalBudget = projects.inOrganization(organizationId).stream()
-                .filter(p -> p.getAllocatedBudget() != null)
-                .map(Project::getAllocatedBudget)
+                .map(SiteSummary::allocatedBudget)
+                .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2);
 
@@ -176,11 +172,6 @@ public class OrgFinanceService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private void checkAccess(UUID userId, UUID organizationId) {
-        guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.VIEW_BUDGET);
-    }
 
     /**
      * Execution % = spent / budget * 100, rounded half-up to 1 decimal.

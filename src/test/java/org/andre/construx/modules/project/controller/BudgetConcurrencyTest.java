@@ -4,6 +4,8 @@ import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.SiteScopes;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.GoalRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
@@ -58,6 +60,7 @@ class BudgetConcurrencyTest {
     @Autowired ActivityService activityService;
     @Autowired GoalRepository goals;
     @Autowired ActivityRepository activities;
+    @Autowired SiteScopes siteScopes;
 
     private Api api;
     private Session owner;
@@ -78,6 +81,11 @@ class BudgetConcurrencyTest {
         site = "/api/organizations/" + orgId + "/projects/" + projectId;
         assignee = members.grantSite(projectId, members.ownerMembership(orgId, owner.user()));
         api.put(owner, site + "/budget", "{\"allocatedBudget\":100}").andExpect(status().isOk());
+    }
+
+    /** The owner's scope on the site, as a request would build it. */
+    private SiteScope scope() {
+        return siteScopes.site(user, orgId, projectId);
     }
 
     private UUID phase(String name) throws Exception {
@@ -110,32 +118,32 @@ class BudgetConcurrencyTest {
         for (int round = 0; round < 3; round++) {
             List<UUID> phases = new ArrayList<>();
             for (int i = 0; i < 6; i++) phases.add(phase("P" + round + i));
-            together(6, i -> () -> goalService.assignBudget(user, orgId, projectId, phases.get(i), new BigDecimal("30")));
+            together(6, i -> () -> goalService.assignBudget(scope(), phases.get(i), new BigDecimal("30")));
             BigDecimal sum = goals.sumBudgetByProject(projectId);
             assertTrue(sum.compareTo(new BigDecimal("100")) <= 0, "phases hold " + sum);
-            for (UUID g : phases) goalService.assignBudget(user, orgId, projectId, g, null);
+            for (UUID g : phases) goalService.assignBudget(scope(), g, null);
         }
     }
 
     @Test
     void loweringTheSiteWhileRaisingAPhaseKeepsTheCap() throws Exception {
         for (int round = 0; round < 3; round++) {
-            projectService.assignBudget(user, orgId, projectId, new BigDecimal("100"));
+            projectService.assignBudget(scope(), new BigDecimal("100"));
             UUID g = phase("Q" + round);
             together(2, i -> i == 0
-                    ? () -> goalService.assignBudget(user, orgId, projectId, g, new BigDecimal("80"))
-                    : () -> projectService.assignBudget(user, orgId, projectId, new BigDecimal("50")));
+                    ? () -> goalService.assignBudget(scope(), g, new BigDecimal("80"))
+                    : () -> projectService.assignBudget(scope(), new BigDecimal("50")));
             BigDecimal sum = goals.sumBudgetByProject(projectId);
             BigDecimal siteBudget = projects.findById(projectId).orElseThrow().getAllocatedBudget();
             assertTrue(sum.compareTo(siteBudget) <= 0, "phases " + sum + " > site " + siteBudget);
-            goalService.assignBudget(user, orgId, projectId, g, null);
+            goalService.assignBudget(scope(), g, null);
         }
     }
 
     @Test
     void concurrentTaskBudgetsNeverExceedThePhaseBudget() throws Exception {
         UUID p = phase("Tasks");
-        goalService.assignBudget(user, orgId, projectId, p, new BigDecimal("100"));
+        goalService.assignBudget(scope(), p, new BigDecimal("100"));
         for (int round = 0; round < 3; round++) {
             List<UUID> tasks = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
@@ -143,13 +151,13 @@ class BudgetConcurrencyTest {
                         + "\",\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\",\"assignees\":[{\"accessId\":\"" + assignee + "\",\"taskRole\":\"LEAD\"}]}"))));
             }
             together(6, i -> i == 5
-                    ? () -> goalService.assignBudget(user, orgId, projectId, p, new BigDecimal("40"))
-                    : () -> activityService.assignBudget(user, orgId, projectId, p, tasks.get(i), new BigDecimal("30")));
+                    ? () -> goalService.assignBudget(scope(), p, new BigDecimal("40"))
+                    : () -> activityService.assignBudget(scope(), p, tasks.get(i), new BigDecimal("30")));
             BigDecimal sum = activities.sumBudgetOfGoal(p);
             BigDecimal phaseBudget = goals.findById(p).orElseThrow().getAllocatedBudget();
             assertTrue(sum.compareTo(phaseBudget) <= 0, "tasks " + sum + " > phase " + phaseBudget);
-            for (UUID t : tasks) activityService.assignBudget(user, orgId, projectId, p, t, null);
-            goalService.assignBudget(user, orgId, projectId, p, new BigDecimal("100"));
+            for (UUID t : tasks) activityService.assignBudget(scope(), p, t, null);
+            goalService.assignBudget(scope(), p, new BigDecimal("100"));
         }
     }
 }

@@ -1,15 +1,24 @@
 package org.andre.construx.modules.documents.controller;
 
 import org.andre.construx.modules.documents.service.DocumentService;
+import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.TestScopes;
+import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+import org.springframework.web.bind.support.WebDataBinderFactory;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.method.support.ModelAndViewContainer;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +33,7 @@ class DocumentControllerTest {
 
     private DocumentService documentService;
     private MockMvc mvc;
+    private SiteScope site;
 
     private final UUID orgId    = UUID.fromString("11111111-0000-0000-0000-000000000001");
     private final UUID siteId   = UUID.fromString("22222222-0000-0000-0000-000000000002");
@@ -35,7 +45,11 @@ class DocumentControllerTest {
         documentService = mock(DocumentService.class);
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
+        Project project = mock(Project.class);
+        when(project.getId()).thenReturn(siteId);
+        site = TestScopes.fullAccess(orgId, project, mock(OrganizationMembership.class));
         mvc = MockMvcBuilders.standaloneSetup(new DocumentController(documentService))
+                .setCustomArgumentResolvers(new FixedSiteScope(site))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
@@ -47,7 +61,7 @@ class DocumentControllerTest {
     void listFoldersReturnsOnlyVisibleFolders() throws Exception {
         DocumentService.FolderData general  = folder("Reports", "Reportes", false, null);
         // financial folder is excluded by the service — service returns only visible folders
-        when(documentService.listFolders(eq(userId), eq(orgId), eq(siteId)))
+        when(documentService.listFolders(eq(site)))
                 .thenReturn(List.of(general));
 
         mvc.perform(get("/api/organizations/{org}/projects/{site}/document-folders", orgId, siteId)
@@ -61,7 +75,7 @@ class DocumentControllerTest {
     void listFoldersIncludesAllFoldersForPrivilegedCaller() throws Exception {
         DocumentService.FolderData general   = folder("Reports",    "Reportes",          false, null);
         DocumentService.FolderData financial = folder("Budget & APU","Presupuesto y APU", true,  "VIEW_PRICES");
-        when(documentService.listFolders(eq(userId), eq(orgId), eq(siteId)))
+        when(documentService.listFolders(eq(site)))
                 .thenReturn(List.of(general, financial));
 
         mvc.perform(get("/api/organizations/{org}/projects/{site}/document-folders", orgId, siteId)
@@ -75,7 +89,7 @@ class DocumentControllerTest {
     @Test
     void deletingStandardFolderReturns403() throws Exception {
         doThrow(new AccessDeniedException("Standard folders cannot be deleted"))
-                .when(documentService).deleteFolder(eq(userId), eq(orgId), eq(siteId), eq(folderId));
+                .when(documentService).deleteFolder(eq(site), eq(folderId));
 
         mvc.perform(delete("/api/organizations/{org}/projects/{site}/document-folders/{folderId}",
                         orgId, siteId, folderId)
@@ -86,7 +100,7 @@ class DocumentControllerTest {
 
     @Test
     void deletingCustomFolderReturns204() throws Exception {
-        doNothing().when(documentService).deleteFolder(eq(userId), eq(orgId), eq(siteId), eq(folderId));
+        doNothing().when(documentService).deleteFolder(eq(site), eq(folderId));
 
         mvc.perform(delete("/api/organizations/{org}/projects/{site}/document-folders/{folderId}",
                         orgId, siteId, folderId)
@@ -113,7 +127,7 @@ class DocumentControllerTest {
     void searchReturnsMatchingHits() throws Exception {
         DocumentService.SearchHit hit = new DocumentService.SearchHit(
                 UUID.randomUUID(), "presupuesto-julio.pdf", folderId, "Budget & APU", "Presupuesto y APU");
-        when(documentService.search(eq(userId), eq(orgId), eq(siteId), eq("presupuesto")))
+        when(documentService.search(eq(site), eq("presupuesto")))
                 .thenReturn(List.of(hit));
 
         mvc.perform(get("/api/organizations/{org}/projects/{site}/document-folders/search", orgId, siteId)
@@ -133,6 +147,20 @@ class DocumentControllerTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /** Stands in for the real resolver, which needs the database to build the scope. */
+    private record FixedSiteScope(SiteScope scope) implements HandlerMethodArgumentResolver {
+        @Override
+        public boolean supportsParameter(MethodParameter parameter) {
+            return parameter.getParameterType() == SiteScope.class;
+        }
+
+        @Override
+        public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer,
+                                      NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
+            return scope;
+        }
+    }
 
     private static UsernamePasswordAuthenticationToken auth(UUID userId) {
         return new UsernamePasswordAuthenticationToken(userId.toString(), null, List.of());

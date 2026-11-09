@@ -1,15 +1,12 @@
 package org.andre.construx.modules.project.service;
 
-import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.BudgetAllocation;
 import org.andre.construx.modules.project.model.Goal;
-import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.GoalRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Service;
@@ -29,17 +26,13 @@ public class GoalService {
     private final GoalRepository goals;
     private final ActivityRepository activities;
     private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
     private final EntityManager entityManager;
 
     public GoalService(GoalRepository goals, ActivityRepository activities, ProjectService projects,
-                       MembershipGuard guard, DomainAuthorization authorization, EntityManager entityManager) {
+                       EntityManager entityManager) {
         this.goals = goals;
         this.activities = activities;
         this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
         this.entityManager = entityManager;
     }
 
@@ -52,40 +45,32 @@ public class GoalService {
                            BigDecimal unallocated) {}
 
     @Transactional
-    public GoalData create(UUID userId, UUID organizationId, UUID projectId, String name, Instant startAt,
-                           Instant dueAt, String color) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Project project = projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
-        Goal goal = new Goal(project, name, startAt, dueAt);
+    public GoalData create(SiteScope site, String name, Instant startAt, Instant dueAt, String color) {
+        site.require(PermissionAction.MANAGE_GOAL);
+        Goal goal = new Goal(site.site(), name, startAt, dueAt);
         goal.changeColor(blankAsNull(color));
         goals.save(goal);
-        return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
+        return toData(site, List.of(goal)).get(0);
     }
 
     @Transactional(readOnly = true)
-    public List<GoalData> list(UUID userId, UUID organizationId, UUID projectId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_GOAL);
-        return toData(userId, organizationId, member, projectId, goals.findByProjectIdOrderByDueAtAsc(projectId));
+    public List<GoalData> list(SiteScope site) {
+        site.require(PermissionAction.VIEW_GOAL);
+        return toData(site, goals.findByProjectIdOrderByDueAtAsc(site.siteId()));
     }
 
     @Transactional(readOnly = true)
-    public GoalData get(UUID userId, UUID organizationId, UUID projectId, UUID goalId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Goal goal = load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_GOAL);
-        return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
+    public GoalData get(SiteScope site, UUID goalId) {
+        Goal goal = load(site, goalId);
+        site.require(PermissionAction.VIEW_GOAL);
+        return toData(site, List.of(goal)).get(0);
     }
 
     /** Null arguments keep the stored value; an empty color goes back to the default. */
     @Transactional
-    public GoalData update(UUID userId, UUID organizationId, UUID projectId, UUID goalId, String name,
-                           Instant startAt, Instant dueAt, String color) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Goal goal = load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
+    public GoalData update(SiteScope site, UUID goalId, String name, Instant startAt, Instant dueAt, String color) {
+        Goal goal = load(site, goalId);
+        site.require(PermissionAction.MANAGE_GOAL);
         if (name != null) {
             goal.rename(name);
         }
@@ -95,7 +80,7 @@ public class GoalService {
         if (color != null) {
             goal.changeColor(blankAsNull(color));
         }
-        return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
+        return toData(site, List.of(goal)).get(0);
     }
 
     /**
@@ -103,40 +88,37 @@ public class GoalService {
      * same order every budget change takes, so concurrent changes cannot break the allocation cap.
      */
     @Transactional
-    public GoalData assignBudget(UUID userId, UUID organizationId, UUID projectId, UUID goalId, BigDecimal amount) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_BUDGET);
-        projects.lockForBudget(organizationId, projectId);
-        Goal goal = lockForBudget(organizationId, projectId, goalId);
+    public GoalData assignBudget(SiteScope site, UUID goalId, BigDecimal amount) {
+        load(site, goalId);
+        site.require(PermissionAction.MANAGE_BUDGET);
+        projects.lockForBudget(site);
+        Goal goal = lockForBudget(site, goalId);
         BigDecimal current = goal.getAllocatedBudget() == null ? BigDecimal.ZERO : goal.getAllocatedBudget();
-        goal.assignBudget(amount, projects.allocatedToPhases(projectId).subtract(current),
+        goal.assignBudget(amount, projects.allocatedToPhases(site.siteId()).subtract(current),
                 activities.sumBudgetOfGoal(goalId));
-        return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
+        return toData(site, List.of(goal)).get(0);
     }
 
     /** Loads the phase with fresh state under a row lock; task budget changes inside it run one at a time. */
-    public Goal lockForBudget(UUID organizationId, UUID projectId, UUID goalId) {
-        Goal goal = load(organizationId, projectId, goalId);
+    Goal lockForBudget(SiteScope site, UUID goalId) {
+        Goal goal = load(site, goalId);
         entityManager.refresh(goal, LockModeType.PESSIMISTIC_WRITE);
         return goal;
     }
 
     /** Moves the phase and every task inside it in one transaction. */
     @Transactional
-    public GoalData shift(UUID userId, UUID organizationId, UUID projectId, UUID goalId, int days) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Goal goal = load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
+    public GoalData shift(SiteScope site, UUID goalId, int days) {
+        Goal goal = load(site, goalId);
+        site.require(PermissionAction.MANAGE_GOAL);
         goal.shift(Duration.ofDays(days));
-        return toData(userId, organizationId, member, projectId, List.of(goal)).get(0);
+        return toData(site, List.of(goal)).get(0);
     }
 
     @Transactional
-    public void delete(UUID userId, UUID organizationId, UUID projectId, UUID goalId) {
-        guard.requireActive(userId, organizationId);
-        Goal goal = load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_GOAL);
+    public void delete(SiteScope site, UUID goalId) {
+        Goal goal = load(site, goalId);
+        site.require(PermissionAction.MANAGE_GOAL);
         if (activities.existsByGoalId(goalId)) {
             throw new IllegalStateException("Move or delete this phase's tasks first");
         }
@@ -147,21 +129,20 @@ public class GoalService {
         return color == null || color.isEmpty() ? null : color;
     }
 
-    /** Resolves a phase inside the tenant and site. */
-    public Goal load(UUID organizationId, UUID projectId, UUID goalId) {
-        projects.load(organizationId, projectId);
-        return goals.findByIdAndProjectId(goalId, projectId)
+    /** Resolves a phase inside the scope's site; 404 otherwise. */
+    Goal load(SiteScope site, UUID goalId) {
+        return goals.findByIdAndProjectId(goalId, site.siteId())
                 .orElseThrow(() -> new ResourceNotFoundException("Goal not found"));
     }
 
-    private List<GoalData> toData(UUID userId, UUID organizationId, OrganizationMembership member, UUID projectId,
-                                  List<Goal> list) {
+    private List<GoalData> toData(SiteScope site, List<Goal> list) {
+        UUID projectId = site.siteId();
         Map<UUID, long[]> counts = new HashMap<>();
         for (Object[] row : activities.countByGoal(projectId)) {
             counts.put((UUID) row[0], new long[] {((Number) row[1]).longValue(), ((Number) row[2]).longValue()});
         }
-        boolean visible = projects.canViewActivities(userId, organizationId, member.getId(), projectId);
-        boolean budgetVisible = projects.canViewBudget(userId, organizationId);
+        boolean visible = site.can(PermissionAction.VIEW_ACTIVITY);
+        boolean budgetVisible = ProjectService.canViewBudget(site.org());
         Map<UUID, BigDecimal> allocated = new HashMap<>();
         if (budgetVisible) {
             for (Object[] row : activities.sumBudgetByGoal(projectId)) {

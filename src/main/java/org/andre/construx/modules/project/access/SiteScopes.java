@@ -17,6 +17,8 @@ import java.util.UUID;
  * both 404, before any permission is checked (403).
  */
 @Component
+// Not read-only: under open-session-in-view the loaded entities stay in the request's persistence context, and a
+// read-only transaction would leave them read-only, so a service could not change the Site it was handed.
 public class SiteScopes {
     private final OrgScopes orgs;
     private final ProjectRepository projects;
@@ -29,13 +31,13 @@ public class SiteScopes {
     }
 
     /** The caller's membership plus a Site of that organization; 404 when either is missing. */
-    @Transactional(readOnly = true)
+    @Transactional
     public SiteScope site(UUID userId, UUID organizationId, UUID siteId) {
         return site(orgs.org(userId, organizationId), siteId);
     }
 
     /** A Site of the scope's organization; 404 when it is not one. */
-    @Transactional(readOnly = true)
+    @Transactional
     public SiteScope site(OrgScope org, UUID siteId) {
         Project site = projects.findByIdAndOrganizationId(siteId, org.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found"));

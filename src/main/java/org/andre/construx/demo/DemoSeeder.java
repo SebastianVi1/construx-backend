@@ -3,8 +3,12 @@ package org.andre.construx.demo;
 import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.service.ExpenseService;
 import org.andre.construx.modules.identity.service.AccountService;
+import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.OrgScopes;
 import org.andre.construx.modules.organization.service.InvitationService;
 import org.andre.construx.modules.organization.service.OrganizationService;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.SiteScopes;
 import org.andre.construx.modules.project.model.ProjectStatus;
 import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.service.ActivityService;
@@ -65,12 +69,14 @@ public class DemoSeeder {
     private final GoalService goals;
     private final ActivityService activities;
     private final ExpenseService expenses;
+    private final OrgScopes orgScopes;
+    private final SiteScopes siteScopes;
     private final String password;
 
     public DemoSeeder(AccountService accounts, OrganizationService organizations, InvitationService invitations,
                       ProjectService projects, ProjectAccessService accesses, GoalService goals,
-                      ActivityService activities, ExpenseService expenses,
-                      @Value("${construx.demo.password:}") String password) {
+                      ActivityService activities, ExpenseService expenses, OrgScopes orgScopes,
+                      SiteScopes siteScopes, @Value("${construx.demo.password:}") String password) {
         this.accounts = accounts;
         this.organizations = organizations;
         this.invitations = invitations;
@@ -79,6 +85,8 @@ public class DemoSeeder {
         this.goals = goals;
         this.activities = activities;
         this.expenses = expenses;
+        this.orgScopes = orgScopes;
+        this.siteScopes = siteScopes;
         this.password = password;
     }
 
@@ -100,7 +108,7 @@ public class DemoSeeder {
             UUID user = accounts.provisionVerified(person.email(), password, person.fullName());
             memberships.put(person.key(), invitations.enroll(owner, org, user, person.roleCode()));
         }
-        Seeding seeding = new Seeding(owner, org, memberships);
+        Seeding seeding = new Seeding(orgScopes.org(owner, org), memberships);
         seeding.torreResidencialNorte();
         seeding.centroComercialBelgrano();
         seeding.complejoLasAcacias();
@@ -109,15 +117,13 @@ public class DemoSeeder {
 
     /** One seeding run: every call acts as the owner inside the demo company. */
     private final class Seeding {
-        private final UUID owner;
-        private final UUID org;
+        private final OrgScope org;
         private final Map<String, UUID> memberships;
-        private UUID site;
+        private SiteScope site;
         private UUID goal;
         private final Map<String, UUID> siteAccess = new HashMap<>();
 
-        Seeding(UUID owner, UUID org, Map<String, UUID> memberships) {
-            this.owner = owner;
+        Seeding(OrgScope org, Map<String, UUID> memberships) {
             this.org = org;
             this.memberships = memberships;
         }
@@ -222,36 +228,37 @@ public class DemoSeeder {
 
         private void site(String name, String address, LocalDate start, LocalDate end, ProjectStatus status,
                           String budget, String... staff) {
-            site = projects.create(owner, org, new ProjectInput(name, address, start, end, status, null)).id();
-            projects.assignBudget(owner, org, site, new BigDecimal(budget));
+            UUID siteId = projects.create(org, new ProjectInput(name, address, start, end, status, null)).id();
+            site = siteScopes.site(org, siteId);
+            projects.assignBudget(site, new BigDecimal(budget));
             siteAccess.clear();
             for (String key : staff) {
-                siteAccess.put(key, accesses.add(owner, org, site, memberships.get(key)).accessId());
+                siteAccess.put(key, accesses.add(site, memberships.get(key)).accessId());
             }
         }
 
         private void goal(String name, Instant startAt, Instant dueAt) {
-            goal = goals.create(owner, org, site, name, startAt, dueAt, null).id();
+            goal = goals.create(site, name, startAt, dueAt, null).id();
         }
 
         /** A task to do, led by the given site staff member. */
         private UUID task(String name, String lead, Instant startAt, Instant dueAt) {
-            return activities.create(owner, org, site, goal, name, startAt, dueAt,
+            return activities.create(site, goal, name, startAt, dueAt,
                     List.of(new TeamInput(siteAccess.get(lead), TaskRole.LEAD)), null, null).id();
         }
 
         private void inProgress(String name, String lead, Instant startAt, Instant dueAt) {
-            activities.start(owner, org, site, goal, task(name, lead, startAt, dueAt));
+            activities.start(site, goal, task(name, lead, startAt, dueAt));
         }
 
         private void done(String name, String lead, Instant startAt, Instant dueAt) {
             UUID activity = task(name, lead, startAt, dueAt);
-            activities.start(owner, org, site, goal, activity);
-            activities.complete(owner, org, site, goal, activity);
+            activities.start(site, goal, activity);
+            activities.complete(site, goal, activity);
         }
 
         private void expense(String amount, LocalDate spentOn, String description, ExpenseCategory category) {
-            expenses.create(owner, org, site, new BigDecimal(amount), spentOn, description, category);
+            expenses.create(site, new BigDecimal(amount), spentOn, description, category);
         }
     }
 

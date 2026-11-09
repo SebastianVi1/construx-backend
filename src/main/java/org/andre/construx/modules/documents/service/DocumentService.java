@@ -5,12 +5,10 @@ import org.andre.construx.modules.documents.model.DocumentFolder;
 import org.andre.construx.modules.documents.repository.DocumentEntryRepository;
 import org.andre.construx.modules.documents.repository.DocumentFolderRepository;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.Project;
-import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -64,19 +62,11 @@ public class DocumentService {
 
     private final DocumentFolderRepository folders;
     private final DocumentEntryRepository entries;
-    private final ProjectService projects;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
     private final ObjectStorage storage;
 
-    public DocumentService(DocumentFolderRepository folders, DocumentEntryRepository entries,
-                           ProjectService projects, MembershipGuard guard,
-                           DomainAuthorization authorization, ObjectStorage storage) {
+    public DocumentService(DocumentFolderRepository folders, DocumentEntryRepository entries, ObjectStorage storage) {
         this.folders = folders;
         this.entries = entries;
-        this.projects = projects;
-        this.guard = guard;
-        this.authorization = authorization;
         this.storage = storage;
     }
 
@@ -99,37 +89,31 @@ public class DocumentService {
     // — Folder operations —
 
     @Transactional(readOnly = true)
-    public List<FolderData> listFolders(UUID userId, UUID organizationId, UUID projectId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
-        boolean canViewPrices = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_PRICES).isPresent();
-        return folders.findByProjectIdOrderByPositionAscNameEnAsc(projectId).stream()
+    public List<FolderData> listFolders(SiteScope site) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        boolean canViewPrices = site.scopeOf(PermissionAction.VIEW_PRICES).isPresent();
+        return folders.findByProjectIdOrderByPositionAscNameEnAsc(site.siteId()).stream()
                 .filter(f -> f.getRequiresPermission() == null || canViewPrices)
                 .map(f -> toFolderData(f, entries.countByFolder_Id(f.getId())))
                 .toList();
     }
 
     @Transactional
-    public FolderData createFolder(UUID userId, UUID organizationId, UUID projectId,
+    public FolderData createFolder(SiteScope site,
                                    String nameEn, String nameEs) {
-        guard.requireActive(userId, organizationId);
-        Project project = projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
+        site.require(PermissionAction.MANAGE_PROJECT);
         if (nameEn == null || nameEn.isBlank() || nameEn.strip().length() > 120)
             throw new RuleViolationException("INVALID_FOLDER_NAME", "Folder name must be 1 to 120 characters");
         if (nameEs == null || nameEs.isBlank() || nameEs.strip().length() > 120)
             throw new RuleViolationException("INVALID_FOLDER_NAME", "Folder name (ES) must be 1 to 120 characters");
-        DocumentFolder folder = folders.save(new DocumentFolder(project, nameEn.strip(), nameEs.strip()));
+        DocumentFolder folder = folders.save(new DocumentFolder(site.site(), nameEn.strip(), nameEs.strip()));
         return toFolderData(folder, 0);
     }
 
     @Transactional
-    public void deleteFolder(UUID userId, UUID organizationId, UUID projectId, UUID folderId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
-        DocumentFolder folder = loadFolder(projectId, folderId);
+    public void deleteFolder(SiteScope site, UUID folderId) {
+        site.require(PermissionAction.MANAGE_PROJECT);
+        DocumentFolder folder = loadFolder(site.siteId(), folderId);
         if (folder.isStandard()) {
             throw new AccessDeniedException("Standard folders cannot be deleted");
         }
@@ -144,12 +128,10 @@ public class DocumentService {
     // — Entry operations —
 
     @Transactional(readOnly = true)
-    public List<EntryData> listEntries(UUID userId, UUID organizationId, UUID projectId, UUID folderId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
-        DocumentFolder folder = loadFolder(projectId, folderId);
-        requireFolderVisible(userId, organizationId, folder);
+    public List<EntryData> listEntries(SiteScope site, UUID folderId) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        DocumentFolder folder = loadFolder(site.siteId(), folderId);
+        requireFolderVisible(site, folder);
         return entries.findByFolder_IdOrderByCreatedAtDesc(folderId).stream()
                 .map(this::toEntryData)
                 .toList();
@@ -157,46 +139,40 @@ public class DocumentService {
 
     /** Returns a presigned upload URL. The entry row is created only after the client calls confirmUpload. */
     @Transactional(readOnly = true)
-    public UploadUrlData requestUploadUrl(UUID userId, UUID organizationId, UUID projectId,
+    public UploadUrlData requestUploadUrl(SiteScope site,
                                           UUID folderId, String fileName, String contentType, long sizeBytes) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
-        DocumentFolder folder = loadFolder(projectId, folderId);
-        requireFolderVisible(userId, organizationId, folder);
+        site.require(PermissionAction.VIEW_PROJECT);
+        DocumentFolder folder = loadFolder(site.siteId(), folderId);
+        requireFolderVisible(site, folder);
         if (fileName == null || fileName.isBlank() || fileName.strip().length() > 255)
             throw new RuleViolationException("INVALID_FILE_NAME", "File name must be 1 to 255 characters");
         UUID entryId = UUID.randomUUID();
-        String s3Key = "orgs/%s/projects/%s/documents/%s".formatted(organizationId, projectId, entryId);
+        String s3Key = "orgs/%s/projects/%s/documents/%s".formatted(site.organizationId(), site.siteId(), entryId);
         ObjectStorage.PresignedUpload upload = storage.presignUpload(s3Key, contentType, sizeBytes, UPLOAD_TTL);
         return new UploadUrlData(entryId, upload.url(), upload.headers(), upload.expiresAt(), s3Key);
     }
 
     /** Creates the DocumentEntry row after the client has PUT the file to S3. */
     @Transactional
-    public EntryData confirmUpload(UUID userId, UUID organizationId, UUID projectId, UUID folderId,
+    public EntryData confirmUpload(SiteScope site, UUID folderId,
                                    UUID entryId, String s3Key, String fileName, Long fileSize,
                                    String fileType, String sourceFeature) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
-        DocumentFolder folder = loadFolder(projectId, folderId);
-        requireFolderVisible(userId, organizationId, folder);
+        site.require(PermissionAction.VIEW_PROJECT);
+        DocumentFolder folder = loadFolder(site.siteId(), folderId);
+        requireFolderVisible(site, folder);
         storage.head(s3Key)
                 .orElseThrow(() -> new RuleViolationException("UPLOAD_MISSING", "The file was not uploaded to storage"));
         // Use caller-supplied entryId so the client can correlate its pending upload
-        DocumentEntry entry = new DocumentEntry(entryId, folder, projectId, organizationId, s3Key,
+        DocumentEntry entry = new DocumentEntry(entryId, folder, site.siteId(), site.organizationId(), s3Key,
                 fileName == null ? "" : fileName.strip(), fileSize, fileType,
-                sourceFeature == null ? "manual" : sourceFeature, userId);
+                sourceFeature == null ? "manual" : sourceFeature, site.userId());
         return toEntryData(entries.save(entry));
     }
 
     @Transactional
-    public void deleteEntry(UUID userId, UUID organizationId, UUID projectId, UUID folderId, UUID entryId) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
-        loadFolder(projectId, folderId);
+    public void deleteEntry(SiteScope site, UUID folderId, UUID entryId) {
+        site.require(PermissionAction.MANAGE_PROJECT);
+        loadFolder(site.siteId(), folderId);
         DocumentEntry entry = entries.findByIdAndFolder_Id(entryId, folderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Document not found"));
         entries.delete(entry);
@@ -207,12 +183,10 @@ public class DocumentService {
     // — Search —
 
     @Transactional(readOnly = true)
-    public List<SearchHit> search(UUID userId, UUID organizationId, UUID projectId, String term) {
-        guard.requireActive(userId, organizationId);
-        projects.load(organizationId, projectId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
-        boolean canViewPrices = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_PRICES).isPresent();
-        return entries.searchByFileName(projectId, term).stream()
+    public List<SearchHit> search(SiteScope site, String term) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        boolean canViewPrices = site.scopeOf(PermissionAction.VIEW_PRICES).isPresent();
+        return entries.searchByFileName(site.siteId(), term).stream()
                 .filter(e -> {
                     String req = e.getFolder().getRequiresPermission();
                     return req == null || canViewPrices;
@@ -230,10 +204,9 @@ public class DocumentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Folder not found"));
     }
 
-    private void requireFolderVisible(UUID userId, UUID organizationId, DocumentFolder folder) {
+    private static void requireFolderVisible(SiteScope site, DocumentFolder folder) {
         if (folder.getRequiresPermission() == null) return;
-        authorization.scopeOf(userId, organizationId,
-                        PermissionAction.valueOf(folder.getRequiresPermission()))
+        site.scopeOf(PermissionAction.valueOf(folder.getRequiresPermission()))
                 .orElseThrow(() -> new ResourceNotFoundException("Folder not found"));
     }
 

@@ -2,18 +2,19 @@ package org.andre.construx.modules.project.service;
 
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
-import org.andre.construx.modules.organization.service.MembershipGuard;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.Activity;
 import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.Goal;
 import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.model.TeamMember;
 import org.andre.construx.modules.project.repository.ActivityRepository;
+import org.andre.construx.modules.project.repository.GoalRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,23 +38,18 @@ import java.util.UUID;
 @Service
 public class ActivityService {
     private final ActivityRepository activities;
+    private final GoalRepository goalRepository;
     private final GoalService goals;
-    private final ProjectService projects;
     private final ProjectAccessService accesses;
     private final PersonDirectory directory;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
 
-    public ActivityService(ActivityRepository activities, GoalService goals, ProjectService projects,
-                           ProjectAccessService accesses, PersonDirectory directory, MembershipGuard guard,
-                           DomainAuthorization authorization) {
+    public ActivityService(ActivityRepository activities, GoalRepository goalRepository, GoalService goals,
+                           ProjectAccessService accesses, PersonDirectory directory) {
         this.activities = activities;
+        this.goalRepository = goalRepository;
         this.goals = goals;
-        this.projects = projects;
         this.accesses = accesses;
         this.directory = directory;
-        this.guard = guard;
-        this.authorization = authorization;
     }
 
     public record AssigneeData(UUID accessId, UUID membershipId, String fullName, TaskRole taskRole, URI avatarUrl) {}
@@ -89,31 +85,61 @@ public class ActivityService {
         return byMembership;
     }
 
+    /** A phase with its tasks, for printed summaries. */
+    public record PhaseOverview(String name, Instant startAt, Instant dueAt, List<TaskOverview> tasks) {}
+
+    /** {@code leadName} is null when the task has no Lead or the Lead has no profile name. */
+    public record TaskOverview(String name, ActivityStatus status, UUID leadMembershipId, String leadName,
+                               Instant startAt, Instant dueAt) {}
+
+    /**
+     * Every phase of the site, soonest due first, with its tasks and their Lead. No permission check: callers
+     * authorize.
+     */
+    @Transactional(readOnly = true)
+    public List<PhaseOverview> overviewOf(UUID projectId) {
+        Map<Goal, List<Activity>> byGoal = new LinkedHashMap<>();
+        for (Goal goal : goalRepository.findByProjectIdOrderByDueAtAsc(projectId)) {
+            byGoal.put(goal, activities.findByGoalWithTeam(goal.getId()));
+        }
+        Map<UUID, Person> people = directory.byUserId(byGoal.values().stream().flatMap(List::stream)
+                .flatMap(a -> a.getTeam().stream())
+                .map(t -> t.getAccess().getOrganizationMembership().getUserAccount().getId())
+                .toList());
+        return byGoal.entrySet().stream().map(e -> new PhaseOverview(e.getKey().getName(), e.getKey().getStartAt(),
+                e.getKey().getDueAt(), e.getValue().stream().map(a -> {
+                    OrganizationMembership lead = a.getTeam().stream()
+                            .filter(t -> t.getTaskRole() == TaskRole.LEAD).findFirst()
+                            .map(t -> t.getAccess().getOrganizationMembership()).orElse(null);
+                    return new TaskOverview(a.getName(), a.getStatus(), lead == null ? null : lead.getId(),
+                            lead == null ? null : PersonDirectory.of(people, lead.getUserAccount().getId()).fullName(),
+                            a.getStartAt(), a.getDueAt());
+                }).toList())).toList();
+    }
+
     @Transactional
-    public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
-                               String name, Instant startAt, Instant dueAt, List<TeamInput> team, String color, String description) {
-        guard.requireActive(userId, organizationId);
-        Goal goal = goals.load(organizationId, projectId, goalId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
-        Activity activity = new Activity(goal, name, resolve(projectId, team), startAt, dueAt);
+    public ActivityData create(SiteScope site, UUID goalId, String name, Instant startAt, Instant dueAt,
+                               List<TeamInput> team, String color, String description) {
+        Goal goal = goals.load(site, goalId);
+        site.require(PermissionAction.MANAGE_ACTIVITY);
+        site.require(PermissionAction.ASSIGN_ACTIVITY);
+        Activity activity = new Activity(goal, name, resolve(site.siteId(), team), startAt, dueAt);
         activity.changeColor(GoalService.blankAsNull(color));
         if (description != null) activity.describe(description);
-        return toData(userId, organizationId, List.of(activities.save(activity))).get(0);
+        return toData(site.org(), List.of(activities.save(activity))).get(0);
     }
 
     @Transactional(readOnly = true)
-    public List<ActivityData> list(UUID userId, UUID organizationId, UUID projectId, UUID goalId,
-                                   ActivityStatus status, UUID assigneeAccessId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        goals.load(organizationId, projectId, goalId);
-        PermissionScope scope = authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_ACTIVITY)
+    public List<ActivityData> list(SiteScope site, UUID goalId, ActivityStatus status, UUID assigneeAccessId) {
+        goals.load(site, goalId);
+        PermissionScope scope = site.scopeOf(PermissionAction.VIEW_ACTIVITY)
                 .orElseThrow(() -> new AccessDeniedException("Permission required"));
         if (scope != PermissionScope.OWN) {
-            authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_ACTIVITY);
+            site.require(PermissionAction.VIEW_ACTIVITY);
         }
-        return toData(userId, organizationId, activities.findByGoalWithTeam(goalId).stream()
-                .filter(a -> scope != PermissionScope.OWN || a.isOnTeam(member.getId()))
+        UUID membershipId = site.membershipId();
+        return toData(site.org(), activities.findByGoalWithTeam(goalId).stream()
+                .filter(a -> scope != PermissionScope.OWN || a.isOnTeam(membershipId))
                 .filter(a -> status == null || a.getStatus() == status)
                 .filter(a -> assigneeAccessId == null || a.getTeam().stream()
                         .anyMatch(t -> t.getAccess().getId().equals(assigneeAccessId)))
@@ -121,21 +147,18 @@ public class ActivityService {
     }
 
     @Transactional(readOnly = true)
-    public ActivityData get(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, teamMember(activity, member),
-                PermissionAction.VIEW_ACTIVITY);
-        return toData(userId, organizationId, List.of(activity)).get(0);
+    public ActivityData get(SiteScope site, UUID goalId, UUID activityId) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.VIEW_ACTIVITY, teamMember(activity, site.membership()));
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     /** Null arguments keep the stored value; an empty color or description goes back to the default. Not for status or team. */
     @Transactional
-    public ActivityData update(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
+    public ActivityData update(SiteScope site, UUID goalId, UUID activityId,
                                String name, Instant startAt, Instant dueAt, String color, String description) {
-        guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.MANAGE_ACTIVITY);
         if (name != null) {
             activity.rename(name);
         }
@@ -149,59 +172,50 @@ public class ActivityService {
         if (description != null) {
             activity.describe(description);
         }
-        return toData(userId, organizationId, List.of(activity)).get(0);
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     /** Replaces the whole team. Requires ASSIGN_ACTIVITY; being the task's Lead is not enough. */
     @Transactional
-    public ActivityData assignTeam(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
-                                   List<TeamInput> team) {
-        guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.ASSIGN_ACTIVITY);
+    public ActivityData assignTeam(SiteScope site, UUID goalId, UUID activityId, List<TeamInput> team) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.ASSIGN_ACTIVITY);
         // The team is still unloaded here, so it is read after the lock and sees the previous change.
         activities.lockById(activityId);
-        activity.assignTeam(resolve(projectId, team));
-        return toData(userId, organizationId, List.of(activity)).get(0);
+        activity.assignTeam(resolve(site.siteId(), team));
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     @Transactional
-    public ActivityData start(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, teamMember(activity, member),
-                PermissionAction.MANAGE_ACTIVITY);
+    public ActivityData start(SiteScope site, UUID goalId, UUID activityId) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
         activity.start();
-        return toData(userId, organizationId, List.of(activity)).get(0);
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     @Transactional
-    public ActivityData complete(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, teamMember(activity, member),
-                PermissionAction.MANAGE_ACTIVITY);
+    public ActivityData complete(SiteScope site, UUID goalId, UUID activityId) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
         activity.complete(Instant.now());
-        return toData(userId, organizationId, List.of(activity)).get(0);
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     /** Sets or, with null, clears the task budget. Requires MANAGE_BUDGET; the phase row lock serializes changes. */
     @Transactional
-    public ActivityData assignBudget(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId,
-                                     BigDecimal amount) {
-        guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_BUDGET);
-        goals.lockForBudget(organizationId, projectId, goalId);
+    public ActivityData assignBudget(SiteScope site, UUID goalId, UUID activityId, BigDecimal amount) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.MANAGE_BUDGET);
+        goals.lockForBudget(site, goalId);
         activity.assignBudget(amount, activities.sumBudgetOfOtherActivities(goalId, activityId));
-        return toData(userId, organizationId, List.of(activity)).get(0);
+        return toData(site.org(), List.of(activity)).get(0);
     }
 
     @Transactional
-    public void delete(UUID userId, UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
-        guard.requireActive(userId, organizationId);
-        Activity activity = load(organizationId, projectId, goalId, activityId);
-        authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_ACTIVITY);
+    public void delete(SiteScope site, UUID goalId, UUID activityId) {
+        Activity activity = load(site, goalId, activityId);
+        site.require(PermissionAction.MANAGE_ACTIVITY);
         if (activities.hasExpenses(activityId)) {
             throw new IllegalStateException("Remove this task's expenses before deleting it");
         }
@@ -210,20 +224,19 @@ public class ActivityService {
 
     /** Home screen for anyone with a task permission: their own tasks in this organization. */
     @Transactional(readOnly = true)
-    public List<ActivityData> mine(UUID userId, UUID organizationId, ActivityStatus status) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        if (authorization.scopeOf(userId, organizationId, PermissionAction.VIEW_ACTIVITY).isEmpty()
-                && authorization.scopeOf(userId, organizationId, PermissionAction.MANAGE_ACTIVITY).isEmpty()) {
+    public List<ActivityData> mine(OrgScope org, ActivityStatus status) {
+        if (org.scopeOf(PermissionAction.VIEW_ACTIVITY).isEmpty()
+                && org.scopeOf(PermissionAction.MANAGE_ACTIVITY).isEmpty()) {
             throw new AccessDeniedException("Permission required");
         }
-        return toData(userId, organizationId, activities.findAssignedTo(organizationId, member.getId()).stream()
+        return toData(org, activities.findAssignedTo(org.organizationId(), org.membershipId()).stream()
                 .filter(a -> status == null || a.getStatus() == status)
                 .toList());
     }
 
-    /** Resolves a task inside the tenant, site and phase (404 otherwise), for the other modules. */
-    public Activity load(UUID organizationId, UUID projectId, UUID goalId, UUID activityId) {
-        goals.load(organizationId, projectId, goalId);
+    /** Resolves a task inside the scope's site and phase (404 otherwise), for the other modules. */
+    public Activity load(SiteScope site, UUID goalId, UUID activityId) {
+        goals.load(site, goalId);
         return activities.findByIdAndGoalId(activityId, goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
     }
@@ -241,8 +254,8 @@ public class ActivityService {
         return team.stream().map(t -> new TeamMember(accesses.load(projectId, t.accessId()), t.taskRole())).toList();
     }
 
-    private List<ActivityData> toData(UUID userId, UUID organizationId, List<Activity> list) {
-        boolean budgetVisible = projects.canViewBudget(userId, organizationId);
+    private List<ActivityData> toData(OrgScope org, List<Activity> list) {
+        boolean budgetVisible = ProjectService.canViewBudget(org);
         Map<UUID, Person> people = directory.byUserId(list.stream()
                 .flatMap(a -> a.getTeam().stream())
                 .map(t -> t.getAccess().getOrganizationMembership().getUserAccount().getId())
