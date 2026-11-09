@@ -1,13 +1,12 @@
 package org.andre.construx.modules.pricing.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.pricing.service.SupplierService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,30 +38,26 @@ public class SupplierController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public SupplierService.SupplierData create(@PathVariable UUID organizationId,
-                                               @Valid @RequestBody SupplierCreate body,
-                                               Authentication authentication) {
-        return suppliers.create(userId(authentication), organizationId, body.name(), body.branch(), body.website());
+    public SupplierService.SupplierData create(OrgScope org,
+                                               @Valid @RequestBody SupplierCreate body) {
+        return suppliers.create(org, body.name(), body.branch(), body.website());
     }
 
     @GetMapping
-    public List<SupplierService.SupplierData> list(@PathVariable UUID organizationId,
-                                                   @RequestParam(defaultValue = "false") boolean includeArchived,
-                                                   Authentication authentication) {
-        return suppliers.list(userId(authentication), organizationId, includeArchived);
+    public List<SupplierService.SupplierData> list(OrgScope org,
+                                                   @RequestParam(defaultValue = "false") boolean includeArchived) {
+        return suppliers.list(org, includeArchived);
     }
 
     @PatchMapping("/{supplierId}")
-    public SupplierService.SupplierData update(@PathVariable UUID organizationId, @PathVariable UUID supplierId,
-                                               @Valid @RequestBody SupplierPatch body,
-                                               Authentication authentication) {
-        return suppliers.update(userId(authentication), organizationId, supplierId, body.name(), body.branch(),
+    public SupplierService.SupplierData update(OrgScope org, @PathVariable UUID supplierId,
+                                               @Valid @RequestBody SupplierPatch body) {
+        return suppliers.update(org, supplierId, body.name(), body.branch(),
                 body.website());
     }
 
     @PostMapping("/{supplierId}/archive")
-    public SupplierService.SupplierData archive(@PathVariable UUID organizationId, @PathVariable UUID supplierId,
-                                                Authentication authentication) {
-        return suppliers.archive(userId(authentication), organizationId, supplierId);
+    public SupplierService.SupplierData archive(OrgScope org, @PathVariable UUID supplierId) {
+        return suppliers.archive(org, supplierId);
     }
 }

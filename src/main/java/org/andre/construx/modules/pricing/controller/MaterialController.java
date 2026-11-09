@@ -1,7 +1,7 @@
 package org.andre.construx.modules.pricing.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -10,7 +10,6 @@ import org.andre.construx.modules.pricing.model.MaterialCategory;
 import org.andre.construx.modules.pricing.model.MaterialUnit;
 import org.andre.construx.modules.pricing.service.MaterialService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,39 +41,34 @@ public class MaterialController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public MaterialService.MaterialData create(@PathVariable UUID organizationId,
-                                               @Valid @RequestBody MaterialCreate body,
-                                               Authentication authentication) {
-        return materials.create(userId(authentication), organizationId, body.name(), body.unit(), body.category(),
+    public MaterialService.MaterialData create(OrgScope org,
+                                               @Valid @RequestBody MaterialCreate body) {
+        return materials.create(org, body.name(), body.unit(), body.category(),
                 body.brand());
     }
 
     @GetMapping
-    public List<MaterialService.MaterialData> list(@PathVariable UUID organizationId,
+    public List<MaterialService.MaterialData> list(OrgScope org,
                                                    @RequestParam(required = false) String query,
                                                    @RequestParam(required = false) MaterialCategory category,
-                                                   @RequestParam(defaultValue = "false") boolean includeArchived,
-                                                   Authentication authentication) {
-        return materials.list(userId(authentication), organizationId, query, category, includeArchived);
+                                                   @RequestParam(defaultValue = "false") boolean includeArchived) {
+        return materials.list(org, query, category, includeArchived);
     }
 
     @GetMapping("/{materialId}")
-    public MaterialService.MaterialDetail get(@PathVariable UUID organizationId, @PathVariable UUID materialId,
-                                              Authentication authentication) {
-        return materials.get(userId(authentication), organizationId, materialId);
+    public MaterialService.MaterialDetail get(OrgScope org, @PathVariable UUID materialId) {
+        return materials.get(org, materialId);
     }
 
     @PatchMapping("/{materialId}")
-    public MaterialService.MaterialData update(@PathVariable UUID organizationId, @PathVariable UUID materialId,
-                                               @Valid @RequestBody MaterialPatch body,
-                                               Authentication authentication) {
-        return materials.update(userId(authentication), organizationId, materialId, body.name(), body.unit(),
+    public MaterialService.MaterialData update(OrgScope org, @PathVariable UUID materialId,
+                                               @Valid @RequestBody MaterialPatch body) {
+        return materials.update(org, materialId, body.name(), body.unit(),
                 body.category(), body.brand());
     }
 
     @PostMapping("/{materialId}/archive")
-    public MaterialService.MaterialData archive(@PathVariable UUID organizationId, @PathVariable UUID materialId,
-                                                Authentication authentication) {
-        return materials.archive(userId(authentication), organizationId, materialId);
+    public MaterialService.MaterialData archive(OrgScope org, @PathVariable UUID materialId) {
+        return materials.archive(org, materialId);
     }
 }

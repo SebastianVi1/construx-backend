@@ -1,8 +1,8 @@
 package org.andre.construx.modules.pricing.service;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.pricing.model.Material;
 import org.andre.construx.modules.pricing.model.MaterialCategory;
 import org.andre.construx.modules.pricing.model.MaterialUnit;
@@ -14,7 +14,6 @@ import org.andre.construx.modules.pricing.repository.PriceObservationRepository;
 import org.andre.construx.modules.pricing.service.PriceObservationService.LatestPrice;
 import org.andre.construx.modules.pricing.service.PriceObservationService.PriceData;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,15 +32,10 @@ import java.util.UUID;
 public class MaterialService {
     private final MaterialRepository materials;
     private final PriceObservationRepository observations;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
 
-    public MaterialService(MaterialRepository materials, PriceObservationRepository observations,
-                           MembershipGuard guard, DomainAuthorization authorization) {
+    public MaterialService(MaterialRepository materials, PriceObservationRepository observations) {
         this.materials = materials;
         this.observations = observations;
-        this.guard = guard;
-        this.authorization = authorization;
     }
 
     /** {@code latestPrices}: newest observation per non-archived supplier, cheapest first. */
@@ -53,28 +47,26 @@ public class MaterialService {
                                  List<PriceData> history) {}
 
     @Transactional
-    public MaterialData create(UUID userId, UUID organizationId, String name, MaterialUnit unit,
+    public MaterialData create(OrgScope org, String name, MaterialUnit unit,
                                MaterialCategory category, String brand) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_PRICES);
+        OrganizationMembership member = org.membership();
+        org.require(PermissionAction.MANAGE_PRICES);
         Material material = new Material(member.getOrganization(), name, unit, category, brand);
-        rejectDuplicate(organizationId, null, material.getNormalizedKey());
+        rejectDuplicate(org.organizationId(), null, material.getNormalizedKey());
         return summarize(List.of(materials.saveAndFlush(material))).get(0);
     }
 
     @Transactional(readOnly = true)
-    public List<MaterialData> list(UUID userId, UUID organizationId, String query, MaterialCategory category,
+    public List<MaterialData> list(OrgScope org, String query, MaterialCategory category,
                                    boolean includeArchived) {
-        guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.VIEW_PRICES);
-        return summarize(materials.search(organizationId, includeArchived, category, pattern(query)));
+        org.require(PermissionAction.VIEW_PRICES);
+        return summarize(materials.search(org.organizationId(), includeArchived, category, pattern(query)));
     }
 
     @Transactional(readOnly = true)
-    public MaterialDetail get(UUID userId, UUID organizationId, UUID materialId) {
-        guard.requireActive(userId, organizationId);
-        Material material = load(organizationId, materialId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.VIEW_PRICES);
+    public MaterialDetail get(OrgScope org, UUID materialId) {
+        Material material = load(org.organizationId(), materialId);
+        org.require(PermissionAction.VIEW_PRICES);
         List<PriceObservation> history = observations.findNewestFirst(List.of(materialId));
         List<LatestPrice> latest = latest(history);
         return new MaterialDetail(material.getId(), material.getName(), material.getUnit(), material.getCategory(),
@@ -84,26 +76,24 @@ public class MaterialService {
 
     /** Null arguments keep the stored value; an empty brand clears it. */
     @Transactional
-    public MaterialData update(UUID userId, UUID organizationId, UUID materialId, String name, MaterialUnit unit,
+    public MaterialData update(OrgScope org, UUID materialId, String name, MaterialUnit unit,
                                MaterialCategory category, String brand) {
-        guard.requireActive(userId, organizationId);
-        Material material = load(organizationId, materialId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_PRICES);
+        Material material = load(org.organizationId(), materialId);
+        org.require(PermissionAction.MANAGE_PRICES);
         String newName = name != null ? name : material.getName();
         MaterialUnit newUnit = unit != null ? unit : material.getUnit();
         MaterialCategory newCategory = category != null ? category : material.getCategory();
         String newBrand = brand != null ? brand : material.getBrand();
-        rejectDuplicate(organizationId, materialId, Material.keyOf(newName, newUnit, newBrand));
+        rejectDuplicate(org.organizationId(), materialId, Material.keyOf(newName, newUnit, newBrand));
         material.describe(newName, newUnit, newCategory, newBrand);
         return summarize(List.of(materials.saveAndFlush(material))).get(0);
     }
 
     /** Materials are never deleted, so their price history stays readable. */
     @Transactional
-    public MaterialData archive(UUID userId, UUID organizationId, UUID materialId) {
-        guard.requireActive(userId, organizationId);
-        Material material = load(organizationId, materialId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_PRICES);
+    public MaterialData archive(OrgScope org, UUID materialId) {
+        Material material = load(org.organizationId(), materialId);
+        org.require(PermissionAction.MANAGE_PRICES);
         material.archive(Instant.now());
         return summarize(List.of(material)).get(0);
     }

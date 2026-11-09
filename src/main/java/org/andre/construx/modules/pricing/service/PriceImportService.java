@@ -1,8 +1,8 @@
 package org.andre.construx.modules.pricing.service;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.service.MembershipGuard;
 import org.andre.construx.modules.pricing.model.Material;
 import org.andre.construx.modules.pricing.model.MaterialCategory;
 import org.andre.construx.modules.pricing.model.MaterialUnit;
@@ -17,7 +17,6 @@ import org.andre.construx.modules.pricing.repository.PriceObservationRepository;
 import org.andre.construx.modules.pricing.repository.SupplierRepository;
 import org.andre.construx.modules.pricing.service.CsvParser.CsvFormatException;
 import org.andre.construx.modules.pricing.service.CsvParser.CsvRecord;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,17 +70,12 @@ public class PriceImportService {
     private final MaterialRepository materials;
     private final SupplierRepository suppliers;
     private final PriceObservationRepository observations;
-    private final MembershipGuard guard;
-    private final DomainAuthorization authorization;
 
     public PriceImportService(MaterialRepository materials, SupplierRepository suppliers,
-                              PriceObservationRepository observations, MembershipGuard guard,
-                              DomainAuthorization authorization) {
+                              PriceObservationRepository observations) {
         this.materials = materials;
         this.suppliers = suppliers;
         this.observations = observations;
-        this.guard = guard;
-        this.authorization = authorization;
     }
 
     /** {@code field} is the CSV column name, or {@code row} for the whole line. */
@@ -98,9 +92,9 @@ public class PriceImportService {
     private record Resolved<T>(T entity, boolean isNew) {}
 
     @Transactional
-    public ImportReport importCsv(UUID userId, UUID organizationId, byte[] content, boolean dryRun) {
-        Organization organization = guard.requireActive(userId, organizationId).getOrganization();
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_PRICES);
+    public ImportReport importCsv(OrgScope org, byte[] content, boolean dryRun) {
+        Organization organization = org.membership().getOrganization();
+        org.require(PermissionAction.MANAGE_PRICES);
         List<CsvRecord> records = read(content);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         Instant now = Instant.now();

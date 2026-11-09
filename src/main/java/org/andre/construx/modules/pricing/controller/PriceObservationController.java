@@ -1,7 +1,7 @@
 package org.andre.construx.modules.pricing.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -10,7 +10,6 @@ import org.andre.construx.modules.pricing.service.PriceImportService.ImportRepor
 import org.andre.construx.modules.pricing.service.PriceObservationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,10 +43,9 @@ public class PriceObservationController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public PriceObservationService.PriceData record(@PathVariable UUID organizationId,
-                                                    @Valid @RequestBody ObservationCreate body,
-                                                    Authentication authentication) {
-        return observations.record(userId(authentication), organizationId, body.materialId(), body.supplierId(),
+    public PriceObservationService.PriceData record(OrgScope org,
+                                                    @Valid @RequestBody ObservationCreate body) {
+        return observations.record(org, body.materialId(), body.supplierId(),
                 body.price(), body.observedOn(), body.sku());
     }
 
@@ -56,19 +54,17 @@ public class PriceObservationController {
      * report and writes nothing.
      */
     @PostMapping("/import")
-    public ResponseEntity<ImportReport> importCsv(@PathVariable UUID organizationId,
+    public ResponseEntity<ImportReport> importCsv(OrgScope org,
                                                   @RequestParam("file") MultipartFile file,
-                                                  @RequestParam(defaultValue = "true") boolean dryRun,
-                                                  Authentication authentication) throws IOException {
-        ImportReport report = imports.importCsv(userId(authentication), organizationId, file.getBytes(), dryRun);
+                                                  @RequestParam(defaultValue = "true") boolean dryRun) throws IOException {
+        ImportReport report = imports.importCsv(org, file.getBytes(), dryRun);
         HttpStatus status = report.valid() || dryRun ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT;
         return ResponseEntity.status(status).body(report);
     }
 
     @DeleteMapping("/{observationId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, @PathVariable UUID observationId,
-                       Authentication authentication) {
-        observations.delete(userId(authentication), organizationId, observationId);
+    public void delete(OrgScope org, @PathVariable UUID observationId) {
+        observations.delete(org, observationId);
     }
 }
