@@ -1,4 +1,4 @@
-package org.andre.construx.shared.demo;
+package org.andre.construx.demo;
 
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;

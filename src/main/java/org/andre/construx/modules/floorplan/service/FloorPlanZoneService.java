@@ -12,7 +12,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.audit.AuditService.AuditEventData;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

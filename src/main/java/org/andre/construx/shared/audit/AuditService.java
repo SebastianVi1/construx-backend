@@ -1,7 +1,5 @@
 package org.andre.construx.shared.audit;
 
-import org.andre.construx.modules.organization.model.OrganizationMembership;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -28,27 +26,20 @@ public class AuditService {
     ) {}
 
     private final AuditEventRepository repository;
-    private final OrganizationMembershipRepository memberships;
     private final ObjectMapper mapper;
 
     public AuditService(AuditEventRepository repository,
-                        OrganizationMembershipRepository memberships,
                         ObjectMapper mapper) {
         this.repository = repository;
-        this.memberships = memberships;
         this.mapper = mapper;
     }
 
     public void record(String entityType, UUID entityId, String action,
                        UUID actorMembershipId, Object beforeState, Object afterState) {
-        OrganizationMembership actor = actorMembershipId != null
-                ? memberships.findById(actorMembershipId).orElse(null)
-                : null;
-
         String before = serialize(beforeState);
         String after = serialize(afterState);
 
-        AuditEvent event = new AuditEvent(entityType, entityId, action, actor, before, after, Instant.now());
+        AuditEvent event = new AuditEvent(entityType, entityId, action, actorMembershipId, before, after, Instant.now());
         repository.save(event);
     }
 
@@ -60,7 +51,7 @@ public class AuditService {
                         e.getEntityType(),
                         e.getEntityId(),
                         e.getAction(),
-                        e.getActorMembership() != null ? e.getActorMembership().getId() : null,
+                        e.getActorMembershipId(),
                         e.getBeforeState(),
                         e.getAfterState(),
                         e.getOccurredAt()

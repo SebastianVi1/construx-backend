@@ -15,7 +15,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.OpenTask;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;

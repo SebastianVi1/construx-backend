@@ -11,8 +11,8 @@ import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.SiteScope;
-import org.andre.construx.shared.security.TestScopes;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.TestScopes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

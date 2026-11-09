@@ -1,4 +1,7 @@
-package org.andre.construx.shared.security;
+package org.andre.construx.modules.project.access;
+
+import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.OrgScopes;
 
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -46,14 +49,16 @@ class AccessScopesTest {
     private OrganizationMembershipRepository memberships;
     private ProjectRepository projects;
     private ProjectAccessRepository accesses;
-    private AccessScopes scopes;
+    private OrgScopes orgs;
+    private SiteScopes scopes;
 
     @BeforeEach
     void setUp() {
         memberships = mock(OrganizationMembershipRepository.class);
         projects = mock(ProjectRepository.class);
         accesses = mock(ProjectAccessRepository.class);
-        scopes = new AccessScopes(memberships, projects, accesses);
+        orgs = new OrgScopes(memberships);
+        scopes = new SiteScopes(orgs, projects, accesses);
     }
 
     @Test
@@ -66,7 +71,7 @@ class AccessScopesTest {
     void suspendedMemberGetsNotFound() {
         member(MembershipStatus.SUSPENDED, grant(VIEW_PLAN, ORGANIZATION));
         assertThrows(ResourceNotFoundException.class, () -> scopes.site(userId, orgId, siteId));
-        assertThrows(ResourceNotFoundException.class, () -> scopes.org(userId, orgId));
+        assertThrows(ResourceNotFoundException.class, () -> orgs.org(userId, orgId));
     }
 
     @Test
@@ -148,7 +153,7 @@ class AccessScopesTest {
     @Test
     void orgScopeRequiresOrganizationWideGrant() {
         member(MembershipStatus.ACTIVE, grant(MANAGE_MEMBERS, ORGANIZATION), grant(VIEW_PLAN, PROJECT));
-        OrgScope scope = scopes.org(userId, orgId);
+        OrgScope scope = orgs.org(userId, orgId);
         assertDoesNotThrow(() -> scope.require(MANAGE_MEMBERS));
         assertThrows(AccessDeniedException.class, () -> scope.require(VIEW_PLAN));
         assertThrows(AccessDeniedException.class, () -> scope.require(MANAGE_PLAN));
@@ -157,7 +162,7 @@ class AccessScopesTest {
     @Test
     void nonMemberGetsNotFoundForTheOrganization() {
         when(memberships.findByOrganizationIdAndUserAccountId(orgId, userId)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> scopes.org(userId, orgId));
+        assertThrows(ResourceNotFoundException.class, () -> orgs.org(userId, orgId));
     }
 
     private OrganizationMembership member(MembershipStatus status, Permission... grants) {

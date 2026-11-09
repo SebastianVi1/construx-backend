@@ -6,7 +6,7 @@ import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;

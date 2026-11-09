@@ -1,4 +1,4 @@
-package org.andre.construx.shared.demo;
+package org.andre.construx.demo;
 
 import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.service.ExpenseService;

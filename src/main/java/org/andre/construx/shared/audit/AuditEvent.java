@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.andre.construx.modules.organization.model.OrganizationMembership;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -27,9 +26,9 @@ public class AuditEvent {
     @Column(name = "action", nullable = false, length = 40)
     private String action;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "actor_membership_id")
-    private OrganizationMembership actorMembership;
+    /** The organization membership that acted; null for system changes. */
+    @Column(name = "actor_membership_id")
+    private UUID actorMembershipId;
 
     @Column(name = "before_state", columnDefinition = "text")
     private String beforeState;
@@ -41,13 +40,13 @@ public class AuditEvent {
     private Instant occurredAt;
 
     public AuditEvent(String entityType, UUID entityId, String action,
-                      OrganizationMembership actorMembership,
+                      UUID actorMembershipId,
                       String beforeState, String afterState, Instant occurredAt) {
         this.id = UUID.randomUUID();
         this.entityType = entityType;
         this.entityId = entityId;
         this.action = action;
-        this.actorMembership = actorMembership;
+        this.actorMembershipId = actorMembershipId;
         this.beforeState = beforeState;
         this.afterState = afterState;
         this.occurredAt = occurredAt;

@@ -8,7 +8,7 @@ import org.andre.construx.modules.floorplan.service.ZoneAssignmentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 
 import java.time.LocalDate;
 import java.util.List;

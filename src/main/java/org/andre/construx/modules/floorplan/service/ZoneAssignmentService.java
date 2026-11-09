@@ -13,7 +13,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

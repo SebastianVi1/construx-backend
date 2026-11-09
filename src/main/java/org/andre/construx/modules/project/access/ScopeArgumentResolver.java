@@ -1,6 +1,9 @@
-package org.andre.construx.shared.security;
+package org.andre.construx.modules.project.access;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.OrgScopes;
+import org.andre.construx.shared.security.SecurityUtils;
 import org.springframework.core.MethodParameter;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
@@ -20,10 +23,12 @@ import java.util.UUID;
  * Site outside the organization is a 404 before the handler runs.
  */
 public class ScopeArgumentResolver implements HandlerMethodArgumentResolver {
-    private final AccessScopes scopes;
+    private final OrgScopes orgs;
+    private final SiteScopes sites;
 
-    public ScopeArgumentResolver(AccessScopes scopes) {
-        this.scopes = scopes;
+    public ScopeArgumentResolver(OrgScopes orgs, SiteScopes sites) {
+        this.orgs = orgs;
+        this.sites = sites;
     }
 
     @Override
@@ -38,9 +43,9 @@ public class ScopeArgumentResolver implements HandlerMethodArgumentResolver {
         UUID userId = callerId();
         UUID organizationId = pathId(webRequest, "organizationId");
         if (parameter.getParameterType() == OrgScope.class) {
-            return scopes.org(userId, organizationId);
+            return orgs.org(userId, organizationId);
         }
-        return scopes.site(userId, organizationId, pathId(webRequest, "projectId"));
+        return sites.site(userId, organizationId, pathId(webRequest, "projectId"));
     }
 
     private static UUID callerId() {

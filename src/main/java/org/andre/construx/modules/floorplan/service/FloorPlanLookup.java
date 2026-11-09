@@ -5,7 +5,7 @@ import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;

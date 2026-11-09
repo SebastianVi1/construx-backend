@@ -1,4 +1,4 @@
-package org.andre.construx.shared.security;
+package org.andre.construx.modules.organization.access;
 
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.Permission;
@@ -14,7 +14,7 @@ import java.util.UUID;
 
 /**
  * An authenticated caller inside one organization, with an active membership already verified (404 otherwise).
- * Built by {@link AccessScopes}; controllers receive it as a {@code OrgScope} parameter.
+ * Built by {@link OrgScopes}; controllers receive it as a {@code OrgScope} parameter.
  */
 public final class OrgScope {
     private final UUID userId;

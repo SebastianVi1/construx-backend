@@ -1,5 +1,6 @@
-package org.andre.construx.shared.security;
+package org.andre.construx.modules.project.access;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
@@ -13,7 +14,7 @@ import java.util.function.BooleanSupplier;
 /**
  * An authenticated caller inside one Site: active membership and the Site (within the organization) are already
  * loaded, so anything missing was a 404. {@link #require} only adds the 403 permission check.
- * Built by {@link AccessScopes}; controllers receive it as a {@code SiteScope} parameter.
+ * Built by {@link SiteScopes}; controllers receive it as a {@code SiteScope} parameter.
  */
 public final class SiteScope {
     private final OrgScope org;

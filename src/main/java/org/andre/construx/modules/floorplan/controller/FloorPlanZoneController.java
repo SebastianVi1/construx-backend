@@ -10,7 +10,7 @@ import org.andre.construx.shared.audit.AuditService.AuditEventData;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 
 import java.util.List;
 import java.util.UUID;

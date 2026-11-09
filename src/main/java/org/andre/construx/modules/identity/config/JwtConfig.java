@@ -1,4 +1,4 @@
-package org.andre.construx.shared.config;
+package org.andre.construx.modules.identity.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;

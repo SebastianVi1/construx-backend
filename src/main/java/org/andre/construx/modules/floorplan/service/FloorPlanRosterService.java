@@ -3,7 +3,7 @@ package org.andre.construx.modules.floorplan.service;
 import org.andre.construx.modules.crew.service.CrewDirectory;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.project.service.ProjectAccessService;
-import org.andre.construx.shared.security.SiteScope;
+import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

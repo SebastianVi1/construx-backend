@@ -8,35 +8,26 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import org.andre.construx.modules.organization.model.OrganizationMembership;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
-
 class AuditServiceTest {
 
     private AuditEventRepository repository;
-    private OrganizationMembershipRepository memberships;
     private AuditService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(AuditEventRepository.class);
-        memberships = mock(OrganizationMembershipRepository.class);
-        service = new AuditService(repository, memberships, new ObjectMapper());
+        service = new AuditService(repository, new ObjectMapper());
     }
 
     @Test
     void recordSavesEventWithSerializedState() {
         UUID actorId = UUID.randomUUID();
         UUID entityId = UUID.randomUUID();
-        OrganizationMembership actor = mock(OrganizationMembership.class);
-        when(actor.getId()).thenReturn(actorId);
-        when(memberships.findById(actorId)).thenReturn(Optional.of(actor));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         Map<String, Object> before = Map.of("name", "Zone A");
@@ -51,6 +42,7 @@ class AuditServiceTest {
         assertEquals("FloorPlanZone", saved.getEntityType());
         assertEquals(entityId, saved.getEntityId());
         assertEquals("UPDATE", saved.getAction());
+        assertEquals(actorId, saved.getActorMembershipId());
         assertNotNull(saved.getBeforeState());
         assertNotNull(saved.getAfterState());
         assertTrue(saved.getBeforeState().contains("Zone A"));
@@ -67,7 +59,7 @@ class AuditServiceTest {
 
         ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
         verify(repository).save(captor.capture());
-        assertNull(captor.getValue().getActorMembership());
+        assertNull(captor.getValue().getActorMembershipId());
         assertNull(captor.getValue().getBeforeState());
     }
 

@@ -21,8 +21,8 @@ import org.andre.construx.modules.organization.repository.OrganizationMembership
 import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.audit.AuditService;
-import org.andre.construx.shared.security.SiteScope;
-import org.andre.construx.shared.security.TestScopes;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.TestScopes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

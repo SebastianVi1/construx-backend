@@ -1,4 +1,4 @@
-package org.andre.construx.shared.config;
+package org.andre.construx.modules.identity.config;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;

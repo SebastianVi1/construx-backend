@@ -1,4 +1,4 @@
-package org.andre.construx.shared.demo;
+package org.andre.construx.demo;
 
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.junit.jupiter.api.Test;

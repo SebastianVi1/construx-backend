@@ -3,7 +3,7 @@ package org.andre.construx.modules.identity.service;
 import org.andre.construx.modules.identity.model.AuthSession;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.AuthSessionRepository;
-import org.andre.construx.shared.config.JwtConfig;
+import org.andre.construx.modules.identity.config.JwtConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.BadCredentialsException;
