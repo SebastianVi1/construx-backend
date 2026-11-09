@@ -40,10 +40,10 @@ public class FloorPlanRosterService {
                         .map(a -> new RosterPerson(a.membershipId(), a.fullName(), a.avatarUrl(), a.roleName()))
                         .toList(),
                 crews.crews(organizationId).stream()
-                        .map(c -> new RosterCrew(c.getId(), c.getName(), c.getMembers().size()))
+                        .map(c -> new RosterCrew(c.id(), c.name(), c.memberCount()))
                         .toList(),
                 crews.activeEquipment(organizationId).stream()
-                        .map(e -> new RosterEquipment(e.getId(), e.getType(), e.getIdentifier()))
+                        .map(e -> new RosterEquipment(e.id(), e.type(), e.identifier()))
                         .toList());
     }
 }

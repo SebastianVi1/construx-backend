@@ -26,25 +26,38 @@ public class CrewDirectory {
         this.equipment = equipment;
     }
 
-    /** 404 unless the crew belongs to the organization. */
+    /** A crew as other modules list it. */
+    public record CrewSummary(UUID id, String name, int memberCount) {}
+
+    /** A piece of equipment as other modules list it. */
+    public record EquipmentSummary(UUID id, String type, String identifier) {}
+
+    /**
+     * 404 unless the crew belongs to the organization. Returns the entity only because zone assignments still hold a
+     * JPA association to it; read crews through {@link #crews} instead.
+     */
     public Crew crew(UUID organizationId, UUID crewId) {
         return crews.findByIdAndOrganizationId(crewId, organizationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crew not found"));
     }
 
-    /** 404 unless the equipment belongs to the organization. */
+    /** 404 unless the equipment belongs to the organization. Entity for the same reason as {@link #crew}. */
     public Equipment equipment(UUID organizationId, UUID equipmentId) {
         return equipment.findByIdAndOrganizationId(equipmentId, organizationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Equipment not found"));
     }
 
-    /** Every crew of the organization, by name, members loaded. */
-    public List<Crew> crews(UUID organizationId) {
-        return crews.findByOrganizationId(organizationId);
+    /** Every crew of the organization, by name. */
+    public List<CrewSummary> crews(UUID organizationId) {
+        return crews.findByOrganizationId(organizationId).stream()
+                .map(c -> new CrewSummary(c.getId(), c.getName(), c.getMembers().size()))
+                .toList();
     }
 
     /** Equipment still in service, by type and identifier. */
-    public List<Equipment> activeEquipment(UUID organizationId) {
-        return equipment.findByOrganizationIdAndActiveOrderByTypeAscIdentifierAsc(organizationId, true);
+    public List<EquipmentSummary> activeEquipment(UUID organizationId) {
+        return equipment.findByOrganizationIdAndActiveOrderByTypeAscIdentifierAsc(organizationId, true).stream()
+                .map(e -> new EquipmentSummary(e.getId(), e.getType(), e.getIdentifier()))
+                .toList();
     }
 }
