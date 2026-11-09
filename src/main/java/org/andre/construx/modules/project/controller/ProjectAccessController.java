@@ -30,10 +30,12 @@ public class ProjectAccessController {
 
     public record RoleSummary(String code, String name) {}
 
-    public record AccessResponse(UUID accessId, UUID membershipId, UUID userId, String fullName, RoleSummary role) {
+    public record AccessResponse(UUID accessId, UUID membershipId, UUID userId, String fullName, RoleSummary role,
+                                 String avatarUrl) {
         static AccessResponse from(ProjectAccessService.AccessData data) {
             return new AccessResponse(data.accessId(), data.membershipId(), data.userId(), data.fullName(),
-                    new RoleSummary(data.roleCode(), data.roleName()));
+                    new RoleSummary(data.roleCode(), data.roleName()),
+                    data.avatarUrl() != null ? data.avatarUrl().toString() : null);
         }
     }
 

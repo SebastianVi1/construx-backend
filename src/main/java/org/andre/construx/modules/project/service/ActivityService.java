@@ -1,7 +1,7 @@
 package org.andre.construx.modules.project.service;
 
-import org.andre.construx.modules.identity.model.UserProfile;
-import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
@@ -19,12 +19,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Tasks. Start, complete and view pass the caller to the permission check when the caller is in the task's
@@ -37,23 +37,23 @@ public class ActivityService {
     private final GoalService goals;
     private final ProjectService projects;
     private final ProjectAccessService accesses;
-    private final UserProfileRepository profiles;
+    private final PersonDirectory directory;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
 
     public ActivityService(ActivityRepository activities, GoalService goals, ProjectService projects,
-                           ProjectAccessService accesses, UserProfileRepository profiles, MembershipGuard guard,
+                           ProjectAccessService accesses, PersonDirectory directory, MembershipGuard guard,
                            DomainAuthorization authorization) {
         this.activities = activities;
         this.goals = goals;
         this.projects = projects;
         this.accesses = accesses;
-        this.profiles = profiles;
+        this.directory = directory;
         this.guard = guard;
         this.authorization = authorization;
     }
 
-    public record AssigneeData(UUID accessId, UUID membershipId, String fullName, TaskRole taskRole) {}
+    public record AssigneeData(UUID accessId, UUID membershipId, String fullName, TaskRole taskRole, URI avatarUrl) {}
 
     /** A requested team place by site access id. */
     public record TeamInput(UUID accessId, TaskRole taskRole) {}
@@ -220,24 +220,24 @@ public class ActivityService {
 
     private List<ActivityData> toData(UUID userId, UUID organizationId, List<Activity> list) {
         boolean budgetVisible = projects.canViewBudget(userId, organizationId);
-        Map<UUID, String> names = profiles.findAllById(list.stream()
-                        .flatMap(a -> a.getTeam().stream())
-                        .map(t -> t.getAccess().getOrganizationMembership().getUserAccount().getId())
-                        .distinct().toList()).stream()
-                .collect(Collectors.toMap(UserProfile::getId, UserProfile::getFullName));
+        Map<UUID, Person> people = directory.byUserId(list.stream()
+                .flatMap(a -> a.getTeam().stream())
+                .map(t -> t.getAccess().getOrganizationMembership().getUserAccount().getId())
+                .toList());
         return list.stream().map(a -> new ActivityData(a.getId(), a.getGoal().getId(), a.getGoal().getName(),
                 a.getGoal().getProject().getId(), a.getGoal().getProject().getName(), a.getName(),
                 a.getDescription(),
-                a.getStartAt(), a.getDueAt(), a.getColor(), a.getStatus(), a.getCompletedAt(), team(a, names),
+                a.getStartAt(), a.getDueAt(), a.getColor(), a.getStatus(), a.getCompletedAt(), team(a, people),
                 budgetVisible ? a.getAllocatedBudget() : null)).toList();
     }
 
     /** Most senior first, then by name, so every screen lists a team the same way. */
-    private static List<AssigneeData> team(Activity activity, Map<UUID, String> names) {
+    private static List<AssigneeData> team(Activity activity, Map<UUID, Person> people) {
         return activity.getTeam().stream().map(t -> {
             OrganizationMembership membership = t.getAccess().getOrganizationMembership();
+            Person person = PersonDirectory.of(people, membership.getUserAccount().getId());
             return new AssigneeData(t.getAccess().getId(), membership.getId(),
-                    names.get(membership.getUserAccount().getId()), t.getTaskRole());
+                    person.fullName(), t.getTaskRole(), person.avatarUrl());
         }).sorted(Comparator.comparing(AssigneeData::taskRole)
                 .thenComparing(AssigneeData::fullName, Comparator.nullsLast(Comparator.naturalOrder()))).toList();
     }

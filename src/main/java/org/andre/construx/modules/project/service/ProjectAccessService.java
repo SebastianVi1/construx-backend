@@ -1,7 +1,7 @@
 package org.andre.construx.modules.project.service;
 
-import org.andre.construx.modules.identity.model.UserProfile;
-import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
@@ -16,11 +16,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /** Who works on a site. Tasks can only be assigned to people with access to the site. */
 @Service
@@ -28,18 +27,18 @@ public class ProjectAccessService {
     private final ProjectAccessRepository accesses;
     private final ActivityRepository activities;
     private final OrganizationMembershipRepository memberships;
-    private final UserProfileRepository profiles;
+    private final PersonDirectory directory;
     private final ProjectService projects;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
 
     public ProjectAccessService(ProjectAccessRepository accesses, ActivityRepository activities,
-                                OrganizationMembershipRepository memberships, UserProfileRepository profiles,
+                                OrganizationMembershipRepository memberships, PersonDirectory directory,
                                 ProjectService projects, MembershipGuard guard, DomainAuthorization authorization) {
         this.accesses = accesses;
         this.activities = activities;
         this.memberships = memberships;
-        this.profiles = profiles;
+        this.directory = directory;
         this.projects = projects;
         this.guard = guard;
         this.authorization = authorization;
@@ -47,7 +46,7 @@ public class ProjectAccessService {
 
     /** No email: workers can read this list. */
     public record AccessData(UUID accessId, UUID membershipId, UUID userId, String fullName,
-                             String roleCode, String roleName) {}
+                             String roleCode, String roleName, URI avatarUrl) {}
 
     @Transactional(readOnly = true)
     public List<AccessData> list(UUID userId, UUID organizationId, UUID projectId) {
@@ -55,10 +54,9 @@ public class ProjectAccessService {
         projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
         List<ProjectAccess> list = accesses.findActiveByProject(projectId);
-        Map<UUID, String> names = profiles.findAllById(list.stream()
-                        .map(a -> a.getOrganizationMembership().getUserAccount().getId()).toList()).stream()
-                .collect(Collectors.toMap(UserProfile::getId, UserProfile::getFullName));
-        return list.stream().map(a -> toData(a, names)).toList();
+        Map<UUID, Person> people = directory.byUserId(list.stream()
+                .map(a -> a.getOrganizationMembership().getUserAccount().getId()).toList());
+        return list.stream().map(a -> toData(a, people)).toList();
     }
 
     @Transactional
@@ -72,10 +70,7 @@ public class ProjectAccessService {
             throw new DataIntegrityViolationException("Member already has access to this site");
         }
         ProjectAccess access = accesses.save(new ProjectAccess(project, membership));
-        UUID memberUserId = membership.getUserAccount().getId();
-        Map<UUID, String> names = profiles.findById(memberUserId)
-                .map(p -> Map.of(memberUserId, p.getFullName())).orElse(Map.of());
-        return toData(access, names);
+        return toData(access, directory.byUserId(List.of(membership.getUserAccount().getId())));
     }
 
     @Transactional
@@ -97,10 +92,11 @@ public class ProjectAccessService {
                 .orElseThrow(() -> new ResourceNotFoundException("Site access not found"));
     }
 
-    private static AccessData toData(ProjectAccess access, Map<UUID, String> names) {
+    private static AccessData toData(ProjectAccess access, Map<UUID, Person> people) {
         OrganizationMembership membership = access.getOrganizationMembership();
         UUID memberUserId = membership.getUserAccount().getId();
-        return new AccessData(access.getId(), membership.getId(), memberUserId, names.get(memberUserId),
-                membership.getRole().getCode(), membership.getRole().getName());
+        Person person = PersonDirectory.of(people, memberUserId);
+        return new AccessData(access.getId(), membership.getId(), memberUserId, person.fullName(),
+                membership.getRole().getCode(), membership.getRole().getName(), person.avatarUrl());
     }
 }
