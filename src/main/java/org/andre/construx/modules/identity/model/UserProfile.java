@@ -42,6 +42,10 @@ public class UserProfile {
     @Column(length = 80)
     private String trade;
 
+    /** Storage key of the profile photo; null shows initials instead. */
+    @Column(name = "avatar_key", length = 300)
+    private String avatarKey;
+
     public UserProfile(UserAccount account, String fullName, String phoneNumber) {
         this.account = account;
         update(fullName, phoneNumber);
@@ -77,5 +81,10 @@ public class UserProfile {
             throw new IllegalArgumentException("Trade must have at most 80 characters");
         }
         this.trade = normalized;
+    }
+
+    /** Replaces the photo key, or clears it with null. */
+    public void changeAvatarKey(String avatarKey) {
+        this.avatarKey = avatarKey;
     }
 }

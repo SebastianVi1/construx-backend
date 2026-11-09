@@ -11,3 +11,13 @@ No Flyway migration is added, per the requested scope. Hibernate's existing `ddl
 ## Trade
 
 The profile also has an optional `trade` (free text, at most 80 characters, e.g. `"electrician"`), returned by `GET` and accepted by `PUT /api/profile`. It describes what the person does and grants no permission. A `PUT` without `trade` keeps the stored value, so existing clients cannot erase it; send `"trade": ""` to clear it. Migration: `V8__profile_trade.sql`.
+
+## Photo
+
+The profile has an optional photo stored in the private bucket under `users/<accountId>/avatar/<uuid>`; the column `avatar_key` holds the key (migration `V35__profile_avatar.sql`). `GET`/`PUT /api/profile` return `avatarUrl`, a presigned download URL valid for one hour, or `null`.
+
+1. `POST /api/profile/avatar/uploads` with `{contentType, sizeBytes}` → `201 {key, uploadUrl, headers, expiresAt}`. Only `image/jpeg`, `image/png` and `image/webp` up to 5 MB (`AVATAR_TYPE_UNSUPPORTED`, `AVATAR_TOO_LARGE`).
+2. The client `PUT`s the bytes to `uploadUrl` with `headers`, without cookies.
+3. `PUT /api/profile/avatar` with `{key}` → the profile. The key must start with the caller's own prefix (`AVATAR_KEY_INVALID`) and exist in storage (`AVATAR_UPLOAD_MISSING`); the stored type and size are checked again. The previous photo is deleted.
+
+`DELETE /api/profile/avatar` → `204`, removes the photo. Both writes need a saved profile (`PROFILE_REQUIRED`). A presigned upload that is never confirmed leaves an orphan object; there is no cleanup job yet.
