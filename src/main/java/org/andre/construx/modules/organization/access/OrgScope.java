@@ -11,6 +11,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /**
  * An authenticated caller inside one organization, with an active membership already verified (404 otherwise).
@@ -65,11 +66,27 @@ public final class OrgScope {
         return Optional.ofNullable(grants.get(action));
     }
 
-    /** Organization-wide operations need the action at ORGANIZATION scope; 403 otherwise. */
-    public void require(PermissionAction action) {
-        if (scopeOf(action).orElseThrow(() -> new AccessDeniedException("Permission required"))
-                != PermissionScope.ORGANIZATION) {
-            throw new AccessDeniedException("Permission scope denied");
+    /**
+     * The one grant rule, shared with {@code SiteScope}: ORGANIZATION scope always passes, PROJECT scope needs
+     * Site access ({@code siteAccess} is only asked then), OWN scope needs {@code ownerMembershipId} to be the caller.
+     */
+    public boolean can(PermissionAction action, BooleanSupplier siteAccess, UUID ownerMembershipId) {
+        return scopeOf(action).map(scope -> switch (scope) {
+            case ORGANIZATION -> true;
+            case PROJECT -> siteAccess.getAsBoolean();
+            case OWN -> ownerMembershipId != null && ownerMembershipId.equals(membershipId());
+        }).orElse(false);
+    }
+
+    /** 403 unless {@link #can(PermissionAction, BooleanSupplier, UUID)} holds. */
+    public void require(PermissionAction action, BooleanSupplier siteAccess, UUID ownerMembershipId) {
+        if (!can(action, siteAccess, ownerMembershipId)) {
+            throw new AccessDeniedException(scopeOf(action).isEmpty() ? "Permission required" : "Permission scope denied");
         }
+    }
+
+    /** Organization-wide operations: no Site and no owner, so only ORGANIZATION scope passes; 403 otherwise. */
+    public void require(PermissionAction action) {
+        require(action, () -> false, null);
     }
 }

@@ -17,8 +17,7 @@ import java.util.UUID;
  * both 404, before any permission is checked (403).
  */
 @Component
-// Not read-only: under open-session-in-view the loaded entities stay in the request's persistence context, and a
-// read-only transaction would leave them read-only, so a service could not change the Site it was handed.
+// Not read-only, for the same reason as OrgScopes: a service must be able to change the Site it was handed.
 public class SiteScopes {
     private final OrgScopes orgs;
     private final ProjectRepository projects;

@@ -5,7 +5,6 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.project.model.Project;
-import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -79,9 +78,7 @@ public final class SiteScope {
      * caller's membership (e.g. the assignee of a task).
      */
     public void require(PermissionAction action, UUID ownerMembershipId) {
-        if (!can(action, ownerMembershipId)) {
-            throw new AccessDeniedException(scopeOf(action).isEmpty() ? "Permission required" : "Permission scope denied");
-        }
+        org.require(action, this::hasSiteAccess, ownerMembershipId);
     }
 
     public boolean can(PermissionAction action) {
@@ -89,10 +86,6 @@ public final class SiteScope {
     }
 
     public boolean can(PermissionAction action, UUID ownerMembershipId) {
-        return scopeOf(action).map(scope -> switch (scope) {
-            case ORGANIZATION -> true;
-            case PROJECT -> hasSiteAccess();
-            case OWN -> ownerMembershipId != null && ownerMembershipId.equals(membershipId());
-        }).orElse(false);
+        return org.can(action, this::hasSiteAccess, ownerMembershipId);
     }
 }
