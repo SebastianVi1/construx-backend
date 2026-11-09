@@ -28,9 +28,10 @@ public class MembershipDirectory {
         return memberships.findByIdAndOrganizationId(membershipId, organizationId);
     }
 
-    /** Memberships by id, in one query; unknown ids are absent. */
+    /** Memberships of this organization by id, in one query; unknown and foreign ids are absent. */
     @Transactional(readOnly = true)
-    public List<OrganizationMembership> byIds(Collection<UUID> membershipIds) {
-        return memberships.findAllById(membershipIds);
+    public List<OrganizationMembership> byIds(UUID organizationId, Collection<UUID> membershipIds) {
+        if (membershipIds.isEmpty()) return List.of();
+        return memberships.findByOrganizationIdAndIdIn(organizationId, membershipIds);
     }
 }

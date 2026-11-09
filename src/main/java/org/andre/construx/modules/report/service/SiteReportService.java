@@ -140,7 +140,7 @@ public class SiteReportService {
         // Phases + tasks; a Lead without a profile name shows their email
         List<PhaseOverview> overview = activityService.overviewOf(projectId);
         List<AccessData> staff = accessService.staff(projectId);
-        Map<UUID, String> emails = emailsOf(overview.stream().flatMap(p -> p.tasks().stream())
+        Map<UUID, String> emails = emailsOf(requester.getOrganization().getId(), overview.stream().flatMap(p -> p.tasks().stream())
                 .filter(t -> t.leadMembershipId() != null && t.leadName() == null)
                 .map(TaskOverview::leadMembershipId), staff.stream()
                 .filter(a -> a.fullName() == null).map(AccessData::membershipId));
@@ -187,11 +187,11 @@ public class SiteReportService {
     }
 
     /** Email per membership, in one query, for the people the report has no name for. */
-    private Map<UUID, String> emailsOf(Stream<UUID> leads, Stream<UUID> staff) {
+    private Map<UUID, String> emailsOf(UUID organizationId, Stream<UUID> leads, Stream<UUID> staff) {
         List<UUID> ids = Stream.concat(leads, staff).distinct().toList();
         if (ids.isEmpty()) return Map.of();
         Map<UUID, String> result = new HashMap<>();
-        for (OrganizationMembership m : memberships.byIds(ids)) {
+        for (OrganizationMembership m : memberships.byIds(organizationId, ids)) {
             result.put(m.getId(), m.getUserAccount().getEmail());
         }
         return result;

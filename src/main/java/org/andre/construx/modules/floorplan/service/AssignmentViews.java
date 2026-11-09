@@ -74,7 +74,7 @@ public class AssignmentViews {
             if (a.getCrew() != null) a.getCrew().getMembers().forEach(cm -> ids.add(cm.getMembershipId()));
         }
         if (ids.isEmpty()) return new People(Map.of(), Map.of(), Map.of());
-        Map<UUID, OrganizationMembership> byId = memberships.byIds(ids).stream()
+        Map<UUID, OrganizationMembership> byId = memberships.byIds(site.organizationId(), ids).stream()
                 .collect(Collectors.toMap(OrganizationMembership::getId, Function.identity()));
         Map<UUID, Person> persons = directory.byUserId(byId.values().stream()
                 .map(m -> m.getUserAccount().getId()).toList());

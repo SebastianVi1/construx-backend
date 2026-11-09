@@ -5,6 +5,7 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,8 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     boolean existsByOrganizationIdAndUserAccountEmail(UUID organizationId, String email);
 
     Optional<OrganizationMembership> findByIdAndOrganizationId(UUID id, UUID organizationId);
+
+    List<OrganizationMembership> findByOrganizationIdAndIdIn(UUID organizationId, Collection<UUID> ids);
 
     @Query("select m from OrganizationMembership m join fetch m.organization "
             + "where m.userAccount.id = :userId and m.status = :status order by m.organization.name")
