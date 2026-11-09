@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Verifies that the site-report endpoints enforce membership and MANAGE_PROJECT:
- *   - non-member → 404 (MembershipGuard)
+ *   - non-member → 404 (access scope)
  *   - member without MANAGE_PROJECT → 403 (generate only)
  *   - member without MANAGE_PROJECT → can list and get download URL
  *   - member with MANAGE_PROJECT → can generate (201)

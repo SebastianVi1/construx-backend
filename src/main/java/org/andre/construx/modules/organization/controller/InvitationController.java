@@ -1,7 +1,7 @@
 package org.andre.construx.modules.organization.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -9,7 +9,6 @@ import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.organization.model.InvitationStatus;
 import org.andre.construx.modules.organization.service.InvitationService;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,24 +47,21 @@ public class InvitationController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public InvitationResponse create(@PathVariable UUID organizationId, @Valid @RequestBody InvitationInput body,
-                                     Authentication authentication) {
-        return InvitationResponse.from(invitations.create(userId(authentication), organizationId,
+    public InvitationResponse create(OrgScope org, @Valid @RequestBody InvitationInput body) {
+        return InvitationResponse.from(invitations.create(org,
                 body.email(), body.roleCode(), body.projectId()));
     }
 
     @GetMapping
-    public List<InvitationResponse> list(@PathVariable UUID organizationId,
-                                         @RequestParam(defaultValue = "PENDING") InvitationStatus status,
-                                         Authentication authentication) {
-        return invitations.list(userId(authentication), organizationId, status).stream()
+    public List<InvitationResponse> list(OrgScope org,
+                                         @RequestParam(defaultValue = "PENDING") InvitationStatus status) {
+        return invitations.list(org, status).stream()
                 .map(InvitationResponse::from).toList();
     }
 
     @DeleteMapping("/{invitationId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void revoke(@PathVariable UUID organizationId, @PathVariable UUID invitationId,
-                       Authentication authentication) {
-        invitations.revoke(userId(authentication), organizationId, invitationId);
+    public void revoke(OrgScope org, @PathVariable UUID invitationId) {
+        invitations.revoke(org, invitationId);
     }
 }

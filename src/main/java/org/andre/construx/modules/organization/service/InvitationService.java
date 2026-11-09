@@ -1,8 +1,9 @@
 package org.andre.construx.modules.organization.service;
 
 import org.andre.construx.modules.identity.model.UserAccount;
-import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.identity.service.TokenService;
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.InvitationStatus;
 import org.andre.construx.modules.organization.model.OrganizationInvitation;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -11,14 +12,12 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationInvitationRepository;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
+import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.access.SiteScopes;
 import org.andre.construx.modules.project.model.Project;
-import org.andre.construx.modules.project.model.ProjectAccess;
-import org.andre.construx.modules.project.repository.ProjectAccessRepository;
-import org.andre.construx.modules.project.repository.ProjectRepository;
+import org.andre.construx.modules.project.service.ProjectAccessService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -38,27 +37,22 @@ public class InvitationService {
     private final OrganizationInvitationRepository invitations;
     private final OrganizationMembershipRepository memberships;
     private final OrganizationRoleRepository roles;
-    private final ProjectRepository projects;
-    private final ProjectAccessRepository accesses;
-    private final UserAccountRepository users;
-    private final DomainAuthorization authorization;
+    private final SiteScopes sites;
+    private final ProjectAccessService accesses;
+    private final AccountService accounts;
     private final InvitationMailer mailer;
     private final Duration ttl;
-    private final MembershipGuard guard;
 
     public InvitationService(OrganizationInvitationRepository invitations, OrganizationMembershipRepository memberships,
-                             OrganizationRoleRepository roles, ProjectRepository projects,
-                             ProjectAccessRepository accesses, UserAccountRepository users,
-                             DomainAuthorization authorization, InvitationMailer mailer, MembershipGuard guard,
+                             OrganizationRoleRepository roles, SiteScopes sites, ProjectAccessService accesses,
+                             AccountService accounts, InvitationMailer mailer,
                              @Value("${app.invitations.ttl:7d}") Duration ttl) {
-        this.guard = guard;
         this.invitations = invitations;
         this.memberships = memberships;
         this.roles = roles;
-        this.projects = projects;
+        this.sites = sites;
         this.accesses = accesses;
-        this.users = users;
-        this.authorization = authorization;
+        this.accounts = accounts;
         this.mailer = mailer;
         this.ttl = ttl;
     }
@@ -74,8 +68,8 @@ public class InvitationService {
     }
 
     @Transactional
-    public InvitationData create(UUID userId, UUID organizationId, String email, String roleCode, UUID projectId) {
-        Issued issued = issue(userId, organizationId, email, roleCode, projectId);
+    public InvitationData create(OrgScope org, String email, String roleCode, UUID projectId) {
+        Issued issued = issue(org, email, roleCode, projectId);
         OrganizationInvitation invitation = issued.invitation();
         String organizationName = invitation.getOrganization().getName();
         afterCommit(() -> mailer.send(invitation.getEmail(), organizationName, issued.rawToken()));
@@ -90,34 +84,33 @@ public class InvitationService {
      * @return the new membership id
      */
     @Transactional
-    public UUID enroll(UUID userId, UUID organizationId, UUID inviteeUserId, String roleCode) {
-        String email = users.findById(inviteeUserId)
-                .orElseThrow(() -> new BadCredentialsException("Account unavailable")).getEmail();
-        Issued issued = issue(userId, organizationId, email, roleCode, null);
+    public UUID enroll(OrgScope org, UUID inviteeUserId, String roleCode) {
+        String email = accounts.account(inviteeUserId).getEmail();
+        Issued issued = issue(org, email, roleCode, null);
         return accept(inviteeUserId, issued.rawToken()).membershipId();
     }
 
     private record Issued(OrganizationInvitation invitation, String rawToken) {}
 
-    private Issued issue(UUID userId, UUID organizationId, String email, String roleCode, UUID projectId) {
-        OrganizationMembership inviter = guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
-        OrganizationRole role = roles.findByOrganizationIdAndCode(organizationId, roleCode)
+    private Issued issue(OrgScope org, String email, String roleCode, UUID projectId) {
+        OrganizationMembership inviter = org.membership();
+        org.require(PermissionAction.MANAGE_MEMBERS);
+        OrganizationRole role = roles.findByOrganizationIdAndCode(org.organizationId(), roleCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
         Project project = null;
         if (projectId != null) {
-            project = projects.findByIdAndOrganizationId(projectId, organizationId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
-            authorization.require(userId, organizationId, projectId, null, PermissionAction.MANAGE_PROJECT);
+            SiteScope site = sites.site(org, projectId);
+            site.require(PermissionAction.MANAGE_PROJECT);
+            project = site.site();
         }
         String normalized = UserAccount.normalizeEmail(email);
-        if (memberships.existsByOrganizationIdAndUserAccountEmail(organizationId, normalized)) {
+        if (memberships.existsByOrganizationIdAndUserAccountEmail(org.organizationId(), normalized)) {
             throw new IllegalStateException("That person is already a member");
         }
         String rawToken = newToken();
         OrganizationInvitation invitation = new OrganizationInvitation(inviter.getOrganization(), normalized,
                 TokenService.sha256(rawToken), role, inviter, Instant.now().plus(ttl), project);
-        invitations.findByOrganizationIdAndEmailAndStatus(organizationId, normalized, InvitationStatus.PENDING)
+        invitations.findByOrganizationIdAndEmailAndStatus(org.organizationId(), normalized, InvitationStatus.PENDING)
                 .forEach(OrganizationInvitation::revoke);
         invitations.save(invitation);
         return new Issued(invitation, rawToken);
@@ -132,7 +125,7 @@ public class InvitationService {
      */
     @Transactional
     public AcceptedData accept(UUID userId, String rawToken) {
-        UserAccount user = users.findById(userId).orElseThrow(() -> new BadCredentialsException("Account unavailable"));
+        UserAccount user = accounts.account(userId);
         OrganizationInvitation invitation = invitations.findByTokenHashForUpdate(TokenService.sha256(rawToken))
                 .filter(i -> i.getEmail().equals(user.getEmail()))
                 .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"));
@@ -143,7 +136,7 @@ public class InvitationService {
         OrganizationMembership membership = memberships.save(invitation.accept(user, Instant.now()));
         Project project = invitation.getProject();
         if (project != null) {
-            accesses.save(new ProjectAccess(project, membership));
+            accesses.grant(project, membership);
         }
         return new AcceptedData(organizationId, invitation.getOrganization().getName(), membership.getId(),
                 invitation.getRole().getCode(), invitation.getRole().getName(),
@@ -151,18 +144,16 @@ public class InvitationService {
     }
 
     @Transactional(readOnly = true)
-    public List<InvitationData> list(UUID userId, UUID organizationId, InvitationStatus status) {
-        guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
-        return invitations.findByOrganizationAndStatus(organizationId, status).stream()
+    public List<InvitationData> list(OrgScope org, InvitationStatus status) {
+        org.require(PermissionAction.MANAGE_MEMBERS);
+        return invitations.findByOrganizationAndStatus(org.organizationId(), status).stream()
                 .map(InvitationData::from).toList();
     }
 
     @Transactional
-    public void revoke(UUID userId, UUID organizationId, UUID invitationId) {
-        guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
-        invitations.findByIdAndOrganizationId(invitationId, organizationId)
+    public void revoke(OrgScope org, UUID invitationId) {
+        org.require(PermissionAction.MANAGE_MEMBERS);
+        invitations.findByIdAndOrganizationId(invitationId, org.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"))
                 .revoke();
     }

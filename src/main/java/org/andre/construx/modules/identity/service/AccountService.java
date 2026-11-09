@@ -57,6 +57,12 @@ public class AccountService {
      * @param email the email address for the new account
      * @param password the raw password to encode and store
      */
+    /** The account, for other modules that link to it; BadCredentialsException when it no longer exists. */
+    @Transactional(readOnly = true)
+    public UserAccount account(UUID userId) {
+        return users.findById(userId).orElseThrow(() -> new BadCredentialsException("Account unavailable"));
+    }
+
     @Transactional
     public void register(String email, String password) {
         register(email, password, null);

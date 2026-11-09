@@ -232,7 +232,7 @@ class LeadExpenseRegressionTest {
         api.delete(ana, site + "/expenses/" + own).andExpect(status().isNotFound());
     }
 
-    /** Baseline 95b5f86: a non-member gets 404 (MembershipGuard) on site expense PATCH/DELETE. */
+    /** Baseline 95b5f86: a non-member gets 404 (access scope) on site expense PATCH/DELETE. */
     @Test
     void nonMemberEditOrDeleteOfASiteExpenseIs404() throws Exception {
         String own = record(ana, task, "100");

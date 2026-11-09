@@ -10,7 +10,7 @@ import org.andre.construx.modules.floorplan.model.ZoneAssignment;
 import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.modules.project.access.SiteScope;
@@ -29,14 +29,14 @@ public class ZoneAssignmentService {
 
     private final ZoneAssignmentRepository assignments;
     private final FloorPlanLookup lookup;
-    private final OrganizationMembershipRepository memberships;
+    private final MembershipDirectory memberships;
     private final CrewDirectory crews;
     private final AssignmentViews views;
     private final AuditService auditService;
 
     public ZoneAssignmentService(ZoneAssignmentRepository assignments,
                                   FloorPlanLookup lookup,
-                                  OrganizationMembershipRepository memberships,
+                                  MembershipDirectory memberships,
                                   CrewDirectory crews,
                                   AssignmentViews views,
                                   AuditService auditService) {
@@ -91,7 +91,7 @@ public class ZoneAssignmentService {
         Equipment equip = null;
 
         if (request.membershipId() != null) {
-            membership = memberships.findByIdAndOrganizationId(request.membershipId(), organizationId)
+            membership = memberships.find(organizationId, request.membershipId())
                     .orElseThrow(() -> new ResourceNotFoundException("Membership not found"));
         } else if (request.crewId() != null) {
             crew = crews.crew(organizationId, request.crewId());

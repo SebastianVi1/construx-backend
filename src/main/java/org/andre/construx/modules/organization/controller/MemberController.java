@@ -1,7 +1,7 @@
 package org.andre.construx.modules.organization.controller;
 
-import static org.andre.construx.shared.security.SecurityUtils.userId;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
@@ -10,7 +10,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -47,47 +46,45 @@ public class MemberController {
     public record StatusChange(@NotNull MembershipStatus status) {}
 
     @GetMapping("/me")
-    public MeResponse me(@PathVariable UUID organizationId, Authentication authentication) {
-        MemberService.MeData me = members.me(userId(authentication), organizationId);
+    public MeResponse me(OrgScope org) {
+        MemberService.MeData me = members.me(org);
         return new MeResponse(me.membershipId(), new OrganizationController.RoleSummary(me.roleCode(), me.roleName()),
                 me.permissions().stream().map(p -> new PermissionResponse(p.action(), p.scope())).toList());
     }
 
     @GetMapping("/roles")
-    public List<MemberService.RoleData> roles(@PathVariable UUID organizationId, Authentication authentication) {
-        return members.roles(userId(authentication), organizationId);
+    public List<MemberService.RoleData> roles(OrgScope org) {
+        return members.roles(org);
     }
 
     @GetMapping("/members")
-    public List<MemberResponse> list(@PathVariable UUID organizationId,
-                                     @RequestParam(defaultValue = "ACTIVE") MembershipStatus status,
-                                     Authentication authentication) {
-        return members.members(userId(authentication), organizationId, status).stream()
+    public List<MemberResponse> list(OrgScope org,
+                                     @RequestParam(defaultValue = "ACTIVE") MembershipStatus status) {
+        return members.members(org, status).stream()
                 .map(MemberController::toResponse)
                 .toList();
     }
 
     @PatchMapping("/members/{membershipId}")
-    public MemberResponse changeRole(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
-                                     @Valid @RequestBody RoleChange body, Authentication authentication) {
-        return toResponse(members.changeRole(userId(authentication), organizationId, membershipId, body.roleCode()));
+    public MemberResponse changeRole(OrgScope org, @PathVariable UUID membershipId,
+                                     @Valid @RequestBody RoleChange body) {
+        return toResponse(members.changeRole(org, membershipId, body.roleCode()));
     }
 
     @PatchMapping("/members/{membershipId}/status")
-    public MemberResponse setStatus(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
-                                    @Valid @RequestBody StatusChange body, Authentication authentication) {
+    public MemberResponse setStatus(OrgScope org, @PathVariable UUID membershipId,
+                                    @Valid @RequestBody StatusChange body) {
         return switch (body.status()) {
-            case ACTIVE -> toResponse(members.reactivate(userId(authentication), organizationId, membershipId));
-            case SUSPENDED -> toResponse(members.suspend(userId(authentication), organizationId, membershipId));
+            case ACTIVE -> toResponse(members.reactivate(org, membershipId));
+            case SUSPENDED -> toResponse(members.suspend(org, membershipId));
             case LEFT -> throw new IllegalArgumentException("Use DELETE to remove a member");
         };
     }
 
     @DeleteMapping("/members/{membershipId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void remove(@PathVariable UUID organizationId, @PathVariable UUID membershipId,
-                       Authentication authentication) {
-        members.removeMember(userId(authentication), organizationId, membershipId);
+    public void remove(OrgScope org, @PathVariable UUID membershipId) {
+        members.removeMember(org, membershipId);
     }
 
     private static MemberResponse toResponse(MemberService.MemberData m) {

@@ -1,6 +1,6 @@
 # Sites, phases and tasks
 
-Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope through `DomainAuthorization` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks whose team includes the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
+Vocabulary: a site is a `Project`, a phase is a `Goal`, a task is an `Activity`, and a person on a site is a `ProjectAccess`. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, same as a missing organization), that the resource belongs to this organization and parent (else `404`), then the permission and its scope on the caller's `SiteScope` / `OrgScope` (else `403`). Scopes: `ORGANIZATION` = every site, `PROJECT` = only sites where the caller has a `ProjectAccess`, `OWN` = only tasks whose team includes the caller. Role permissions come from `seeded-roles.properties` (see `organizations.md`).
 
 ## Sites
 

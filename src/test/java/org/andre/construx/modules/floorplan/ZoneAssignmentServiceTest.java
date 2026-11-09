@@ -17,7 +17,7 @@ import org.andre.construx.modules.floorplan.service.ZoneAssignmentService;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.audit.AuditService;
@@ -39,7 +39,7 @@ class ZoneAssignmentServiceTest {
     private ZoneAssignmentRepository assignmentRepo;
     private FloorPlanZoneRepository zoneRepo;
     private FloorPlanRepository floorPlanRepo;
-    private OrganizationMembershipRepository membershipRepo;
+    private MembershipDirectory membershipRepo;
     private CrewRepository crewRepo;
     private EquipmentRepository equipmentRepo;
 
@@ -56,7 +56,7 @@ class ZoneAssignmentServiceTest {
         assignmentRepo = mock(ZoneAssignmentRepository.class);
         zoneRepo = mock(FloorPlanZoneRepository.class);
         floorPlanRepo = mock(FloorPlanRepository.class);
-        membershipRepo = mock(OrganizationMembershipRepository.class);
+        membershipRepo = mock(MembershipDirectory.class);
         crewRepo = mock(CrewRepository.class);
         equipmentRepo = mock(EquipmentRepository.class);
 
@@ -93,7 +93,7 @@ class ZoneAssignmentServiceTest {
         UUID membershipId = UUID.randomUUID();
         OrganizationMembership membership = mock(OrganizationMembership.class);
         when(membership.getId()).thenReturn(membershipId);
-        when(membershipRepo.findByIdAndOrganizationId(membershipId, orgId)).thenReturn(Optional.of(membership));
+        when(membershipRepo.find(orgId, membershipId)).thenReturn(Optional.of(membership));
         when(assignmentRepo.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
                 membershipId, LocalDate.of(2025, 1, 15), AssignmentShift.MORNING)).thenReturn(false);
 
@@ -112,7 +112,7 @@ class ZoneAssignmentServiceTest {
         UUID membershipId = UUID.randomUUID();
         OrganizationMembership membership = mock(OrganizationMembership.class);
         when(membership.getId()).thenReturn(membershipId);
-        when(membershipRepo.findByIdAndOrganizationId(membershipId, orgId)).thenReturn(Optional.of(membership));
+        when(membershipRepo.find(orgId, membershipId)).thenReturn(Optional.of(membership));
         when(assignmentRepo.existsByMembershipIdAndStartDateAndShiftAndClosedAtIsNull(
                 membershipId, LocalDate.of(2025, 1, 15), AssignmentShift.MORNING)).thenReturn(true);
 
@@ -170,7 +170,7 @@ class ZoneAssignmentServiceTest {
         UUID membershipId = UUID.randomUUID();
         OrganizationMembership membership = mock(OrganizationMembership.class);
         when(membership.getId()).thenReturn(membershipId);
-        when(membershipRepo.findByIdAndOrganizationId(membershipId, orgId)).thenReturn(Optional.of(membership));
+        when(membershipRepo.find(orgId, membershipId)).thenReturn(Optional.of(membership));
 
         ZoneAssignmentService.CreateAssignmentRequest request = new ZoneAssignmentService.CreateAssignmentRequest(
                 membershipId, null, null, null, null, null, null);

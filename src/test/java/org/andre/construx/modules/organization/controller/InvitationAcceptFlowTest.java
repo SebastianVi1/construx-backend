@@ -10,7 +10,8 @@ import org.andre.construx.modules.organization.service.InvitationMailer;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.repository.ProjectRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
-import org.andre.construx.shared.security.DomainAuthorization;
+import org.andre.construx.modules.organization.access.OrgScopes;
+import org.andre.construx.modules.project.access.SiteScopes;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,7 +50,8 @@ class InvitationAcceptFlowTest {
     @Autowired ProjectRepository projects;
     @Autowired TokenService tokens;
     @Autowired JdbcTemplate jdbc;
-    @Autowired DomainAuthorization authorization;
+    @Autowired OrgScopes orgScopes;
+    @Autowired SiteScopes siteScopes;
     @MockitoBean InvitationMailer mailer;
 
     @Test
@@ -73,9 +75,9 @@ class InvitationAcceptFlowTest {
         assertEquals("ACCEPTED", jdbc.queryForObject("select status from organization_invitation "
                 + "where token_hash = ?", String.class, TokenService.sha256(token)));
         // the worker's real permissions now work: sees the assigned site, cannot manage members
-        assertDoesNotThrow(() -> authorization.require(bob.getId(), org.id, site.getId(), null, PermissionAction.VIEW_PROJECT));
+        assertDoesNotThrow(() -> siteScopes.site(bob.getId(), org.id, site.getId()).require(PermissionAction.VIEW_PROJECT));
         assertThrows(AccessDeniedException.class,
-                () -> authorization.require(bob.getId(), org.id, null, null, PermissionAction.MANAGE_MEMBERS));
+                () -> orgScopes.org(bob.getId(), org.id).require(PermissionAction.MANAGE_MEMBERS));
     }
 
     @Test

@@ -32,24 +32,7 @@ class ModuleBoundariesTest {
     private static final String ROOT = "org.andre.construx";
     private static final Pattern MODULE = Pattern.compile("^" + Pattern.quote(ROOT) + "\\.modules\\.([a-z]+)\\.(.*)$");
 
-    private static final Set<String> ALLOWED = Set.of(
-            "modules.floorplan.service.AssignmentViews -> modules.organization.repository.OrganizationMembershipRepository",
-            "modules.floorplan.service.ZoneAssignmentService -> modules.organization.repository.OrganizationMembershipRepository",
-            "modules.organization.service.InvitationService -> modules.identity.repository.UserAccountRepository",
-            "modules.organization.service.InvitationService -> modules.project.repository.ProjectAccessRepository",
-            "modules.organization.service.InvitationService -> modules.project.repository.ProjectRepository",
-            "modules.organization.service.OrganizationService -> modules.identity.repository.UserAccountRepository",
-            "shared.security.DomainAuthorization -> modules.organization.model.MembershipStatus",
-            "shared.security.DomainAuthorization -> modules.organization.model.Organization",
-            "shared.security.DomainAuthorization -> modules.organization.model.OrganizationMembership",
-            "shared.security.DomainAuthorization -> modules.organization.model.OrganizationRole",
-            "shared.security.DomainAuthorization -> modules.organization.model.Permission",
-            "shared.security.DomainAuthorization -> modules.organization.model.PermissionAction",
-            "shared.security.DomainAuthorization -> modules.organization.model.PermissionScope",
-            "shared.security.DomainAuthorization -> modules.organization.repository.OrganizationMembershipRepository",
-            "shared.security.DomainAuthorization -> modules.project.model.Project",
-            "shared.security.DomainAuthorization -> modules.project.repository.ProjectAccessRepository",
-            "shared.security.DomainAuthorization -> modules.project.repository.ProjectRepository");
+    private static final Set<String> ALLOWED = Set.of();
 
 
     private static JavaClasses classes;

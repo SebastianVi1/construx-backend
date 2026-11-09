@@ -12,7 +12,7 @@ import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.OpenTask;
 import org.andre.construx.modules.project.access.SiteScope;
@@ -36,11 +36,11 @@ public class AssignmentViews {
     private static final Comparator<Worker> LEADER_THEN_NAME = Comparator.comparing((Worker w) -> !w.crewLeader())
             .thenComparing(Worker::fullName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
 
-    private final OrganizationMembershipRepository memberships;
+    private final MembershipDirectory memberships;
     private final PersonDirectory directory;
     private final ActivityService activities;
 
-    public AssignmentViews(OrganizationMembershipRepository memberships, PersonDirectory directory,
+    public AssignmentViews(MembershipDirectory memberships, PersonDirectory directory,
                     ActivityService activities) {
         this.memberships = memberships;
         this.directory = directory;
@@ -74,7 +74,7 @@ public class AssignmentViews {
             if (a.getCrew() != null) a.getCrew().getMembers().forEach(cm -> ids.add(cm.getMembershipId()));
         }
         if (ids.isEmpty()) return new People(Map.of(), Map.of(), Map.of());
-        Map<UUID, OrganizationMembership> byId = memberships.findAllById(ids).stream()
+        Map<UUID, OrganizationMembership> byId = memberships.byIds(ids).stream()
                 .collect(Collectors.toMap(OrganizationMembership::getId, Function.identity()));
         Map<UUID, Person> persons = directory.byUserId(byId.values().stream()
                 .map(m -> m.getUserAccount().getId()).toList());

@@ -1,7 +1,8 @@
 package org.andre.construx.modules.organization.service;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.identity.model.UserAccount;
-import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -10,8 +11,6 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.andre.construx.shared.security.DomainAuthorization;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,20 +19,15 @@ import java.util.UUID;
 
 @Service
 public class OrganizationService {
-    private final UserAccountRepository users;
+    private final AccountService accounts;
     private final OrganizationRepository organizations;
     private final OrganizationMembershipRepository memberships;
-    private final DomainAuthorization authorization;
-    private final MembershipGuard guard;
 
-    public OrganizationService(UserAccountRepository users, OrganizationRepository organizations,
-                               OrganizationMembershipRepository memberships, DomainAuthorization authorization,
-                               MembershipGuard guard) {
-        this.users = users;
+    public OrganizationService(AccountService accounts, OrganizationRepository organizations,
+                               OrganizationMembershipRepository memberships) {
+        this.accounts = accounts;
         this.organizations = organizations;
         this.memberships = memberships;
-        this.authorization = authorization;
-        this.guard = guard;
     }
 
     /** {@code myRole*} is the caller's role in this organization. */
@@ -48,8 +42,7 @@ public class OrganizationService {
 
     @Transactional
     public OrganizationData create(UUID userId, String name) {
-        UserAccount creator = users.findById(userId)
-                .orElseThrow(() -> new BadCredentialsException("Account unavailable"));
+        UserAccount creator = accounts.account(userId);
         Organization organization = organizations.save(new Organization(name, creator));
         return OrganizationData.from(organization.getMemberships().iterator().next());
     }
@@ -62,23 +55,22 @@ public class OrganizationService {
     }
 
     @Transactional(readOnly = true)
-    public OrganizationData get(UUID userId, UUID organizationId) {
-        return OrganizationData.from(guard.requireActive(userId, organizationId));
+    public OrganizationData get(OrgScope org) {
+        return OrganizationData.from(org.membership());
     }
 
     @Transactional
-    public OrganizationData rename(UUID userId, UUID organizationId, String name) {
-        OrganizationMembership member = guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_ORGANIZATION);
-        load(organizationId).rename(name);
+    public OrganizationData rename(OrgScope org, String name) {
+        OrganizationMembership member = org.membership();
+        org.require(PermissionAction.MANAGE_ORGANIZATION);
+        load(org.organizationId()).rename(name);
         return OrganizationData.from(member);
     }
 
     @Transactional
-    public void delete(UUID userId, UUID organizationId) {
-        guard.requireActive(userId, organizationId);
-        authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_ORGANIZATION);
-        load(organizationId).deactivate();
+    public void delete(OrgScope org) {
+        org.require(PermissionAction.MANAGE_ORGANIZATION);
+        load(org.organizationId()).deactivate();
     }
 
     private Organization load(UUID organizationId) {

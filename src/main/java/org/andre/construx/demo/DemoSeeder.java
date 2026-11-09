@@ -102,13 +102,13 @@ public class DemoSeeder {
             log.info("Demo company already present; skipping demo seed");
             return;
         }
-        UUID org = organizations.create(owner, COMPANY).id();
+        OrgScope org = orgScopes.org(owner, organizations.create(owner, COMPANY).id());
         Map<String, UUID> memberships = new HashMap<>();
         for (Person person : STAFF) {
             UUID user = accounts.provisionVerified(person.email(), password, person.fullName());
-            memberships.put(person.key(), invitations.enroll(owner, org, user, person.roleCode()));
+            memberships.put(person.key(), invitations.enroll(org, user, person.roleCode()));
         }
-        Seeding seeding = new Seeding(orgScopes.org(owner, org), memberships);
+        Seeding seeding = new Seeding(org, memberships);
         seeding.torreResidencialNorte();
         seeding.centroComercialBelgrano();
         seeding.complejoLasAcacias();

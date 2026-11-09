@@ -1,5 +1,6 @@
 package org.andre.construx.modules.organization.controller;
 
+import org.andre.construx.modules.organization.access.OrgScope;
 import static org.andre.construx.shared.security.SecurityUtils.userId;
 
 import jakarta.validation.Valid;
@@ -54,19 +55,19 @@ public class OrganizationController {
     }
 
     @GetMapping("/{organizationId}")
-    public OrganizationResponse get(@PathVariable UUID organizationId, Authentication authentication) {
-        return OrganizationResponse.from(organizations.get(userId(authentication), organizationId));
+    public OrganizationResponse get(OrgScope org) {
+        return OrganizationResponse.from(organizations.get(org));
     }
 
     @PatchMapping("/{organizationId}")
-    public OrganizationResponse rename(@PathVariable UUID organizationId,
-                                       @Valid @RequestBody OrganizationInput body, Authentication authentication) {
-        return OrganizationResponse.from(organizations.rename(userId(authentication), organizationId, body.name()));
+    public OrganizationResponse rename(OrgScope org,
+                                       @Valid @RequestBody OrganizationInput body) {
+        return OrganizationResponse.from(organizations.rename(org, body.name()));
     }
 
     @DeleteMapping("/{organizationId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID organizationId, Authentication authentication) {
-        organizations.delete(userId(authentication), organizationId);
+    public void delete(OrgScope org) {
+        organizations.delete(org);
     }
 }

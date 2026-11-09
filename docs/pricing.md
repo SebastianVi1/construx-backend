@@ -1,6 +1,6 @@
 # Material prices
 
-Each organization keeps its own catalog of materials and suppliers and records the prices it sees (ADR 0004). Prices are entered by hand or by CSV; nothing is scraped. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, the same as a missing organization), that the resource belongs to this organization (else `404`), then the permission through `DomainAuthorization` (else `403`). Both price actions have `ORGANIZATION` scope only. Seeded roles: Owner, Administrator and Finance hold `VIEW_PRICES` and `MANAGE_PRICES`; Member holds `VIEW_PRICES`; Worker holds neither.
+Each organization keeps its own catalog of materials and suppliers and records the prices it sees (ADR 0004). Prices are entered by hand or by CSV; nothing is scraped. Every path is under `/api/organizations/{organizationId}`. Each request checks, in this order: active membership (else `404`, the same as a missing organization), that the resource belongs to this organization (else `404`), then the permission on the caller's `OrgScope` (else `403`). Both price actions have `ORGANIZATION` scope only. Seeded roles: Owner, Administrator and Finance hold `VIEW_PRICES` and `MANAGE_PRICES`; Member holds `VIEW_PRICES`; Worker holds neither.
 
 Money is a JSON string with two decimals (`"245.50"`), in MXN including IVA. Dates are ISO (`2026-10-01`), timestamps are ISO instants.
 

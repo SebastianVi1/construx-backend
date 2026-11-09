@@ -6,6 +6,7 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.model.ProjectAccess;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
@@ -76,6 +77,12 @@ public class ProjectAccessService {
             throw new IllegalStateException("Take this person off their task teams before removing them from the site");
         }
         accesses.delete(access);
+    }
+
+    /** Gives a member access to a site, e.g. on accepting a site invitation. No permission check: callers authorize. */
+    @Transactional
+    public void grant(Project site, OrganizationMembership membership) {
+        accesses.save(new ProjectAccess(site, membership));
     }
 
     /** Ids of the sites a membership is assigned to. No permission check: callers authorize. */

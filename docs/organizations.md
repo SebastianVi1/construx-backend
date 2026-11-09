@@ -17,7 +17,7 @@ Body for POST and PATCH: `{"name": "..."}`, 1 to 160 characters after trimming.
 - An active member without the required permission receives `403 FORBIDDEN`.
 - Invalid names return `400 VALIDATION_FAILED` with an `errors` map.
 
-Authorization is evaluated per request through `DomainAuthorization`; roles are never read from the JWT.
+Authorization is evaluated per request through the caller's `OrgScope` / `SiteScope` (`modules/organization/access`, `modules/project/access`), built from the current membership; roles are never read from the JWT.
 
 ## Seeded roles
 
