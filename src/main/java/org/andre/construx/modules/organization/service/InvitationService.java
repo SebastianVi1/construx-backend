@@ -75,6 +75,31 @@ public class InvitationService {
 
     @Transactional
     public InvitationData create(UUID userId, UUID organizationId, String email, String roleCode, UUID projectId) {
+        Issued issued = issue(userId, organizationId, email, roleCode, projectId);
+        OrganizationInvitation invitation = issued.invitation();
+        String organizationName = invitation.getOrganization().getName();
+        afterCommit(() -> mailer.send(invitation.getEmail(), organizationName, issued.rawToken()));
+        return InvitationData.from(invitation);
+    }
+
+    /**
+     * Adds an existing account to the organization as if it had been invited and accepted at once, so the same
+     * checks run as for a real invitation. No email is sent. For trusted provisioning (the demo seed); no endpoint
+     * exposes it.
+     *
+     * @return the new membership id
+     */
+    @Transactional
+    public UUID enroll(UUID userId, UUID organizationId, UUID inviteeUserId, String roleCode) {
+        String email = users.findById(inviteeUserId)
+                .orElseThrow(() -> new BadCredentialsException("Account unavailable")).getEmail();
+        Issued issued = issue(userId, organizationId, email, roleCode, null);
+        return accept(inviteeUserId, issued.rawToken()).membershipId();
+    }
+
+    private record Issued(OrganizationInvitation invitation, String rawToken) {}
+
+    private Issued issue(UUID userId, UUID organizationId, String email, String roleCode, UUID projectId) {
         OrganizationMembership inviter = guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
         OrganizationRole role = roles.findByOrganizationIdAndCode(organizationId, roleCode)
@@ -95,9 +120,7 @@ public class InvitationService {
         invitations.findByOrganizationIdAndEmailAndStatus(organizationId, normalized, InvitationStatus.PENDING)
                 .forEach(OrganizationInvitation::revoke);
         invitations.save(invitation);
-        String organizationName = inviter.getOrganization().getName();
-        afterCommit(() -> mailer.send(normalized, organizationName, rawToken));
-        return InvitationData.from(invitation);
+        return new Issued(invitation, rawToken);
     }
 
     public record AcceptedData(UUID organizationId, String organizationName, UUID membershipId,

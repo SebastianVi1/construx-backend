@@ -78,6 +78,24 @@ public class AccountService {
     }
 
     /**
+     * Creates a password-based account whose email is already verified, without sending mail. For trusted
+     * provisioning (the demo seed); no endpoint exposes it. An existing account is left unchanged.
+     *
+     * @return the id of the new or existing account
+     */
+    @Transactional
+    public UUID provisionVerified(String email, String password, String fullName) {
+        String normalized = UserAccount.normalizeEmail(email);
+        var existing = users.findByEmail(normalized);
+        if (existing.isPresent()) return existing.get().getId();
+        UserAccount user = new UserAccount(normalized, passwords.encode(password));
+        user.verifyEmail();
+        user = users.save(user);
+        if (fullName != null && !fullName.isBlank()) profiles.save(new UserProfile(user, fullName));
+        return user.getId();
+    }
+
+    /**
      * Sends a new verification link when the account exists and is not yet
      * verified.
      *
