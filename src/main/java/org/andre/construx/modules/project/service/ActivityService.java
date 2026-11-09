@@ -13,6 +13,7 @@ import org.andre.construx.modules.project.model.Goal;
 import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.model.TeamMember;
 import org.andre.construx.modules.project.repository.ActivityRepository;
+import org.andre.construx.modules.project.repository.OpenTaskRow;
 import org.andre.construx.modules.project.repository.GoalRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
@@ -77,10 +78,10 @@ public class ActivityService {
     public Map<UUID, List<OpenTask>> openTasksOf(UUID projectId, Collection<UUID> membershipIds) {
         if (membershipIds.isEmpty()) return Map.of();
         Map<UUID, List<OpenTask>> byMembership = new LinkedHashMap<>();
-        for (Object[] row : activities.findOpenTasksOf(projectId, membershipIds.stream().distinct().toList())) {
-            byMembership.computeIfAbsent((UUID) row[0], k -> new ArrayList<>()).add(new OpenTask((UUID) row[1],
-                    projectId, (UUID) row[2], (String) row[3], (String) row[4], (ActivityStatus) row[5],
-                    (TaskRole) row[6], (Instant) row[7]));
+        for (OpenTaskRow row : activities.findOpenTasksOf(projectId, membershipIds.stream().distinct().toList())) {
+            byMembership.computeIfAbsent(row.membershipId(), k -> new ArrayList<>()).add(new OpenTask(row.activityId(),
+                    projectId, row.goalId(), row.activityName(), row.goalName(), row.status(), row.taskRole(),
+                    row.dueAt()));
         }
         return byMembership;
     }
