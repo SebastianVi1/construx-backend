@@ -65,4 +65,14 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
             + "where g.project.organization.id = :organizationId and exists (select 1 from ActivityAssignee x "
             + "where x.activity = a and x.access.organizationMembership.id = :membershipId) order by a.dueAt, a.name")
     List<Activity> findAssignedTo(UUID organizationId, UUID membershipId);
+
+    /**
+     * Rows of [membershipId, activityId, goalId, activityName, goalName, status, taskRole, dueAt] for the unfinished
+     * tasks of one site whose team includes any of the memberships, soonest due first.
+     */
+    @Query("select acc.organizationMembership.id, a.id, g.id, a.name, g.name, a.status, x.taskRole, a.dueAt "
+            + "from ActivityAssignee x join x.access acc join x.activity a join a.goal g "
+            + "where g.project.id = :projectId and acc.organizationMembership.id in :membershipIds "
+            + "and a.status <> org.andre.construx.modules.project.model.ActivityStatus.DONE order by a.dueAt, a.name")
+    List<Object[]> findOpenTasksOf(UUID projectId, Collection<UUID> membershipIds);
 }

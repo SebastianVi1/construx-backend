@@ -61,6 +61,7 @@ class FloorPlanEndpointAccessTest {
             new Call(Need.VIEW, "GET", ZONE + "/assignments", null),
             new Call(Need.VIEW, "GET", FP + "/assignments", null),
             new Call(Need.VIEW, "GET", FP + "/zones/assignment-counts", null),
+            new Call(Need.MANAGE, "GET", "/floor-plans/roster", null),
             new Call(Need.MANAGE, "POST", "/floor-plans/uploads",
                     "{\"name\":\"L1\",\"pageNumber\":1,\"contentType\":\"application/pdf\",\"sizeBytes\":1000}"),
             new Call(Need.MANAGE, "POST", FP + "/complete", null),

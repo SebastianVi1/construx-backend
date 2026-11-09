@@ -21,7 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -65,6 +68,26 @@ public class ActivityService {
     public record ActivityData(UUID id, UUID goalId, String goalName, UUID projectId, String projectName,
                                String name, String description, Instant startAt, Instant dueAt, String color, ActivityStatus status, Instant completedAt,
                                List<AssigneeData> assignees, BigDecimal allocatedBudget) {}
+
+    /** An unfinished task of a site, as other modules show it next to a person. */
+    public record OpenTask(UUID id, UUID projectId, UUID goalId, String name, String goalName, ActivityStatus status,
+                           TaskRole taskRole, Instant dueAt) {}
+
+    /**
+     * Unfinished tasks of the site per membership in their team, soonest due first; memberships without any are
+     * absent. One query. No permission check: callers decide whose tasks the viewer may see.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, List<OpenTask>> openTasksOf(UUID projectId, Collection<UUID> membershipIds) {
+        if (membershipIds.isEmpty()) return Map.of();
+        Map<UUID, List<OpenTask>> byMembership = new LinkedHashMap<>();
+        for (Object[] row : activities.findOpenTasksOf(projectId, membershipIds.stream().distinct().toList())) {
+            byMembership.computeIfAbsent((UUID) row[0], k -> new ArrayList<>()).add(new OpenTask((UUID) row[1],
+                    projectId, (UUID) row[2], (String) row[3], (String) row[4], (ActivityStatus) row[5],
+                    (TaskRole) row[6], (Instant) row[7]));
+        }
+        return byMembership;
+    }
 
     @Transactional
     public ActivityData create(UUID userId, UUID organizationId, UUID projectId, UUID goalId,

@@ -11,7 +11,11 @@ import org.andre.construx.modules.floorplan.model.ZoneAssignment;
 import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
+import org.andre.construx.modules.crew.service.CrewDirectory;
+import org.andre.construx.modules.floorplan.service.AssignmentViews;
 import org.andre.construx.modules.floorplan.service.ZoneAssignmentService;
+import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
@@ -58,7 +62,9 @@ class ZoneAssignmentServiceTest {
 
         AuditService auditService = mock(AuditService.class);
         service = new ZoneAssignmentService(assignmentRepo, new FloorPlanLookup(floorPlanRepo, zoneRepo),
-                membershipRepo, crewRepo, equipmentRepo, auditService);
+                membershipRepo, new CrewDirectory(crewRepo, equipmentRepo),
+                new AssignmentViews(membershipRepo, mock(PersonDirectory.class), mock(ActivityService.class)),
+                auditService);
 
         orgId = UUID.randomUUID();
         projectId = UUID.randomUUID();

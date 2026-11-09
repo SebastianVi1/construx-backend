@@ -53,6 +53,12 @@ public class ProjectAccessService {
         guard.requireActive(userId, organizationId);
         projects.load(organizationId, projectId);
         authorization.require(userId, organizationId, projectId, null, PermissionAction.VIEW_PROJECT);
+        return staff(projectId);
+    }
+
+    /** Active members with access to the site, with name and photo. No permission check: callers authorize. */
+    @Transactional(readOnly = true)
+    public List<AccessData> staff(UUID projectId) {
         List<ProjectAccess> list = accesses.findActiveByProject(projectId);
         Map<UUID, Person> people = directory.byUserId(list.stream()
                 .map(a -> a.getOrganizationMembership().getUserAccount().getId()).toList());

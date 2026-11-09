@@ -30,17 +30,20 @@ public class FloorPlanZoneService {
     private final FloorPlanCalibrationRepository calibrations;
     private final ZoneAssignmentRepository zoneAssignments;
     private final FloorPlanLookup lookup;
+    private final AssignmentViews assignmentViews;
     private final AuditService auditService;
 
     public FloorPlanZoneService(FloorPlanZoneRepository zones,
                                 FloorPlanCalibrationRepository calibrations,
                                 ZoneAssignmentRepository zoneAssignments,
                                 FloorPlanLookup lookup,
+                                AssignmentViews assignmentViews,
                                 AuditService auditService) {
         this.zones = zones;
         this.calibrations = calibrations;
         this.zoneAssignments = zoneAssignments;
         this.lookup = lookup;
+        this.assignmentViews = assignmentViews;
         this.auditService = auditService;
     }
 
@@ -137,22 +140,15 @@ public class FloorPlanZoneService {
         List<ZoneAssignment> candidates = zoneAssignments
                 .findByFloorPlanIdAndStartDateLessThanEqualAndClosedAtIsNull(floorPlanId, date);
 
-        Map<UUID, List<ZoneAssignment>> byZone = candidates.stream()
-                .filter(a -> a.getEndDate() == null || !a.getEndDate().isBefore(date))
-                .collect(java.util.stream.Collectors.groupingBy(a -> a.getZone().getId()));
+        // One batch for every occupant on the plan, then grouped by zone
+        Map<UUID, List<ZoneAssignmentService.AssignmentData>> byZone = assignmentViews.describe(site, candidates.stream()
+                        .filter(a -> a.getEndDate() == null || !a.getEndDate().isBefore(date))
+                        .toList())
+                .stream()
+                .collect(java.util.stream.Collectors.groupingBy(ZoneAssignmentService.AssignmentData::zoneId));
 
         return allZones.stream()
-                .map(z -> new ZoneStateData(
-                        toData(z),
-                        byZone.getOrDefault(z.getId(), List.of()).stream()
-                                .map(a -> new ZoneAssignmentService.AssignmentData(
-                                        a.getId(), a.getZone().getId(),
-                                        a.getMembership() != null ? a.getMembership().getId() : null,
-                                        a.getCrew() != null ? a.getCrew().getId() : null,
-                                        a.getEquipment() != null ? a.getEquipment().getId() : null,
-                                        a.getActivity(), a.getStartDate(), a.getEndDate(),
-                                        a.getShift(), a.getCreatedAt(), a.getClosedAt()))
-                                .toList()))
+                .map(z -> new ZoneStateData(toData(z), byZone.getOrDefault(z.getId(), List.of())))
                 .toList();
     }
 

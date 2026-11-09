@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import org.andre.construx.modules.floorplan.service.FloorPlanRosterService;
 import org.andre.construx.modules.floorplan.service.FloorPlanService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService.ZoneStateData;
@@ -32,10 +33,13 @@ public class FloorPlanController {
 
     private final FloorPlanService floorPlans;
     private final FloorPlanZoneService zoneService;
+    private final FloorPlanRosterService rosterService;
 
-    public FloorPlanController(FloorPlanService floorPlans, FloorPlanZoneService zoneService) {
+    public FloorPlanController(FloorPlanService floorPlans, FloorPlanZoneService zoneService,
+                               FloorPlanRosterService rosterService) {
         this.floorPlans = floorPlans;
         this.zoneService = zoneService;
+        this.rosterService = rosterService;
     }
 
     public record UploadRequest(
@@ -68,6 +72,12 @@ public class FloorPlanController {
         return floorPlans.listFloorPlans(site);
     }
 
+    /** Site staff, crews and active equipment a planner can assign to zones (MANAGE_PLAN). */
+    @GetMapping("/roster")
+    public FloorPlanRosterService.Roster roster(SiteScope site) {
+        return rosterService.roster(site);
+    }
+
     @GetMapping("/{floorPlanId}")
     public FloorPlanService.FloorPlanData get(SiteScope site,
                                                @PathVariable UUID floorPlanId) {
@@ -81,6 +91,7 @@ public class FloorPlanController {
         floorPlans.deleteFloorPlan(site, floorPlanId);
     }
 
+    /** The single read of a plan: every zone with the assignments active on {@code date}, occupants named. */
     @GetMapping("/{floorPlanId}/state")
     public List<ZoneStateData> state(SiteScope site,
                                      @PathVariable UUID floorPlanId,

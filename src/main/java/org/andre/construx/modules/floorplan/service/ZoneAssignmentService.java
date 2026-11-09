@@ -2,8 +2,7 @@ package org.andre.construx.modules.floorplan.service;
 
 import org.andre.construx.modules.crew.model.Crew;
 import org.andre.construx.modules.crew.model.Equipment;
-import org.andre.construx.modules.crew.repository.CrewRepository;
-import org.andre.construx.modules.crew.repository.EquipmentRepository;
+import org.andre.construx.modules.crew.service.CrewDirectory;
 import org.andre.construx.modules.floorplan.model.AssignmentShift;
 import org.andre.construx.modules.floorplan.model.FloorPlan;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
@@ -31,21 +30,21 @@ public class ZoneAssignmentService {
     private final ZoneAssignmentRepository assignments;
     private final FloorPlanLookup lookup;
     private final OrganizationMembershipRepository memberships;
-    private final CrewRepository crews;
-    private final EquipmentRepository equipment;
+    private final CrewDirectory crews;
+    private final AssignmentViews views;
     private final AuditService auditService;
 
     public ZoneAssignmentService(ZoneAssignmentRepository assignments,
                                   FloorPlanLookup lookup,
                                   OrganizationMembershipRepository memberships,
-                                  CrewRepository crews,
-                                  EquipmentRepository equipment,
+                                  CrewDirectory crews,
+                                  AssignmentViews views,
                                   AuditService auditService) {
         this.assignments = assignments;
         this.lookup = lookup;
         this.memberships = memberships;
         this.crews = crews;
-        this.equipment = equipment;
+        this.views = views;
         this.auditService = auditService;
     }
 
@@ -60,7 +59,9 @@ public class ZoneAssignmentService {
             LocalDate endDate,
             AssignmentShift shift,
             Instant createdAt,
-            Instant closedAt
+            Instant closedAt,
+            /** Who or what stands in the zone, named; see {@link Occupant}. */
+            Occupant occupant
     ) {}
 
     public record CreateAssignmentResponse(AssignmentData assignment, boolean hasOverlapWarning) {}
@@ -93,11 +94,9 @@ public class ZoneAssignmentService {
             membership = memberships.findByIdAndOrganizationId(request.membershipId(), organizationId)
                     .orElseThrow(() -> new ResourceNotFoundException("Membership not found"));
         } else if (request.crewId() != null) {
-            crew = crews.findByIdAndOrganizationId(request.crewId(), organizationId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Crew not found"));
+            crew = crews.crew(organizationId, request.crewId());
         } else if (request.equipmentId() != null) {
-            equip = equipment.findByIdAndOrganizationId(request.equipmentId(), organizationId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Equipment not found"));
+            equip = crews.equipment(organizationId, request.equipmentId());
         }
 
         // A plain drag and drop sends no date or shift: the assignment starts today for the full day
@@ -121,7 +120,7 @@ public class ZoneAssignmentService {
 
         auditService.record("ZoneAssignment", assignment.getId(), "CREATE",
                 assignedBy.getId(), null, assignmentSnapshot(assignment));
-        return new CreateAssignmentResponse(toData(assignment), hasOverlapWarning);
+        return new CreateAssignmentResponse(views.describe(site, assignment), hasOverlapWarning);
     }
 
     @Transactional
@@ -136,7 +135,7 @@ public class ZoneAssignmentService {
         assignment.close();
         auditService.record("ZoneAssignment", assignment.getId(), "CLOSE",
                 actor.getId(), before, assignmentSnapshot(assignment));
-        return toData(assignment);
+        return views.describe(site, assignment);
     }
 
     @Transactional
@@ -168,7 +167,7 @@ public class ZoneAssignmentService {
                 assignedBy.getId(),
                 Map.of("oldZoneId", zoneId.toString()),
                 Map.of("newZoneId", newZoneId.toString(), "newAssignmentId", newAssignment.getId().toString()));
-        return toData(newAssignment);
+        return views.describe(site, newAssignment);
     }
 
     @Transactional(readOnly = true)
@@ -176,9 +175,7 @@ public class ZoneAssignmentService {
         site.require(PermissionAction.VIEW_PLAN);
         lookup.zone(lookup.floorPlan(site, floorPlanId), zoneId);
 
-        return assignments.findByZoneIdAndClosedAtIsNull(zoneId).stream()
-                .map(this::toData)
-                .toList();
+        return views.describe(site, assignments.findByZoneIdAndClosedAtIsNull(zoneId));
     }
 
     @Transactional(readOnly = true)
@@ -186,9 +183,7 @@ public class ZoneAssignmentService {
         site.require(PermissionAction.VIEW_PLAN);
         lookup.floorPlan(site, floorPlanId);
 
-        return assignments.findActiveByFloorPlanId(floorPlanId).stream()
-                .map(this::toData)
-                .toList();
+        return views.describe(site, assignments.findActiveByFloorPlanId(floorPlanId));
     }
 
     @Transactional(readOnly = true)
@@ -200,22 +195,6 @@ public class ZoneAssignmentService {
                 .collect(Collectors.groupingBy(
                         a -> a.getZone().getId().toString(),
                         Collectors.counting()));
-    }
-
-    private AssignmentData toData(ZoneAssignment a) {
-        return new AssignmentData(
-                a.getId(),
-                a.getZone().getId(),
-                a.getMembership() != null ? a.getMembership().getId() : null,
-                a.getCrew() != null ? a.getCrew().getId() : null,
-                a.getEquipment() != null ? a.getEquipment().getId() : null,
-                a.getActivity(),
-                a.getStartDate(),
-                a.getEndDate(),
-                a.getShift(),
-                a.getCreatedAt(),
-                a.getClosedAt()
-        );
     }
 
     private Map<String, Object> assignmentSnapshot(ZoneAssignment a) {
