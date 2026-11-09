@@ -37,7 +37,7 @@ public class MemberController {
                              List<PermissionResponse> permissions) {}
 
     public record MemberResponse(UUID membershipId, UUID userId, String email, String fullName,
-                                 OrganizationController.RoleSummary role, MembershipStatus status) {}
+                                 OrganizationController.RoleSummary role, MembershipStatus status, String avatarUrl) {}
 
     public record RoleChange(@NotBlank String roleCode) {}
 
@@ -89,7 +89,8 @@ public class MemberController {
 
     private static MemberResponse toResponse(MemberService.MemberData m) {
         return new MemberResponse(m.membershipId(), m.userId(), m.email(), m.fullName(),
-                new OrganizationController.RoleSummary(m.roleCode(), m.roleName()), m.status());
+                new OrganizationController.RoleSummary(m.roleCode(), m.roleName()), m.status(),
+                m.avatarUrl() != null ? m.avatarUrl().toString() : null);
     }
 
     private static UUID userId(Authentication authentication) {
