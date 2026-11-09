@@ -1,7 +1,7 @@
 package org.andre.construx.modules.organization.service;
 
-import org.andre.construx.modules.identity.model.UserProfile;
-import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
@@ -11,42 +11,34 @@ import org.andre.construx.modules.organization.repository.OrganizationMembership
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.security.DomainAuthorization;
-import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
-import java.time.Duration;
 import java.util.function.Consumer;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /** Who belongs to an organization and what the caller may do there. */
 @Service
 public class MemberService {
-    private static final Duration AVATAR_VIEW_TTL = Duration.ofHours(1);
-
     private final OrganizationMembershipRepository memberships;
     private final OrganizationRoleRepository roles;
-    private final UserProfileRepository profiles;
+    private final PersonDirectory directory;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
-    private final ObjectStorage storage;
 
     public MemberService(OrganizationMembershipRepository memberships, OrganizationRoleRepository roles,
-                         UserProfileRepository profiles, MembershipGuard guard, DomainAuthorization authorization,
-                         ObjectStorage storage) {
+                         PersonDirectory directory, MembershipGuard guard, DomainAuthorization authorization) {
         this.memberships = memberships;
         this.roles = roles;
-        this.profiles = profiles;
+        this.directory = directory;
         this.guard = guard;
         this.authorization = authorization;
-        this.storage = storage;
     }
 
     public record PermissionData(PermissionAction action, PermissionScope scope) {}
@@ -83,16 +75,8 @@ public class MemberService {
         guard.requireActive(userId, organizationId);
         authorization.require(userId, organizationId, null, null, PermissionAction.MANAGE_MEMBERS);
         List<OrganizationMembership> list = memberships.findByOrganizationWithUserAndRole(organizationId, status);
-        Map<UUID, UserProfile> profileMap = profiles.findAllById(list.stream().map(m -> m.getUserAccount().getId()).toList())
-                .stream().collect(Collectors.toMap(UserProfile::getId, p -> p));
-        return list.stream().map(m -> {
-            UserProfile p = profileMap.get(m.getUserAccount().getId());
-            String name = p != null ? p.getFullName() : null;
-            URI avatarUrl = (p != null && p.getAvatarKey() != null)
-                    ? storage.presignDownload(p.getAvatarKey(), AVATAR_VIEW_TTL) : null;
-            return new MemberData(m.getId(), m.getUserAccount().getId(), m.getUserAccount().getEmail(),
-                    name, m.getRole().getCode(), m.getRole().getName(), m.getStatus(), avatarUrl);
-        }).toList();
+        Map<UUID, Person> people = directory.byUserId(list.stream().map(m -> m.getUserAccount().getId()).toList());
+        return list.stream().map(m -> toData(m, PersonDirectory.of(people, m.getUserAccount().getId()))).toList();
     }
 
     /**
@@ -156,11 +140,11 @@ public class MemberService {
     }
 
     private MemberData toData(OrganizationMembership m) {
-        UserProfile profile = profiles.findById(m.getUserAccount().getId()).orElse(null);
-        String fullName = profile != null ? profile.getFullName() : null;
-        URI avatarUrl = (profile != null && profile.getAvatarKey() != null)
-                ? storage.presignDownload(profile.getAvatarKey(), AVATAR_VIEW_TTL) : null;
+        return toData(m, directory.of(m.getUserAccount().getId()));
+    }
+
+    private static MemberData toData(OrganizationMembership m, Person person) {
         return new MemberData(m.getId(), m.getUserAccount().getId(), m.getUserAccount().getEmail(),
-                fullName, m.getRole().getCode(), m.getRole().getName(), m.getStatus(), avatarUrl);
+                person.fullName(), m.getRole().getCode(), m.getRole().getName(), m.getStatus(), person.avatarUrl());
     }
 }

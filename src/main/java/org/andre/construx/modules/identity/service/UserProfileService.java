@@ -23,16 +23,18 @@ public class UserProfileService {
     static final long MAX_AVATAR_BYTES = 5L * 1024 * 1024;
     static final Set<String> AVATAR_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
-    static final Duration VIEW_TTL = Duration.ofHours(1);
 
     private final UserAccountRepository users;
     private final UserProfileRepository profiles;
     private final ObjectStorage storage;
+    private final PersonDirectory directory;
 
-    public UserProfileService(UserAccountRepository users, UserProfileRepository profiles, ObjectStorage storage) {
+    public UserProfileService(UserAccountRepository users, UserProfileRepository profiles, ObjectStorage storage,
+                              PersonDirectory directory) {
         this.users = users;
         this.profiles = profiles;
         this.storage = storage;
+        this.directory = directory;
     }
 
     public record ProfileData(String fullName, String phoneNumber, String trade, URI avatarUrl) {}
@@ -123,8 +125,8 @@ public class UserProfileService {
     }
 
     private ProfileData toData(UserProfile profile) {
-        URI avatarUrl = profile.getAvatarKey() == null ? null : storage.presignDownload(profile.getAvatarKey(), VIEW_TTL);
-        return new ProfileData(profile.getFullName(), profile.getPhoneNumber(), profile.getTrade(), avatarUrl);
+        return new ProfileData(profile.getFullName(), profile.getPhoneNumber(), profile.getTrade(),
+                directory.of(profile).avatarUrl());
     }
 
     private static String avatarPrefix(UUID accountId) {

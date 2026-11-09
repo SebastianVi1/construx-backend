@@ -2,25 +2,22 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.UserProfile;
 import org.andre.construx.modules.identity.repository.UserProfileRepository;
-import org.andre.construx.shared.storage.ObjectStorage;
+import org.andre.construx.shared.storage.InMemoryObjectStorage;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class PersonDirectoryTest {
     private final UserProfileRepository profiles = mock(UserProfileRepository.class);
-    private final ObjectStorage storage = mock(ObjectStorage.class);
-    private final PersonDirectory directory = new PersonDirectory(profiles, storage);
+    private final PersonDirectory directory = new PersonDirectory(profiles, new InMemoryObjectStorage());
 
     /** The profile id is the account id, which only JPA fills in through {@code @MapsId}. */
     private UserProfile profile(UUID id, String name, String avatarKey) {
@@ -32,7 +29,7 @@ class PersonDirectoryTest {
     }
 
     @Test
-    void returnsNamesAndPresignedPhotosAndFallsBackForAccountsWithoutAProfile() {
+    void returnsNamesAndPhotoLinksAndFallsBackForAccountsWithoutAProfile() {
         UUID withPhoto = UUID.randomUUID();
         UUID withoutPhoto = UUID.randomUUID();
         UUID noProfile = UUID.randomUUID();
@@ -40,14 +37,25 @@ class PersonDirectoryTest {
                 profile(withPhoto, "Ada Lovelace", "users/a/avatar/1"),
                 profile(withoutPhoto, "Grace Hopper", null));
         when(profiles.findAllById(any())).thenReturn(stored);
-        when(storage.presignDownload(anyString(), any(Duration.class))).thenReturn(URI.create("https://s3.test/view"));
 
         Map<UUID, PersonDirectory.Person> people = directory.byUserId(List.of(withPhoto, withoutPhoto, noProfile, withPhoto));
 
-        assertEquals(new PersonDirectory.Person("Ada Lovelace", URI.create("https://s3.test/view")),
+        assertEquals(new PersonDirectory.Person("Ada Lovelace", URI.create("memory://download/users/a/avatar/1")),
                 PersonDirectory.of(people, withPhoto));
-        assertNull(PersonDirectory.of(people, withoutPhoto).avatarUrl());
+        assertEquals(new PersonDirectory.Person("Grace Hopper", null), PersonDirectory.of(people, withoutPhoto));
         assertEquals(new PersonDirectory.Person(null, null), PersonDirectory.of(people, noProfile));
-        verify(storage, times(1)).presignDownload(eq("users/a/avatar/1"), any(Duration.class));
+    }
+
+    @Test
+    void looksUpOnePersonAndFallsBackWithoutAProfile() {
+        UUID withPhoto = UUID.randomUUID();
+        UUID noProfile = UUID.randomUUID();
+        UserProfile stored = profile(withPhoto, "Ada Lovelace", "users/a/avatar/1");
+        when(profiles.findById(withPhoto)).thenReturn(Optional.of(stored));
+        when(profiles.findById(noProfile)).thenReturn(Optional.empty());
+
+        assertEquals(new PersonDirectory.Person("Ada Lovelace", URI.create("memory://download/users/a/avatar/1")),
+                directory.of(withPhoto));
+        assertEquals(new PersonDirectory.Person(null, null), directory.of(noProfile));
     }
 }

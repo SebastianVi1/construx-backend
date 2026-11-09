@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,11 +34,11 @@ public class ProjectAccessController {
     public record RoleSummary(String code, String name) {}
 
     public record AccessResponse(UUID accessId, UUID membershipId, UUID userId, String fullName, RoleSummary role,
-                                 String avatarUrl) {
+                                 URI avatarUrl) {
         static AccessResponse from(ProjectAccessService.AccessData data) {
             return new AccessResponse(data.accessId(), data.membershipId(), data.userId(), data.fullName(),
                     new RoleSummary(data.roleCode(), data.roleName()),
-                    data.avatarUrl() != null ? data.avatarUrl().toString() : null);
+                    data.avatarUrl());
         }
     }
 

@@ -3,8 +3,8 @@ package org.andre.construx.modules.report.service;
 import org.andre.construx.modules.finance.model.Expense;
 import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.repository.ExpenseRepository;
-import org.andre.construx.modules.identity.model.UserProfile;
-import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipGuard;
@@ -49,7 +49,7 @@ public class SiteReportService {
     private final GoalRepository goalRepository;
     private final ActivityRepository activityRepository;
     private final ProjectAccessRepository projectAccessRepository;
-    private final UserProfileRepository userProfileRepository;
+    private final PersonDirectory directory;
     private final MembershipGuard guard;
     private final DomainAuthorization authorization;
     private final ObjectStorage storage;
@@ -59,7 +59,7 @@ public class SiteReportService {
                              ExpenseRepository expenseRepository, GoalRepository goalRepository,
                              ActivityRepository activityRepository,
                              ProjectAccessRepository projectAccessRepository,
-                             UserProfileRepository userProfileRepository,
+                             PersonDirectory directory,
                              MembershipGuard guard, DomainAuthorization authorization,
                              ObjectStorage storage, PdfGenerationService pdfService) {
         this.reports = reports;
@@ -68,7 +68,7 @@ public class SiteReportService {
         this.goalRepository = goalRepository;
         this.activityRepository = activityRepository;
         this.projectAccessRepository = projectAccessRepository;
-        this.userProfileRepository = userProfileRepository;
+        this.directory = directory;
         this.guard = guard;
         this.authorization = authorization;
         this.storage = storage;
@@ -227,11 +227,10 @@ public class SiteReportService {
     private Map<UUID, String> fetchProfileNames(Map<UUID, UUID> membershipToUser) {
         if (membershipToUser.isEmpty()) return Map.of();
         List<UUID> userIds = new ArrayList<>(membershipToUser.values());
-        Map<UUID, String> userIdToName = userProfileRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(p -> p.getAccount().getId(), UserProfile::getFullName));
+        Map<UUID, Person> people = directory.byUserId(userIds);
         Map<UUID, String> result = new HashMap<>();
         for (var entry : membershipToUser.entrySet()) {
-            String name = userIdToName.get(entry.getValue());
+            String name = PersonDirectory.of(people, entry.getValue()).fullName();
             if (name != null) result.put(entry.getKey(), name);
         }
         return result;
@@ -243,11 +242,10 @@ public class SiteReportService {
                 a -> a.getOrganizationMembership().getId(),
                 a -> a.getOrganizationMembership().getUserAccount().getId()));
         List<UUID> userIds = new ArrayList<>(membershipToUser.values());
-        Map<UUID, String> userIdToName = userProfileRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(p -> p.getAccount().getId(), UserProfile::getFullName));
+        Map<UUID, Person> people = directory.byUserId(userIds);
         Map<UUID, String> result = new HashMap<>();
         for (var entry : membershipToUser.entrySet()) {
-            String name = userIdToName.get(entry.getValue());
+            String name = PersonDirectory.of(people, entry.getValue()).fullName();
             if (name != null) result.put(entry.getKey(), name);
         }
         return result;
@@ -256,8 +254,8 @@ public class SiteReportService {
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private String displayName(OrganizationMembership m) {
-        UserProfile profile = userProfileRepository.findById(m.getUserAccount().getId()).orElse(null);
-        return profile != null ? profile.getFullName() : m.getUserAccount().getEmail();
+        String fullName = directory.of(m.getUserAccount().getId()).fullName();
+        return fullName != null ? fullName : m.getUserAccount().getEmail();
     }
 
     private String generatedByName(SiteReport report) {

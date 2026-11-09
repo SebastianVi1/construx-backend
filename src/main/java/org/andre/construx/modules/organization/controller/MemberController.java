@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,7 +40,7 @@ public class MemberController {
                              List<PermissionResponse> permissions) {}
 
     public record MemberResponse(UUID membershipId, UUID userId, String email, String fullName,
-                                 OrganizationController.RoleSummary role, MembershipStatus status, String avatarUrl) {}
+                                 OrganizationController.RoleSummary role, MembershipStatus status, URI avatarUrl) {}
 
     public record RoleChange(@NotBlank String roleCode) {}
 
@@ -92,6 +93,6 @@ public class MemberController {
     private static MemberResponse toResponse(MemberService.MemberData m) {
         return new MemberResponse(m.membershipId(), m.userId(), m.email(), m.fullName(),
                 new OrganizationController.RoleSummary(m.roleCode(), m.roleName()), m.status(),
-                m.avatarUrl() != null ? m.avatarUrl().toString() : null);
+                m.avatarUrl());
     }
 }

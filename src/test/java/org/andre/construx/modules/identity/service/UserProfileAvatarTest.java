@@ -36,7 +36,7 @@ class UserProfileAvatarTest {
         UserAccountRepository users = mock(UserAccountRepository.class);
         profiles = mock(UserProfileRepository.class);
         storage = mock(ObjectStorage.class);
-        service = new UserProfileService(users, profiles, storage);
+        service = new UserProfileService(users, profiles, storage, new PersonDirectory(profiles, storage));
 
         UserAccount account = mock(UserAccount.class);
         when(users.findById(accountId)).thenReturn(Optional.of(account));
