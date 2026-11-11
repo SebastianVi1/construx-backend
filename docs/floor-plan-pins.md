@@ -31,6 +31,13 @@ Storage key: `orgs/{organizationId}/projects/{projectId}/floor-plans/{floorPlanI
 `OPEN` -> `RESOLVED` -> `CLOSED`. The assignee or a manager resolves. Only a manager closes (also straight from
 `OPEN`) or reopens (from `RESOLVED` or `CLOSED`, which clears `resolvedAt` and `closedAt`).
 
+## Assignee and zone staff
+
+Giving an issue to someone (on create or on edit) also puts them in the zone the pin sits in, exactly as a drag
+onto the zone does: a zone assignment from today, full day, with the issue title as its activity. Nothing is added
+when they already have an open assignment in that zone or the pin is outside every zone. The assignment is never
+removed by the pin: it stays when the issue is resolved, closed, reassigned or deleted.
+
 ## Permissions
 
 No permission actions of their own. "Manager" is `MANAGE_PLAN`; "reporter" is the member who created the pin.

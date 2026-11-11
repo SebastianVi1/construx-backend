@@ -104,6 +104,38 @@ class PlanPinFlowTest extends PlanPinTestBase {
     }
 
     @Test
+    void assigningAnIssueInAZonePutsThePersonInThatZone() throws Exception {
+        String assignments = plan + "/zones/" + zoneId + "/assignments";
+        ResultActions created = api.post(owner, pins, "{\"kind\":\"ISSUE\",\"x\":2,\"y\":2,\"title\":\"Leak\","
+                + "\"assigneeMembershipId\":\"" + workerMembership + "\"}").andExpect(status().isCreated());
+
+        api.get(owner, assignments).andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].membershipId").value(workerMembership.toString()))
+                .andExpect(jsonPath("$[0].activity").value("Leak"))
+                .andExpect(jsonPath("$[0].shift").value("FULL_DAY"));
+
+        // A second issue for the same person in the same zone does not add them twice
+        api.post(owner, pins, "{\"kind\":\"ISSUE\",\"x\":3,\"y\":3,\"title\":\"Crack\","
+                + "\"assigneeMembershipId\":\"" + workerMembership + "\"}").andExpect(status().isCreated());
+        api.get(owner, assignments).andExpect(jsonPath("$", hasSize(1)));
+
+        // Giving the issue to someone else adds them and leaves the first person where they are
+        api.patch(owner, pins + "/" + read(created, "$.id"), "{\"title\":\"Leak\",\"x\":2,\"y\":2,"
+                + "\"assigneeMembershipId\":\"" + otherWorkerMembership + "\",\"version\":" + read(created, "$.version")
+                + "}").andExpect(status().isOk());
+        api.get(owner, assignments).andExpect(jsonPath("$", hasSize(2)));
+    }
+
+    @Test
+    void assigningAnIssueOutsideEveryZoneAddsNobodyToAZone() throws Exception {
+        api.post(owner, pins, "{\"kind\":\"ISSUE\",\"x\":60,\"y\":60,\"title\":\"Leak\","
+                + "\"assigneeMembershipId\":\"" + workerMembership + "\"}").andExpect(status().isCreated());
+
+        api.get(owner, plan + "/zones/" + zoneId + "/assignments").andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
     void assigneeWithoutSiteAccessIsRejected() throws Exception {
         Session outsider = api.signUp();
         UUID outsiderMembership = members.add(orgId, outsider.user(), "WORKER");

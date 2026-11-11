@@ -1,5 +1,6 @@
 package org.andre.construx.modules.floorplan.service;
 
+import org.andre.construx.modules.floorplan.model.AssignmentShift;
 import org.andre.construx.modules.floorplan.model.FloorPlan;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.model.PhotoPhase;
@@ -7,10 +8,12 @@ import org.andre.construx.modules.floorplan.model.PinKind;
 import org.andre.construx.modules.floorplan.model.PinStatus;
 import org.andre.construx.modules.floorplan.model.PlanPin;
 import org.andre.construx.modules.floorplan.model.PlanPinPhoto;
+import org.andre.construx.modules.floorplan.model.ZoneAssignment;
 import org.andre.construx.modules.floorplan.repository.FloorPlanCalibrationRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.PlanPinPhotoRepository;
 import org.andre.construx.modules.floorplan.repository.PlanPinRepository;
+import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -30,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -59,6 +63,7 @@ public class PlanPinService {
     private final PlanPinPhotoRepository photos;
     private final FloorPlanZoneRepository zones;
     private final FloorPlanCalibrationRepository calibrations;
+    private final ZoneAssignmentRepository zoneAssignments;
     private final FloorPlanLookup lookup;
     private final ObjectStorage storage;
     private final AuditService auditService;
@@ -67,13 +72,15 @@ public class PlanPinService {
     private final PersonDirectory directory;
 
     public PlanPinService(PlanPinRepository pins, PlanPinPhotoRepository photos, FloorPlanZoneRepository zones,
-                          FloorPlanCalibrationRepository calibrations, FloorPlanLookup lookup, ObjectStorage storage, AuditService auditService,
+                          FloorPlanCalibrationRepository calibrations,
+                          ZoneAssignmentRepository zoneAssignments, FloorPlanLookup lookup, ObjectStorage storage, AuditService auditService,
                           ProjectAccessService siteStaff, MembershipDirectory memberships,
                           PersonDirectory directory) {
         this.pins = pins;
         this.photos = photos;
         this.zones = zones;
         this.calibrations = calibrations;
+        this.zoneAssignments = zoneAssignments;
         this.lookup = lookup;
         this.storage = storage;
         this.auditService = auditService;
@@ -147,6 +154,7 @@ public class PlanPinService {
             pin.assign(siteStaffMember(site, request.assigneeMembershipId()));
         }
         pins.save(pin);
+        placeAssigneeInZone(pin, actor);
         attach(site, pin, actor, keys, PhotoPhase.REPORT);
         auditService.record(AUDIT_ENTITY, pin.getId(), "CREATE", actor.getId(), null, snapshot(pin));
         return detail(site, pin);
@@ -191,6 +199,7 @@ public class PlanPinService {
             site.require(PermissionAction.MANAGE_PLAN);
             pin.assign(request.assigneeMembershipId() == null
                     ? null : siteStaffMember(site, request.assigneeMembershipId()));
+            placeAssigneeInZone(pin, site.membership());
         }
         flush(pin);
         auditService.record(AUDIT_ENTITY, pin.getId(), "UPDATE", site.membershipId(), before, snapshot(pin));
@@ -347,6 +356,36 @@ public class PlanPinService {
         return memberships.find(site.organizationId(), membershipId)
                 .orElseThrow(() -> new RuleViolationException("PIN_ASSIGNEE_NO_ACCESS",
                         "The assignee must have access to this site"));
+    }
+
+    /**
+     * Whoever is given an issue works where it is: they join the staff of the pin's zone as if dragged onto it
+     * (from today, full day, the issue as their activity), unless they already stand there. They stay when the
+     * issue is closed or handed over; a pin outside every zone places nobody.
+     */
+    private void placeAssigneeInZone(PlanPin pin, OrganizationMembership actor) {
+        OrganizationMembership assignee = pin.getAssignee();
+        if (assignee == null) return;
+        Double metersPerPx = calibrations.findByFloorPlanId(pin.getFloorPlan().getId())
+                .map(c -> c.getMetersPerPx()).orElse(null);
+        if (metersPerPx == null) return;
+        FloorPlanZone zone = zones.findByFloorPlanIdAndDeletedAtIsNullOrderByCreatedAtAsc(pin.getFloorPlan().getId())
+                .stream()
+                .filter(z -> new Area(z.getId(), z.getName(), z.parsePoints())
+                        .contains(pin.getX() * metersPerPx, pin.getY() * metersPerPx))
+                .findFirst().orElse(null);
+        if (zone == null
+                || zoneAssignments.existsByZoneIdAndMembershipIdAndClosedAtIsNull(zone.getId(), assignee.getId())) {
+            return;
+        }
+        ZoneAssignment assignment = zoneAssignments.save(new ZoneAssignment(zone, assignee, null, null,
+                pin.getTitle(), LocalDate.now(), null, AssignmentShift.FULL_DAY, actor));
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("id", assignment.getId().toString());
+        state.put("zoneId", zone.getId().toString());
+        state.put("activity", assignment.getActivity());
+        state.put("pinId", pin.getId().toString());
+        auditService.record("ZoneAssignment", assignment.getId(), "CREATE", actor.getId(), null, state);
     }
 
     private void flush(PlanPin pin) {

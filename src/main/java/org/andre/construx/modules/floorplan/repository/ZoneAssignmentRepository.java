@@ -23,6 +23,8 @@ public interface ZoneAssignmentRepository extends JpaRepository<ZoneAssignment, 
 
     Optional<ZoneAssignment> findByIdAndZoneId(UUID id, UUID zoneId);
 
+    boolean existsByZoneIdAndMembershipIdAndClosedAtIsNull(UUID zoneId, UUID membershipId);
+
     @Query("select a from ZoneAssignment a where a.zone.floorPlan.id = :floorPlanId and a.closedAt is null")
     List<ZoneAssignment> findActiveByFloorPlanId(UUID floorPlanId);
 
