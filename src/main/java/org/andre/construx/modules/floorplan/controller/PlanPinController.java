@@ -2,7 +2,9 @@ package org.andre.construx.modules.floorplan.controller;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.andre.construx.modules.floorplan.model.PhotoPhase;
 import org.andre.construx.modules.floorplan.model.PinKind;
 import org.andre.construx.modules.floorplan.model.PinStatus;
 import org.andre.construx.modules.floorplan.service.PlanPinService;
@@ -47,6 +49,10 @@ public class PlanPinController {
             UUID assigneeMembershipId,
             long version
     ) {}
+
+    public record StatusRequest(@NotNull PinStatus status, List<String> photoKeys) {}
+
+    public record AddPhotosRequest(@NotEmpty List<String> keys, @NotNull PhotoPhase phase) {}
 
     @PostMapping("/photo-uploads")
     @ResponseStatus(HttpStatus.CREATED)
@@ -105,6 +111,34 @@ public class PlanPinController {
             @PathVariable UUID floorPlanId,
             @PathVariable UUID pinId) {
         pinService.delete(site, floorPlanId, pinId);
+    }
+
+    @PostMapping("/{pinId}/status")
+    public PinData changeStatus(
+            SiteScope site,
+            @PathVariable UUID floorPlanId,
+            @PathVariable UUID pinId,
+            @Valid @RequestBody StatusRequest body) {
+        return pinService.changeStatus(site, floorPlanId, pinId, body.status(), body.photoKeys());
+    }
+
+    @PostMapping("/{pinId}/photos")
+    public PinData addPhotos(
+            SiteScope site,
+            @PathVariable UUID floorPlanId,
+            @PathVariable UUID pinId,
+            @Valid @RequestBody AddPhotosRequest body) {
+        return pinService.addPhotos(site, floorPlanId, pinId, body.keys(), body.phase());
+    }
+
+    @DeleteMapping("/{pinId}/photos/{photoId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePhoto(
+            SiteScope site,
+            @PathVariable UUID floorPlanId,
+            @PathVariable UUID pinId,
+            @PathVariable UUID photoId) {
+        pinService.deletePhoto(site, floorPlanId, pinId, photoId);
     }
 
     @GetMapping("/{pinId}/audit")

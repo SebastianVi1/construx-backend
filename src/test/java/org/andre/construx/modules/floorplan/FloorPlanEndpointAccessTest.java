@@ -50,6 +50,7 @@ class FloorPlanEndpointAccessTest {
     private static final String FP = "/floor-plans/" + UUID.randomUUID();
     private static final String ZONE = FP + "/zones/" + UUID.randomUUID();
     private static final String ASSIGNMENT = ZONE + "/assignments/" + UUID.randomUUID();
+    private static final String PIN = FP + "/pins/" + UUID.randomUUID();
 
     private static final List<Call> CALLS = List.of(
             new Call(Need.VIEW, "GET", "/floor-plans", null),
@@ -61,6 +62,17 @@ class FloorPlanEndpointAccessTest {
             new Call(Need.VIEW, "GET", ZONE + "/assignments", null),
             new Call(Need.VIEW, "GET", FP + "/assignments", null),
             new Call(Need.VIEW, "GET", FP + "/zones/assignment-counts", null),
+            // Pins: reporting only takes VIEW_PLAN; who may change a pin is PlanPinFlowTest's and PlanPinLifecycleTest's
+            new Call(Need.VIEW, "GET", FP + "/pins", null),
+            new Call(Need.VIEW, "GET", PIN, null),
+            new Call(Need.VIEW, "GET", PIN + "/audit", null),
+            new Call(Need.VIEW, "POST", FP + "/pins/photo-uploads", "{\"contentType\":\"image/jpeg\",\"sizeBytes\":10}"),
+            new Call(Need.VIEW, "POST", FP + "/pins", "{\"kind\":\"ISSUE\",\"x\":1,\"y\":1,\"title\":\"T\"}"),
+            new Call(Need.VIEW, "PATCH", PIN, "{\"title\":\"T\",\"x\":1,\"y\":1,\"version\":0}"),
+            new Call(Need.VIEW, "DELETE", PIN, null),
+            new Call(Need.VIEW, "POST", PIN + "/status", "{\"status\":\"RESOLVED\"}"),
+            new Call(Need.VIEW, "POST", PIN + "/photos", "{\"keys\":[\"k\"],\"phase\":\"REPORT\"}"),
+            new Call(Need.VIEW, "DELETE", PIN + "/photos/" + UUID.randomUUID(), null),
             new Call(Need.MANAGE, "GET", "/floor-plans/roster", null),
             new Call(Need.MANAGE, "POST", "/floor-plans/uploads",
                     "{\"name\":\"L1\",\"pageNumber\":1,\"contentType\":\"application/pdf\",\"sizeBytes\":1000}"),

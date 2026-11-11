@@ -206,6 +206,70 @@ public class PlanPinService {
         auditService.record(AUDIT_ENTITY, pin.getId(), "DELETE", site.membershipId(), before, null);
     }
 
+    /**
+     * Moves an issue along OPEN → RESOLVED → CLOSED. The assignee or a manager resolves; only a manager closes
+     * (also straight from OPEN) or reopens. Photos sent with a resolve or a close are RESOLUTION photos.
+     */
+    @Transactional
+    public PinData changeStatus(SiteScope site, UUID floorPlanId, UUID pinId, PinStatus status,
+                                List<String> photoKeys) {
+        site.require(PermissionAction.VIEW_PLAN);
+        PlanPin pin = pin(site, floorPlanId, pinId);
+        if (status != PinStatus.RESOLVED || !isAssignee(site, pin)) {
+            site.require(PermissionAction.MANAGE_PLAN);
+        }
+        Map<String, Object> before = snapshot(pin);
+        switch (status) {
+            case RESOLVED -> pin.resolve();
+            case CLOSED -> pin.close();
+            case OPEN -> pin.reopen();
+        }
+        if (status != PinStatus.OPEN && photoKeys != null) {
+            attach(site, pin, site.membership(), photoKeys, PhotoPhase.RESOLUTION);
+        }
+        flush(pin);
+        auditService.record(AUDIT_ENTITY, pin.getId(), "STATUS", site.membershipId(), before, snapshot(pin));
+        return detail(site, pin);
+    }
+
+    /** REPORT photos follow the right to edit the pin; RESOLUTION photos belong to the assignee and managers. */
+    @Transactional
+    public PinData addPhotos(SiteScope site, UUID floorPlanId, UUID pinId, List<String> keys, PhotoPhase phase) {
+        site.require(PermissionAction.VIEW_PLAN);
+        PlanPin pin = pin(site, floorPlanId, pinId);
+        if (phase == PhotoPhase.RESOLUTION) {
+            if (!isAssignee(site, pin)) {
+                site.require(PermissionAction.MANAGE_PLAN);
+            }
+            if (!pin.isIssue()) {
+                throw new RuleViolationException("PIN_NOT_AN_ISSUE", "Only issues have resolution photos");
+            }
+        } else {
+            requireEdit(site, pin);
+        }
+        List<PlanPinPhoto> attached = attach(site, pin, site.membership(), keys == null ? List.of() : keys, phase);
+        auditService.record(AUDIT_ENTITY, pin.getId(), "PHOTO_ADD", site.membershipId(), null,
+                Map.of("phase", phase, "count", attached.size()));
+        return detail(site, pin);
+    }
+
+    /** Removes the photo and its file. A progress photo pin always keeps one photo. */
+    @Transactional
+    public void deletePhoto(SiteScope site, UUID floorPlanId, UUID pinId, UUID photoId) {
+        site.require(PermissionAction.VIEW_PLAN);
+        PlanPin pin = pin(site, floorPlanId, pinId);
+        requireEdit(site, pin);
+        PlanPinPhoto photo = photos.findByIdAndPinId(photoId, pin.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
+        if (!pin.isIssue() && photos.countByPinId(pin.getId()) <= 1) {
+            throw new RuleViolationException("PIN_PHOTO_REQUIRED", "A progress photo pin needs a photo");
+        }
+        photos.delete(photo);
+        storage.delete(photo.getStorageKey());
+        auditService.record(AUDIT_ENTITY, pin.getId(), "PHOTO_DELETE", site.membershipId(),
+                Map.of("photoId", photo.getId(), "phase", photo.getPhase()), null);
+    }
+
     @Transactional(readOnly = true)
     public List<AuditEventData> listAudit(SiteScope site, UUID floorPlanId, UUID pinId) {
         site.require(PermissionAction.VIEW_PLAN);
