@@ -39,7 +39,8 @@ No permission actions of their own. "Manager" is `MANAGE_PLAN`; "reporter" is th
 |---|---|
 | List, read, audit | `VIEW_PLAN` |
 | Request a photo upload, create a pin without an assignee | `VIEW_PLAN` |
-| Edit, delete, add `REPORT` photos, delete photos | Manager, or the reporter while the pin is a `PHOTO` or an `OPEN` issue |
+| Edit, delete, add `REPORT` photos, delete `REPORT` photos | Manager, or the reporter while the pin is a `PHOTO` or an `OPEN` issue |
+| Delete `RESOLUTION` photos | Manager |
 | Set or change the assignee | Manager; the assignee must have access to the Site |
 | Resolve, add `RESOLUTION` photos | Manager or the assignee |
 | Close, reopen | Manager |

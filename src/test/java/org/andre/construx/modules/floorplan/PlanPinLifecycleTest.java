@@ -152,6 +152,23 @@ class PlanPinLifecycleTest extends PlanPinTestBase {
     }
 
     @Test
+    void reporterCannotDeleteResolutionPhotos() throws Exception {
+        String pin = pins + "/" + read(createIssue(worker, "Leak", 1, 1), "$.id");
+        String photoId = read(api.post(owner, pin + "/photos", "{\"keys\":" + json(upload(owner))
+                + ",\"phase\":\"RESOLUTION\"}").andExpect(status().isOk()), "$.photos[0].id");
+
+        api.delete(worker, pin + "/photos/" + photoId).andExpect(status().isForbidden());
+        api.delete(owner, pin + "/photos/" + photoId).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void editingWithoutAVersionIsRejected() throws Exception {
+        String pin = pins + "/" + read(createIssue(worker, "Leak", 1, 1), "$.id");
+
+        api.patch(worker, pin, "{\"title\":\"Leak 2\",\"x\":1,\"y\":1}").andExpect(status().isBadRequest());
+    }
+
+    @Test
     void lastPhotoOfAPhotoPinCannotBeDeleted() throws Exception {
         ResultActions created = createPhotoPin(worker, upload(worker)).andExpect(status().isCreated());
         String photo = pins + "/" + read(created, "$.id") + "/photos/" + read(created, "$.photos[0].id");

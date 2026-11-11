@@ -205,7 +205,7 @@ public class PlanPinService {
         requireEdit(site, pin);
         Map<String, Object> before = snapshot(pin);
         pin.softDelete();
-        pins.save(pin);
+        flush(pin);
         auditService.record(AUDIT_ENTITY, pin.getId(), "DELETE", site.membershipId(), before, null);
     }
 
@@ -256,7 +256,10 @@ public class PlanPinService {
         return detail(site, pin);
     }
 
-    /** Removes the photo and its file. A progress photo pin always keeps one photo. */
+    /**
+     * Removes the photo and its file. A progress photo pin always keeps one photo, and the proof of a fix
+     * (RESOLUTION) is only a manager's to remove, not the reporter's.
+     */
     @Transactional
     public void deletePhoto(SiteScope site, UUID floorPlanId, UUID pinId, UUID photoId) {
         site.require(PermissionAction.VIEW_PLAN);
@@ -264,13 +267,18 @@ public class PlanPinService {
         requireEdit(site, pin);
         PlanPinPhoto photo = photos.findByIdAndPinId(photoId, pin.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
+        if (photo.getPhase() == PhotoPhase.RESOLUTION) {
+            site.require(PermissionAction.MANAGE_PLAN);
+        }
         if (!pin.isIssue() && photos.countByPinId(pin.getId()) <= 1) {
             throw new RuleViolationException("PIN_PHOTO_REQUIRED", "A progress photo pin needs a photo");
         }
         photos.delete(photo);
-        storage.delete(photo.getStorageKey());
         auditService.record(AUDIT_ENTITY, pin.getId(), "PHOTO_DELETE", site.membershipId(),
                 Map.of("photoId", photo.getId(), "phase", photo.getPhase()), null);
+        // The file goes last, once the database took the delete: a failed write must not leave a row without a file
+        photos.flush();
+        storage.delete(photo.getStorageKey());
     }
 
     @Transactional(readOnly = true)
