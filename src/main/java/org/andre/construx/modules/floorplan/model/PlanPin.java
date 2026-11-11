@@ -11,7 +11,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * A spot marked on a floor plan, in the pixel space of its rendered image (the space zone polygons use).
+ * A spot marked on a floor plan, in the pixels of its rendered image. Zone polygons are in metres, so matching a
+ * pin to a zone goes through the plan's scale.
  * An ISSUE is a punch-list item tracked from OPEN to CLOSED; a PHOTO is a progress record with no status
  * and no assignee.
  */

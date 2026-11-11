@@ -4,10 +4,12 @@ A pin marks a spot on a floor plan and carries photos. An `ISSUE` is a punch-lis
 `PHOTO` is a progress record with no status and no assignee. Module `modules/floorplan` (`PlanPin`,
 `PlanPinPhoto`, `PlanPinService`, `PlanPinController`), schema `V36__plan_pin.sql`.
 
-`x` and `y` are in the pixel space of the rendered plan image, the space zone polygons use. The plan stores no
+`x` and `y` are pixels of the rendered plan image (`x` to the right, `y` up from the bottom edge, as the viewer's
+Leaflet `CRS.Simple` map gives them), so a pin does not need the plan to be calibrated. The plan stores no
 image size, so the API only rejects negative or non-finite coordinates; the dashboard keeps pins inside the image.
-The zone of a pin (`zoneId`, `zoneName`) is worked out on every read from the live zones, so it follows zones that
-are redrawn; where zones overlap the first one drawn wins.
+The zone of a pin (`zoneId`, `zoneName`) is worked out on every read: zones are drawn in metres, so the pin is
+converted with the plan's `metersPerPx` and matched against the live zones. It follows zones that are redrawn and
+a plan that is recalibrated; where zones overlap the first one drawn wins; an uncalibrated plan has no zones.
 
 ## Photos
 

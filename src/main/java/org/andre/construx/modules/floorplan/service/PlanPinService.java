@@ -7,6 +7,7 @@ import org.andre.construx.modules.floorplan.model.PinKind;
 import org.andre.construx.modules.floorplan.model.PinStatus;
 import org.andre.construx.modules.floorplan.model.PlanPin;
 import org.andre.construx.modules.floorplan.model.PlanPinPhoto;
+import org.andre.construx.modules.floorplan.repository.FloorPlanCalibrationRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.PlanPinPhotoRepository;
 import org.andre.construx.modules.floorplan.repository.PlanPinRepository;
@@ -57,6 +58,7 @@ public class PlanPinService {
     private final PlanPinRepository pins;
     private final PlanPinPhotoRepository photos;
     private final FloorPlanZoneRepository zones;
+    private final FloorPlanCalibrationRepository calibrations;
     private final FloorPlanLookup lookup;
     private final ObjectStorage storage;
     private final AuditService auditService;
@@ -65,12 +67,13 @@ public class PlanPinService {
     private final PersonDirectory directory;
 
     public PlanPinService(PlanPinRepository pins, PlanPinPhotoRepository photos, FloorPlanZoneRepository zones,
-                          FloorPlanLookup lookup, ObjectStorage storage, AuditService auditService,
+                          FloorPlanCalibrationRepository calibrations, FloorPlanLookup lookup, ObjectStorage storage, AuditService auditService,
                           ProjectAccessService siteStaff, MembershipDirectory memberships,
                           PersonDirectory directory) {
         this.pins = pins;
         this.photos = photos;
         this.zones = zones;
+        this.calibrations = calibrations;
         this.lookup = lookup;
         this.storage = storage;
         this.auditService = auditService;
@@ -396,7 +399,10 @@ public class PlanPinService {
 
     /** Zones and names for a batch of pins, read once whatever the number of pins. */
     private View view(SiteScope site, FloorPlan plan, List<PlanPin> batch) {
-        List<Area> areas = zones.findByFloorPlanIdAndDeletedAtIsNullOrderByCreatedAtAsc(plan.getId()).stream()
+        // Zones are drawn in metres and pins sit in pixels; without a scale the plan has no zones to match
+        Double metersPerPx = calibrations.findByFloorPlanId(plan.getId())
+                .map(c -> c.getMetersPerPx()).orElse(null);
+        List<Area> areas = metersPerPx == null ? List.of() : zones.findByFloorPlanIdAndDeletedAtIsNullOrderByCreatedAtAsc(plan.getId()).stream()
                 .map(z -> new Area(z.getId(), z.getName(), z.parsePoints()))
                 .toList();
         Set<UUID> ids = new LinkedHashSet<>();
@@ -409,7 +415,7 @@ public class PlanPinService {
                         .collect(Collectors.toMap(OrganizationMembership::getId, Function.identity()));
         Map<UUID, Person> persons = directory.byUserId(byId.values().stream()
                 .map(m -> m.getUserAccount().getId()).toList());
-        return new View(site, areas, byId, persons);
+        return new View(site, metersPerPx == null ? 1 : metersPerPx, areas, byId, persons);
     }
 
     private record Area(UUID id, String name, List<double[]> points) {
@@ -429,13 +435,15 @@ public class PlanPinService {
 
     private final class View {
         private final SiteScope site;
+        private final double metersPerPx;
         private final List<Area> areas;
         private final Map<UUID, OrganizationMembership> memberships;
         private final Map<UUID, Person> persons;
 
-        private View(SiteScope site, List<Area> areas, Map<UUID, OrganizationMembership> memberships,
-                     Map<UUID, Person> persons) {
+        private View(SiteScope site, double metersPerPx, List<Area> areas,
+                     Map<UUID, OrganizationMembership> memberships, Map<UUID, Person> persons) {
             this.site = site;
+            this.metersPerPx = metersPerPx;
             this.areas = areas;
             this.memberships = memberships;
             this.persons = persons;
@@ -443,7 +451,9 @@ public class PlanPinService {
 
         PinData data(PlanPin pin, List<PlanPinPhoto> pinPhotos, boolean withPhotos) {
             // The first zone drawn wins where zones overlap
-            Area area = areas.stream().filter(a -> a.contains(pin.getX(), pin.getY())).findFirst().orElse(null);
+            Area area = areas.stream()
+                    .filter(a -> a.contains(pin.getX() * metersPerPx, pin.getY() * metersPerPx))
+                    .findFirst().orElse(null);
             URI cover = pinPhotos.isEmpty() ? null
                     : storage.presignDownload(pinPhotos.get(0).getStorageKey(), VIEW_TTL);
             List<PhotoData> shown = !withPhotos ? null : pinPhotos.stream()

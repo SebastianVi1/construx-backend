@@ -53,6 +53,15 @@ class PlanPinFlowTest extends PlanPinTestBase {
     }
 
     @Test
+    void zoneIsFoundThroughThePlanScale() throws Exception {
+        // Zones are drawn in metres and pins in pixels: 7 px is 3.5 m (inside the slab), 9 px is 4.5 m (outside)
+        createIssue(worker, "Inside", 7, 7).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.zoneName").value("Slab A"));
+        createIssue(worker, "Outside", 9, 9).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.zoneId").value(nullValue()));
+    }
+
+    @Test
     void workerAddsAProgressPhoto() throws Exception {
         createPhotoPin(worker, upload(worker)).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("PHOTO"))

@@ -2,8 +2,10 @@ package org.andre.construx.modules.floorplan;
 
 import com.jayway.jsonpath.JsonPath;
 import org.andre.construx.modules.floorplan.model.FloorPlan;
+import org.andre.construx.modules.floorplan.model.FloorPlanCalibration;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.model.ZoneStatus;
+import org.andre.construx.modules.floorplan.repository.FloorPlanCalibrationRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanRepository;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.identity.model.UserProfile;
@@ -40,7 +42,8 @@ import java.util.UUID;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * A Site with a READY floor plan, one zone "Slab A" over (0,0)-(4,4), its owner, and two workers with Site access.
+ * A Site with a READY floor plan at 0.5 m per pixel, one zone "Slab A" over (0,0)-(4,4) metres, which is
+ * (0,0)-(8,8) in the pixels pins use, its owner, and two workers with Site access.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -64,6 +67,7 @@ abstract class PlanPinTestBase {
     @Autowired ProjectAccessRepository accesses;
     @Autowired FloorPlanRepository floorPlans;
     @Autowired FloorPlanZoneRepository zones;
+    @Autowired FloorPlanCalibrationRepository calibrations;
     @Autowired ObjectStorage storage;
     @Autowired PlatformTransactionManager txm;
 
@@ -106,6 +110,8 @@ abstract class PlanPinTestBase {
             fp.markReady("rendered-" + fp.getId() + ".png", Instant.now());
             floorPlans.save(fp);
             if (withZone) {
+                calibrations.save(new FloorPlanCalibration(fp, memberships.findById(ownerMembership).orElseThrow(),
+                        0, 0, 10, 0, 5));
                 zoneId = zones.save(new FloorPlanZone(fp, memberships.findById(ownerMembership).orElseThrow(),
                         "Slab A", null, ZoneStatus.IN_PROGRESS, List.of(new double[]{0, 0}, new double[]{4, 0},
                         new double[]{4, 4}, new double[]{0, 4}))).getId();
