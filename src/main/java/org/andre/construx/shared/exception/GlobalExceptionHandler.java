@@ -39,7 +39,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(RuleViolationException.class)
     public ResponseEntity<ProblemDetail> handleRuleViolation(RuleViolationException ex, HttpServletRequest request) {
-        if ("ZONE_CONFLICT".equals(ex.getCode())) {
+        if ("ZONE_CONFLICT".equals(ex.getCode()) || "PIN_CONFLICT".equals(ex.getCode())) {
             return respond(HttpStatus.CONFLICT, "Concurrent modification", ex.getMessage(), ex.getCode(), request);
         }
         return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);

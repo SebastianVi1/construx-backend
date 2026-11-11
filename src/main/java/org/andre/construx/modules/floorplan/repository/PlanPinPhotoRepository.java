@@ -16,5 +16,7 @@ public interface PlanPinPhotoRepository extends JpaRepository<PlanPinPhoto, UUID
 
     long countByPinId(UUID pinId);
 
+    boolean existsByStorageKey(String storageKey);
+
     Optional<PlanPinPhoto> findByIdAndPinId(UUID id, UUID pinId);
 }
