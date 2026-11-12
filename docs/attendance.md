@@ -1,0 +1,66 @@
+# Attendance
+
+A **Check-in** records one person present on a Site at a moment, plus who recorded it. **Attendance** is who is on
+a Site on one day, built from that day's Check-ins. There is no check-out and there are no hours: Attendance must
+not be used for pay (ADR 0007). Module `modules/attendance` (`CheckIn`, `AttendanceService`,
+`AttendanceController`), schema `V37__check_in.sql`. Other modules reach it only through `AttendanceService`.
+
+## The day
+
+A Check-in belongs to the calendar date of the configured time zone (`app.time-zone`, env `APP_TIME_ZONE`, default
+`America/Mexico_City`) at the moment it is made; the exact moment is stored too (`checkedInAt`, UTC). Only the
+current day accepts Check-ins. Clients never send their own "today": they read Attendance and use the `date` it
+returns.
+
+## Rules
+
+- A person may check in on several Sites in one day and is present on each.
+- Checking in again the same day with nothing changed stores nothing and returns the Check-in already made.
+- A person's row shows their current Check-in, the latest of the day.
+- `name` is the profile's full name, or the account email when there is no profile name.
+- Check-ins are not written to the audit table; the table is itself the log.
+
+## Permissions
+
+No permission action of its own. Reading Attendance and checking oneself in need `VIEW_PROJECT` on the Site:
+`ORGANIZATION` scope, or `PROJECT` scope with access to the Site.
+
+## Endpoints
+
+Base path `/api/organizations/{organizationId}/projects/{projectId}/attendance`. Checks run in this order:
+unauthenticated -> 401, non-member or inactive member -> 404, unknown Site or Site of another company -> 404,
+missing `VIEW_PROJECT` -> 403. `POST` needs the CSRF header.
+
+| Method and path | Notes |
+|---|---|
+| `GET /` | Today's Attendance. 200. |
+| `POST /check-ins` | Checks the caller in today. No body needed (`{}` is accepted). 201 with the Check-in, also when it already existed. |
+
+Attendance:
+
+```json
+{
+  "date": "2026-03-10",
+  "today": true,
+  "people": [
+    {
+      "membershipId": "…",
+      "name": "Ana Perez",
+      "avatarUrl": null,
+      "state": "PRESENT",
+      "checkIn": {
+        "id": "…",
+        "membershipId": "…",
+        "date": "2026-03-10",
+        "checkedInAt": "2026-03-10T15:00:00Z",
+        "recordedBy": { "membershipId": "…", "name": "Ana Perez" }
+      }
+    }
+  ],
+  "me": { "membershipId": "…" }
+}
+```
+
+`people` is ordered by name, ignoring case. `state` is always `PRESENT` for now. `avatarUrl` is a download link
+valid for one hour, or null. `me.membershipId` is the caller, so a client finds its own row in `people`. The body
+of `POST /check-ins` is the `checkIn` object above.
