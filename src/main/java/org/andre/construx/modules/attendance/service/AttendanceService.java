@@ -2,6 +2,9 @@ package org.andre.construx.modules.attendance.service;
 
 import org.andre.construx.modules.attendance.model.CheckIn;
 import org.andre.construx.modules.attendance.repository.CheckInRepository;
+import org.andre.construx.modules.floorplan.model.FloorPlanZone;
+import org.andre.construx.modules.floorplan.service.SiteZones;
+import org.andre.construx.modules.floorplan.service.SiteZones.ZoneRef;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -34,12 +37,15 @@ public class AttendanceService {
 
     private final CheckInRepository checkIns;
     private final PersonDirectory directory;
+    private final SiteZones siteZones;
     private final LocalDay localDay;
     private final Clock clock;
 
-    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, LocalDay localDay, Clock clock) {
+    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, SiteZones siteZones,
+                             LocalDay localDay, Clock clock) {
         this.checkIns = checkIns;
         this.directory = directory;
+        this.siteZones = siteZones;
         this.localDay = localDay;
         this.clock = clock;
     }
@@ -49,7 +55,12 @@ public class AttendanceService {
     /** A member as Attendance shows them; {@code name} is the profile name, or the email without one. */
     public record PersonRef(UUID membershipId, String name) {}
 
-    public record CheckInData(UUID id, UUID membershipId, LocalDate date, Instant checkedInAt, PersonRef recordedBy) {}
+    /** {@code zone} is null for present with no zone; a deleted zone keeps its name here. */
+    public record CheckInData(UUID id, UUID membershipId, ZoneRef zone, LocalDate date, Instant checkedInAt,
+                              PersonRef recordedBy) {}
+
+    /** {@code zoneId} null or absent: no zone. */
+    public record CheckInRequest(UUID zoneId) {}
 
     /** One person of the day; {@code checkIn} is their current (latest) Check-in. */
     public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn) {}
@@ -84,13 +95,22 @@ public class AttendanceService {
         return new AttendanceData(day, true, people, new Me(site.membershipId()));
     }
 
+    /** The zones a person can check in to: the live zones of the Site's floor plans. */
+    @Transactional(readOnly = true)
+    public List<ZoneRef> zones(SiteScope site) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        return siteZones.ofSite(site.siteId());
+    }
+
     /**
-     * Records the caller as present on the Site today. Repeating it changes nothing: the Check-in already made
-     * today is returned and no second one is stored.
+     * Records the caller as present on the Site today, in a zone or in none. A later Check-in to another zone
+     * (or to none) moves the person and the earlier ones stay as history. Checking in to where the person's
+     * latest Check-in of today already puts them changes nothing: that Check-in is returned and none is stored.
      */
     @Transactional
-    public CheckInData checkIn(SiteScope site) {
+    public CheckInData checkIn(SiteScope site, CheckInRequest request) {
         site.require(PermissionAction.VIEW_PROJECT);
+        FloorPlanZone zone = request.zoneId() == null ? null : siteZones.live(site.siteId(), request.zoneId());
         OrganizationMembership caller = site.membership();
         Instant now = clock.instant();
         LocalDate day = localDay.of(now);
@@ -98,7 +118,8 @@ public class AttendanceService {
         CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayOrderByCheckedInAtDesc(
                         site.siteId(), caller.getId(), day).stream()
                 .findFirst()
-                .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, day, now, caller)));
+                .filter(latest -> latest.isIn(zone))
+                .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, zone, day, now, caller)));
         return names(List.of(checkIn)).data(checkIn);
     }
 
@@ -115,7 +136,8 @@ public class AttendanceService {
 
         CheckInData data(CheckIn checkIn) {
             OrganizationMembership recorder = checkIn.getRecordedBy();
-            return new CheckInData(checkIn.getId(), checkIn.getMembership().getId(), checkIn.getDay(),
+            ZoneRef zone = checkIn.getZone() == null ? null : SiteZones.ref(checkIn.getZone());
+            return new CheckInData(checkIn.getId(), checkIn.getMembership().getId(), zone, checkIn.getDay(),
                     checkIn.getCheckedInAt(), new PersonRef(recorder.getId(), name(recorder)));
         }
     }

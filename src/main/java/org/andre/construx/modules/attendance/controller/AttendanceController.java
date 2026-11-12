@@ -1,13 +1,17 @@
 package org.andre.construx.modules.attendance.controller;
 
 import org.andre.construx.modules.attendance.service.AttendanceService;
+import org.andre.construx.modules.floorplan.service.SiteZones;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /** Contract: {@code docs/attendance.md}. */
 @RestController
@@ -27,7 +31,13 @@ public class AttendanceController {
 
     @PostMapping("/check-ins")
     @ResponseStatus(HttpStatus.CREATED)
-    public AttendanceService.CheckInData checkIn(SiteScope site) {
-        return service.checkIn(site);
+    public AttendanceService.CheckInData checkIn(
+            SiteScope site, @RequestBody(required = false) AttendanceService.CheckInRequest request) {
+        return service.checkIn(site, request == null ? new AttendanceService.CheckInRequest(null) : request);
+    }
+
+    @GetMapping("/zones")
+    public List<SiteZones.ZoneRef> zones(SiteScope site) {
+        return service.zones(site);
     }
 }

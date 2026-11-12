@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.validation.DomainValidation;
@@ -34,6 +35,14 @@ public class CheckIn {
     @JoinColumn(name = "membership_id", nullable = false)
     private OrganizationMembership membership;
 
+    /**
+     * The floor plan zone the person is in, or null for present with no zone. It keeps pointing at the zone
+     * after the zone is deleted, so history still shows its name.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "zone_id")
+    private FloorPlanZone zone;
+
     /** The calendar day in the configured time zone that the Check-in counts for. */
     @Column(name = "check_in_day", nullable = false)
     private LocalDate day;
@@ -47,13 +56,19 @@ public class CheckIn {
     @JoinColumn(name = "recorded_by_membership_id", nullable = false)
     private OrganizationMembership recordedBy;
 
-    public CheckIn(Project site, OrganizationMembership membership, LocalDate day, Instant checkedInAt,
-                   OrganizationMembership recordedBy) {
+    public CheckIn(Project site, OrganizationMembership membership, FloorPlanZone zone, LocalDate day,
+                   Instant checkedInAt, OrganizationMembership recordedBy) {
         this.id = UUID.randomUUID();
         this.site = DomainValidation.required(site, "Site is required");
         this.membership = DomainValidation.required(membership, "Person is required");
+        this.zone = zone;
         this.day = DomainValidation.required(day, "Day is required");
         this.checkedInAt = DomainValidation.required(checkedInAt, "Moment is required");
         this.recordedBy = DomainValidation.required(recordedBy, "Recorder is required");
+    }
+
+    /** Whether this Check-in already says the person is in that zone ({@code null}: in no zone). */
+    public boolean isIn(FloorPlanZone other) {
+        return zone == null ? other == null : other != null && zone.getId().equals(other.getId());
     }
 }
