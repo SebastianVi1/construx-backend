@@ -14,6 +14,7 @@ import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.shared.time.LocalDay;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,19 +34,22 @@ public class ZoneAssignmentService {
     private final CrewDirectory crews;
     private final AssignmentViews views;
     private final AuditService auditService;
+    private final LocalDay localDay;
 
     public ZoneAssignmentService(ZoneAssignmentRepository assignments,
                                   FloorPlanLookup lookup,
                                   MembershipDirectory memberships,
                                   CrewDirectory crews,
                                   AssignmentViews views,
-                                  AuditService auditService) {
+                                  AuditService auditService,
+                                  LocalDay localDay) {
         this.assignments = assignments;
         this.lookup = lookup;
         this.memberships = memberships;
         this.crews = crews;
         this.views = views;
         this.auditService = auditService;
+        this.localDay = localDay;
     }
 
     public record AssignmentData(
@@ -100,7 +104,7 @@ public class ZoneAssignmentService {
         }
 
         // A plain drag and drop sends no date or shift: the assignment starts today for the full day
-        LocalDate startDate = request.startDate() != null ? request.startDate() : LocalDate.now();
+        LocalDate startDate = request.startDate() != null ? request.startDate() : localDay.today();
         AssignmentShift shift = request.shift() != null ? request.shift() : AssignmentShift.FULL_DAY;
 
         boolean hasOverlapWarning = false;

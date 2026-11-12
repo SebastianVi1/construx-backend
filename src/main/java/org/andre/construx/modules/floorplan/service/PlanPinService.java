@@ -27,13 +27,13 @@ import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.andre.construx.shared.time.LocalDay;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -70,12 +70,13 @@ public class PlanPinService {
     private final ProjectAccessService siteStaff;
     private final MembershipDirectory memberships;
     private final PersonDirectory directory;
+    private final LocalDay localDay;
 
     public PlanPinService(PlanPinRepository pins, PlanPinPhotoRepository photos, FloorPlanZoneRepository zones,
                           FloorPlanCalibrationRepository calibrations,
                           ZoneAssignmentRepository zoneAssignments, FloorPlanLookup lookup, ObjectStorage storage, AuditService auditService,
                           ProjectAccessService siteStaff, MembershipDirectory memberships,
-                          PersonDirectory directory) {
+                          PersonDirectory directory, LocalDay localDay) {
         this.pins = pins;
         this.photos = photos;
         this.zones = zones;
@@ -87,6 +88,7 @@ public class PlanPinService {
         this.siteStaff = siteStaff;
         this.memberships = memberships;
         this.directory = directory;
+        this.localDay = localDay;
     }
 
     /** {@code key} is sent back as a photo key once the bytes are uploaded. */
@@ -379,7 +381,7 @@ public class PlanPinService {
             return;
         }
         ZoneAssignment assignment = zoneAssignments.save(new ZoneAssignment(zone, assignee, null, null,
-                pin.getTitle(), LocalDate.now(), null, AssignmentShift.FULL_DAY, actor));
+                pin.getTitle(), localDay.today(), null, AssignmentShift.FULL_DAY, actor));
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("id", assignment.getId().toString());
         state.put("zoneId", zone.getId().toString());

@@ -21,11 +21,13 @@ import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.floorplan.service.FloorPlanLookup;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.shared.audit.AuditService;
+import org.andre.construx.shared.time.LocalDay;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.access.TestScopes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
@@ -64,7 +66,7 @@ class ZoneAssignmentServiceTest {
         service = new ZoneAssignmentService(assignmentRepo, new FloorPlanLookup(floorPlanRepo, zoneRepo),
                 membershipRepo, new CrewDirectory(crewRepo, equipmentRepo),
                 new AssignmentViews(membershipRepo, mock(PersonDirectory.class), mock(ActivityService.class)),
-                auditService);
+                auditService, new LocalDay("America/Mexico_City", Clock.systemUTC()));
 
         orgId = UUID.randomUUID();
         projectId = UUID.randomUUID();

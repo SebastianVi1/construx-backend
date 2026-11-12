@@ -10,6 +10,7 @@ import org.andre.construx.modules.floorplan.service.FloorPlanRosterService;
 import org.andre.construx.modules.floorplan.service.FloorPlanService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService;
 import org.andre.construx.modules.floorplan.service.FloorPlanZoneService.ZoneStateData;
+import org.andre.construx.shared.time.LocalDay;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,12 +35,14 @@ public class FloorPlanController {
     private final FloorPlanService floorPlans;
     private final FloorPlanZoneService zoneService;
     private final FloorPlanRosterService rosterService;
+    private final LocalDay localDay;
 
     public FloorPlanController(FloorPlanService floorPlans, FloorPlanZoneService zoneService,
-                               FloorPlanRosterService rosterService) {
+                               FloorPlanRosterService rosterService, LocalDay localDay) {
         this.floorPlans = floorPlans;
         this.zoneService = zoneService;
         this.rosterService = rosterService;
+        this.localDay = localDay;
     }
 
     public record UploadRequest(
@@ -96,7 +99,7 @@ public class FloorPlanController {
     public List<ZoneStateData> state(SiteScope site,
                                      @PathVariable UUID floorPlanId,
                                      @RequestParam(required = false) String date) {
-        LocalDate localDate = date != null ? LocalDate.parse(date) : LocalDate.now();
+        LocalDate localDate = date != null ? LocalDate.parse(date) : localDay.today();
         return zoneService.getFloorPlanState(site, floorPlanId, localDate);
     }
 
