@@ -9,7 +9,9 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.time.LocalDay;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,8 +60,12 @@ public class AttendanceService {
 
     public record CheckInData(UUID id, UUID membershipId, LocalDate date, Instant checkedInAt, PersonRef recordedBy) {}
 
-    /** One person of the day; {@code checkIn} is their current (latest) Check-in. */
-    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn) {}
+    /**
+     * One person of the day; {@code checkIn} is their current Check-in, the latest one not removed.
+     * {@code removable} tells whether the caller may remove it now.
+     */
+    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn,
+                            boolean removable) {}
 
     /** What Attendance says about the caller. */
     public record Me(UUID membershipId) {}
@@ -74,6 +80,7 @@ public class AttendanceService {
         LocalDate day = localDay.today();
         List<CheckIn> ofDay = checkIns.findOfDay(site.siteId(), day);
         Names names = names(ofDay);
+        boolean today = day.equals(localDay.today());
 
         // Oldest first, so the latest Check-in of a person is the one left in the map.
         Map<UUID, CheckIn> current = new LinkedHashMap<>();
@@ -84,11 +91,11 @@ public class AttendanceService {
                 .map(checkIn -> {
                     OrganizationMembership member = checkIn.getMembership();
                     return new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
-                            State.PRESENT, names.data(checkIn));
+                            State.PRESENT, names.data(checkIn), today && mayRemove(site, checkIn));
                 })
                 .sorted(BY_NAME)
                 .toList();
-        return new AttendanceData(day, true, people, new Me(site.membershipId()));
+        return new AttendanceData(day, today, people, new Me(site.membershipId()));
     }
 
     /**
@@ -102,7 +109,7 @@ public class AttendanceService {
         Instant now = clock.instant();
         LocalDate day = localDay.of(now);
 
-        CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayOrderByCheckedInAtDesc(
+        CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayAndRemovedAtIsNullOrderByCheckedInAtDesc(
                         site.siteId(), caller.getId(), day).stream()
                 .findFirst()
                 .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, day, now, caller)));
@@ -149,6 +156,29 @@ public class AttendanceService {
         long personDays = people.stream().mapToLong(PersonSummary::daysPresent).sum();
         BigDecimal average = BigDecimal.valueOf(personDays).divide(BigDecimal.valueOf(days), 1, RoundingMode.HALF_UP);
         return new AttendanceSummary(days, average, people);
+    }
+
+    /**
+     * Removes a Check-in made by mistake: it is kept, marked with who removed it and when, and ignored from then
+     * on, so the person falls back to their previous Check-in of the day or is no longer present. Allowed to
+     * the member who recorded it and to members with {@code MANAGE_PLAN}, only on the day it belongs to
+     * ({@link org.andre.construx.modules.attendance.model.CheckInLockedException} otherwise). Removing an
+     * already removed Check-in changes nothing.
+     */
+    @Transactional
+    public void remove(SiteScope site, UUID checkInId) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        CheckIn checkIn = checkIns.findByIdAndSiteId(checkInId, site.siteId())
+                .orElseThrow(() -> new ResourceNotFoundException("Check-in not found"));
+        if (!mayRemove(site, checkIn)) {
+            throw new AccessDeniedException("Only who recorded the Check-in or a plan manager can remove it");
+        }
+        Instant now = clock.instant();
+        checkIn.remove(site.membership(), now, localDay.of(now));
+    }
+
+    private static boolean mayRemove(SiteScope site, CheckIn checkIn) {
+        return checkIn.getRecordedBy().getId().equals(site.membershipId()) || site.can(PermissionAction.MANAGE_PLAN);
     }
 
     /** Display names and photos of everyone in a batch of Check-ins, read once. */

@@ -3,11 +3,15 @@ package org.andre.construx.modules.attendance.controller;
 import org.andre.construx.modules.attendance.service.AttendanceService;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
 
 /** Contract: {@code docs/attendance.md}. */
 @RestController
@@ -29,5 +33,11 @@ public class AttendanceController {
     @ResponseStatus(HttpStatus.CREATED)
     public AttendanceService.CheckInData checkIn(SiteScope site) {
         return service.checkIn(site);
+    }
+
+    @DeleteMapping("/check-ins/{checkInId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void remove(SiteScope site, @PathVariable UUID checkInId) {
+        service.remove(site, checkInId);
     }
 }

@@ -84,8 +84,8 @@ class SiteReportAttendanceTest extends AttendanceTestBase {
         checkInOn(DAY_10, worker, otherWorker);
         checkInOn(DAY_11, worker);
         String removed = read(checkInOn(DAY_12, worker), "$.id");
-        remove(removed);
-        remove(read(checkInOn(DAY_12, otherWorker), "$.id"));
+        remove(worker, removed);
+        remove(otherWorker, read(checkInOn(DAY_12, otherWorker), "$.id"));
 
         String section = attendanceSection(generateReport());
 
@@ -133,13 +133,9 @@ class SiteReportAttendanceTest extends AttendanceTestBase {
                 java.time.OffsetDateTime.parse(moment), membershipId);
     }
 
-    /**
-     * Marks a Check-in removed in the table; there is no removal endpoint on this branch yet (#59). Only
-     * {@code removed_at} is set: the test schema is built from the entities, which do not map who removed it.
-     */
-    private void remove(String checkInId) {
-        jdbc.update("update check_in set removed_at = ? where id = ?",
-                java.time.OffsetDateTime.parse("2026-03-12T16:00:00Z"), UUID.fromString(checkInId));
+    /** The session removes a Check-in it recorded, on the day it belongs to. */
+    private void remove(Session session, String checkInId) throws Exception {
+        api.delete(session, checkIns + "/" + checkInId).andExpect(status().isNoContent());
     }
 
     /** Generates a report as the owner and returns the text of its PDF. */
