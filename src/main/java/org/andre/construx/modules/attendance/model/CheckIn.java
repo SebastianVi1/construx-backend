@@ -47,6 +47,13 @@ public class CheckIn {
     @JoinColumn(name = "recorded_by_membership_id", nullable = false)
     private OrganizationMembership recordedBy;
 
+    /**
+     * Set when the Check-in was removed; a removed Check-in counts for nothing. Read-only here, so that queries
+     * can leave removed rows out: removing is not built yet.
+     */
+    @Column(name = "removed_at", insertable = false, updatable = false)
+    private Instant removedAt;
+
     public CheckIn(Project site, OrganizationMembership membership, LocalDate day, Instant checkedInAt,
                    OrganizationMembership recordedBy) {
         this.id = UUID.randomUUID();

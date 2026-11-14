@@ -21,4 +21,17 @@ public interface CheckInRepository extends JpaRepository<CheckIn, UUID> {
     /** One person's Check-ins on a Site and day, latest first. */
     List<CheckIn> findBySiteIdAndMembershipIdAndDayOrderByCheckedInAtDesc(UUID siteId, UUID membershipId,
                                                                           LocalDate day);
+
+    /** Days present and last day present of one person on a Site. */
+    record PersonDays(UUID membershipId, long days, LocalDate lastDay) {}
+
+    /** Per person, the distinct days with a Check-in that was not removed, over the whole life of the Site. */
+    @Query("select new org.andre.construx.modules.attendance.repository.CheckInRepository$PersonDays("
+            + "c.membership.id, count(distinct c.day), max(c.day)) from CheckIn c "
+            + "where c.site.id = :siteId and c.removedAt is null group by c.membership.id")
+    List<PersonDays> findDaysPerPerson(@Param("siteId") UUID siteId);
+
+    /** How many distinct days of a Site have at least one Check-in that was not removed. */
+    @Query("select count(distinct c.day) from CheckIn c where c.site.id = :siteId and c.removedAt is null")
+    long countDays(@Param("siteId") UUID siteId);
 }

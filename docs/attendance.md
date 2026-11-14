@@ -64,3 +64,11 @@ Attendance:
 `people` is ordered by name, ignoring case. `state` is always `PRESENT` for now. `avatarUrl` is a download link
 valid for one hour, or null. `me.membershipId` is the caller, so a client finds its own row in `people`. The body
 of `POST /check-ins` is the `checkIn` object above.
+
+## Site Report
+
+The Site Report PDF ends with a section "Asistencia", after the team: the days with at least one Check-in, the
+average people per day (person-days over those days, one decimal) and, per person, the days present and the last
+day present, most days first and then by name. A person counts once per day, removed Check-ins are ignored, and
+people who have left the company keep their name. A Site without Check-ins prints "Sin registros de entrada." and
+no table. The report module gets these figures from `AttendanceService.summary(SiteScope)` only.

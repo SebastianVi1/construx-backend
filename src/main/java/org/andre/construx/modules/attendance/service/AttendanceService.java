@@ -2,15 +2,19 @@ package org.andre.construx.modules.attendance.service;
 
 import org.andre.construx.modules.attendance.model.CheckIn;
 import org.andre.construx.modules.attendance.repository.CheckInRepository;
+import org.andre.construx.modules.attendance.repository.CheckInRepository.PersonDays;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.shared.time.LocalDay;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
@@ -34,12 +38,15 @@ public class AttendanceService {
 
     private final CheckInRepository checkIns;
     private final PersonDirectory directory;
+    private final MembershipDirectory memberships;
     private final LocalDay localDay;
     private final Clock clock;
 
-    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, LocalDay localDay, Clock clock) {
+    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, MembershipDirectory memberships,
+                             LocalDay localDay, Clock clock) {
         this.checkIns = checkIns;
         this.directory = directory;
+        this.memberships = memberships;
         this.localDay = localDay;
         this.clock = clock;
     }
@@ -100,6 +107,48 @@ public class AttendanceService {
                 .findFirst()
                 .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, day, now, caller)));
         return names(List.of(checkIn)).data(checkIn);
+    }
+
+    /** One person of the summary; {@code name} is the profile name, or the email without one. */
+    public record PersonSummary(UUID membershipId, String name, long daysPresent, LocalDate lastDayPresent) {}
+
+    /**
+     * Attendance of a Site over its whole life. {@code averagePeoplePerDay} is person-days over
+     * {@code daysWithCheckIns}, to one decimal, and null when there are no Check-ins. {@code people} has most
+     * days present first, then by name.
+     */
+    public record AttendanceSummary(long daysWithCheckIns, BigDecimal averagePeoplePerDay,
+                                    List<PersonSummary> people) {}
+
+    /**
+     * The Site's Attendance to date, for the Site Report. A person counts once per day however many Check-ins
+     * they have, removed Check-ins are ignored, and people who have left the company keep their name.
+     */
+    @Transactional(readOnly = true)
+    public AttendanceSummary summary(SiteScope site) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        List<PersonDays> perPerson = checkIns.findDaysPerPerson(site.siteId());
+        if (perPerson.isEmpty()) return new AttendanceSummary(0, null, List.of());
+
+        Map<UUID, OrganizationMembership> members = new LinkedHashMap<>();
+        Set<UUID> userIds = new LinkedHashSet<>();
+        for (OrganizationMembership member : memberships.byIds(site.organizationId(),
+                perPerson.stream().map(PersonDays::membershipId).toList())) {
+            members.put(member.getId(), member);
+            userIds.add(member.getUserAccount().getId());
+        }
+        Names names = new Names(directory.byUserId(userIds));
+
+        List<PersonSummary> people = perPerson.stream()
+                .map(p -> new PersonSummary(p.membershipId(), names.name(members.get(p.membershipId())),
+                        p.days(), p.lastDay()))
+                .sorted(Comparator.comparingLong(PersonSummary::daysPresent).reversed()
+                        .thenComparing(PersonSummary::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        long days = checkIns.countDays(site.siteId());
+        long personDays = people.stream().mapToLong(PersonSummary::daysPresent).sum();
+        BigDecimal average = BigDecimal.valueOf(personDays).divide(BigDecimal.valueOf(days), 1, RoundingMode.HALF_UP);
+        return new AttendanceSummary(days, average, people);
     }
 
     /** Display names and photos of everyone in a batch of Check-ins, read once. */

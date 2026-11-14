@@ -1,5 +1,7 @@
 package org.andre.construx.modules.report.service;
 
+import org.andre.construx.modules.attendance.service.AttendanceService;
+import org.andre.construx.modules.attendance.service.AttendanceService.AttendanceSummary;
 import org.andre.construx.modules.finance.model.ExpenseCategory;
 import org.andre.construx.modules.finance.service.ExpenseService;
 import org.andre.construx.modules.finance.service.ExpenseService.ExpenseData;
@@ -52,11 +54,13 @@ public class SiteReportService {
     private final PersonDirectory directory;
     private final ObjectStorage storage;
     private final PdfGenerationService pdfService;
+    private final AttendanceService attendanceService;
 
     public SiteReportService(SiteReportRepository reports, ExpenseService expenseService,
                              ActivityService activityService, ProjectAccessService accessService,
                              MembershipDirectory memberships, PersonDirectory directory,
-                             ObjectStorage storage, PdfGenerationService pdfService) {
+                             ObjectStorage storage, PdfGenerationService pdfService,
+                             AttendanceService attendanceService) {
         this.reports = reports;
         this.expenseService = expenseService;
         this.activityService = activityService;
@@ -65,6 +69,7 @@ public class SiteReportService {
         this.directory = directory;
         this.storage = storage;
         this.pdfService = pdfService;
+        this.attendanceService = attendanceService;
     }
 
     @Transactional
@@ -75,7 +80,8 @@ public class SiteReportService {
         SiteReport report = new SiteReport(site.site(), membership, title);
         reports.save(report);
 
-        PdfGenerationService.SiteReportData data = collectData(site.site(), membership);
+        PdfGenerationService.SiteReportData data = collectData(site.site(), membership,
+                attendanceService.summary(site));
 
         byte[] pdf;
         try {
@@ -113,7 +119,8 @@ public class SiteReportService {
 
     // ─── Data collection ─────────────────────────────────────────────────────
 
-    private PdfGenerationService.SiteReportData collectData(Project project, OrganizationMembership requester) {
+    private PdfGenerationService.SiteReportData collectData(Project project, OrganizationMembership requester,
+                                                            AttendanceSummary attendanceSummary) {
         UUID projectId = project.getId();
 
         // Expenses
@@ -183,7 +190,17 @@ public class SiteReportService {
                 byCategory,
                 expenses,
                 phases,
-                team);
+                team,
+                attendance(attendanceSummary));
+    }
+
+    private PdfGenerationService.AttendanceData attendance(AttendanceSummary summary) {
+        return new PdfGenerationService.AttendanceData(
+                summary.daysWithCheckIns(),
+                summary.averagePeoplePerDay(),
+                summary.people().stream()
+                        .map(p -> new PdfGenerationService.AttendanceRow(p.name(), p.daysPresent(), p.lastDayPresent()))
+                        .toList());
     }
 
     /** Email per membership, in one query, for the people the report has no name for. */
