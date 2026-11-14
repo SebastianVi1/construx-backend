@@ -96,7 +96,7 @@ class ZoneCheckInFlowTest extends AttendanceZoneTestBase {
 
         api.get(owner, attendance).andExpect(status().isOk())
                 .andExpect(jsonPath("$.people", hasSize(1)))
-                .andExpect(jsonPath("$.people[0].state").value("PRESENT"))
+                .andExpect(jsonPath("$.people[0].state").value("UNPLANNED"))
                 .andExpect(jsonPath("$.people[0].checkIn.id", not(first)))
                 .andExpect(jsonPath("$.people[0].checkIn.zone.name").value("Slab B"))
                 .andExpect(jsonPath("$.people[0].checkIn.checkedInAt").value("2026-03-10T17:00:00Z"));
@@ -113,7 +113,7 @@ class ZoneCheckInFlowTest extends AttendanceZoneTestBase {
 
         api.get(owner, attendance).andExpect(status().isOk())
                 .andExpect(jsonPath("$.people", hasSize(1)))
-                .andExpect(jsonPath("$.people[0].state").value("PRESENT"))
+                .andExpect(jsonPath("$.people[0].state").value("UNPLANNED"))
                 .andExpect(jsonPath("$.people[0].checkIn.zone").value(nullValue()))
                 .andExpect(jsonPath("$.people[0].checkIn.checkedInAt").value("2026-03-10T17:00:00Z"));
     }

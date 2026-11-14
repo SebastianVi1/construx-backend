@@ -8,6 +8,7 @@ import org.andre.construx.modules.floorplan.service.SiteZones;
 import org.andre.construx.modules.floorplan.service.SiteZones.ZoneRef;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
+import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
@@ -24,6 +25,7 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -58,7 +60,12 @@ public class AttendanceService {
         this.clock = clock;
     }
 
-    public enum State { PRESENT }
+    /**
+     * A person of the day against the zone plan. {@code PRESENT}: checked in and expected. {@code ABSENT}:
+     * expected and not checked in; derived, never stored (ADR 0007). {@code UNPLANNED}: checked in without being
+     * expected.
+     */
+    public enum State { PRESENT, ABSENT, UNPLANNED }
 
     /** A member as Attendance shows them; {@code name} is the profile name, or the email without one. */
     public record PersonRef(UUID membershipId, String name) {}
@@ -71,41 +78,74 @@ public class AttendanceService {
     public record CheckInRequest(UUID zoneId) {}
 
     /**
-     * One person of the day; {@code checkIn} is their current Check-in, the latest one not removed.
-     * {@code removable} tells whether the caller may remove it now.
+     * One person of the day. {@code planned} tells whether the zone plan expected them and {@code expectedZone}
+     * where (null when not planned). {@code checkIn} is their current Check-in, the latest one not removed (null
+     * when absent); its zone is their current zone. {@code removable} tells whether the caller may remove it now.
      */
-    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn,
-                            boolean removable) {}
+    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, boolean planned,
+                            ZoneRef expectedZone, CheckInData checkIn, boolean removable) {}
 
-    /** What Attendance says about the caller. */
-    public record Me(UUID membershipId) {}
+    /** What Attendance says about the caller; {@code expectedZone} is where the plan expects them that day. */
+    public record Me(UUID membershipId, ZoneRef expectedZone) {}
 
     /** {@code today} tells whether {@code date} is the current day, the only one that accepts Check-ins. */
     public record AttendanceData(LocalDate date, boolean today, List<PersonRow> people, Me me) {}
 
-    /** Today's Attendance of the Site, one row per person, by name. */
+    /**
+     * The Attendance of the Site on a day ({@code date} null: today), one row per person, by name: everyone with
+     * a Check-in that day and everyone the zone plan expected. A past day is read as it stands now; a future one
+     * is refused. An expected member who is no longer active and has no Check-in is left out, not absent.
+     */
     @Transactional(readOnly = true)
-    public AttendanceData attendance(SiteScope site) {
+    public AttendanceData attendance(SiteScope site, LocalDate date) {
         site.require(PermissionAction.VIEW_PROJECT);
-        LocalDate day = localDay.today();
-        List<CheckIn> ofDay = checkIns.findOfDay(site.siteId(), day);
-        Names names = names(ofDay);
-        boolean today = day.equals(localDay.today());
+        LocalDate currentDay = localDay.today();
+        LocalDate day = date == null ? currentDay : date;
+        if (day.isAfter(currentDay)) {
+            throw new IllegalArgumentException("date cannot be after today");
+        }
+        boolean today = day.equals(currentDay);
 
         // Oldest first, so the latest Check-in of a person is the one left in the map.
         Map<UUID, CheckIn> current = new LinkedHashMap<>();
-        for (CheckIn checkIn : ofDay) {
+        for (CheckIn checkIn : checkIns.findOfDay(site.siteId(), day)) {
             current.put(checkIn.getMembership().getId(), checkIn);
         }
-        List<PersonRow> people = current.values().stream()
-                .map(checkIn -> {
-                    OrganizationMembership member = checkIn.getMembership();
-                    return new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
-                            State.PRESENT, names.data(checkIn), today && mayRemove(site, checkIn));
-                })
-                .sorted(BY_NAME)
+        Map<UUID, ZoneRef> expected = new LinkedHashMap<>();
+        for (SiteZones.Expected person : siteZones.expected(site.siteId(), day)) {
+            expected.put(person.membershipId(), person.zone());
+        }
+        List<OrganizationMembership> missing = memberships.byIds(site.organizationId(),
+                        expected.keySet().stream().filter(id -> !current.containsKey(id)).toList()).stream()
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
                 .toList();
-        return new AttendanceData(day, today, people, new Me(site.membershipId()));
+
+        Set<UUID> userIds = new LinkedHashSet<>();
+        for (CheckIn checkIn : current.values()) {
+            userIds.add(checkIn.getMembership().getUserAccount().getId());
+            userIds.add(checkIn.getRecordedBy().getUserAccount().getId());
+        }
+        for (OrganizationMembership member : missing) {
+            userIds.add(member.getUserAccount().getId());
+        }
+        Names names = new Names(userIds.isEmpty() ? Map.of() : directory.byUserId(userIds));
+
+        List<PersonRow> people = new ArrayList<>();
+        for (CheckIn checkIn : current.values()) {
+            OrganizationMembership member = checkIn.getMembership();
+            ZoneRef expectedZone = expected.get(member.getId());
+            boolean planned = expected.containsKey(member.getId());
+            people.add(new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
+                    planned ? State.PRESENT : State.UNPLANNED, planned, expectedZone, names.data(checkIn),
+                    today && mayRemove(site, checkIn)));
+        }
+        for (OrganizationMembership member : missing) {
+            people.add(new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
+                    State.ABSENT, true, expected.get(member.getId()), null, false));
+        }
+        people.sort(BY_NAME);
+        return new AttendanceData(day, today, List.copyOf(people),
+                new Me(site.membershipId(), expected.get(site.membershipId())));
     }
 
     /** The zones a person can check in to: the live zones of the Site's floor plans. */

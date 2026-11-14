@@ -10,9 +10,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,8 +31,17 @@ public class AttendanceController {
     }
 
     @GetMapping
-    public AttendanceService.AttendanceData attendance(SiteScope site) {
-        return service.attendance(site);
+    public AttendanceService.AttendanceData attendance(SiteScope site,
+                                                       @RequestParam(required = false) String date) {
+        return service.attendance(site, date == null ? null : day(date));
+    }
+
+    private static LocalDate day(String date) {
+        try {
+            return LocalDate.parse(date);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("date must be a calendar day written as YYYY-MM-DD");
+        }
     }
 
     @PostMapping("/check-ins")
