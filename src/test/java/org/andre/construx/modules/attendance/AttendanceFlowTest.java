@@ -33,7 +33,7 @@ class AttendanceFlowTest extends AttendanceTestBase {
                 .andExpect(jsonPath("$.people", hasSize(1)))
                 .andExpect(jsonPath("$.people[0].membershipId").value(workerMembership.toString()))
                 .andExpect(jsonPath("$.people[0].name").value("Ana Perez"))
-                .andExpect(jsonPath("$.people[0].state").value("PRESENT"))
+                .andExpect(jsonPath("$.people[0].state").value("UNPLANNED"))
                 .andExpect(jsonPath("$.people[0].checkIn.checkedInAt").value("2026-03-10T15:00:00Z"))
                 .andExpect(jsonPath("$.people[0].checkIn.recordedBy.membershipId").value(workerMembership.toString()))
                 .andExpect(jsonPath("$.people[0].checkIn.recordedBy.name").value("Ana Perez"))

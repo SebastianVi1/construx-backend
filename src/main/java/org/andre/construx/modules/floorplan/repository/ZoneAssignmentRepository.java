@@ -32,4 +32,14 @@ public interface ZoneAssignmentRepository extends JpaRepository<ZoneAssignment, 
            "and a.startDate <= :date and a.closedAt is null")
     List<ZoneAssignment> findByFloorPlanIdAndStartDateLessThanEqualAndClosedAtIsNull(
             @Param("floorPlanId") UUID floorPlanId, @Param("date") LocalDate date);
+
+    /**
+     * The open assignments of people and Crews that cover a day in the live zones of a Site: not closed, started
+     * on or before the day and not ended before it. Earliest start first; Equipment is left out.
+     */
+    @Query("select a from ZoneAssignment a join fetch a.zone z join fetch z.floorPlan p left join fetch a.crew "
+            + "where p.project.id = :siteId and z.deletedAt is null and a.closedAt is null "
+            + "and a.equipment is null and a.startDate <= :day and (a.endDate is null or a.endDate >= :day) "
+            + "order by a.startDate, a.createdAt, a.id")
+    List<ZoneAssignment> findOpenOfSiteCovering(@Param("siteId") UUID siteId, @Param("day") LocalDate day);
 }

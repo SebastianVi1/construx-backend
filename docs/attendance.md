@@ -13,6 +13,24 @@ A Check-in belongs to the calendar date of the configured time zone (`app.time-z
 current day accepts Check-ins. Clients never send their own "today": they read Attendance and use the `date` it
 returns.
 
+## Against the plan
+
+Attendance of a day compares that day's Check-ins with the zone plan. Nothing but Check-ins is stored (ADR 0007).
+
+- **Expected**: a person with an open zone assignment covering the day in a live zone of the Site, directly or as
+  a member of an assigned Crew (the Crew's members as they are now). Open means not closed, started on or before
+  the day and not ended before it (the end date is included). Equipment is never expected.
+- A person with several such assignments has one expected zone: that of the assignment that started earliest.
+- `PRESENT`: expected, with an active Check-in that day. Checked in to another zone than the expected one is still
+  `PRESENT` and planned; the row carries both zones.
+- `ABSENT`: expected, with no active Check-in. Derived on every read, never stored; `checkIn` is null.
+- `UNPLANNED`: an active Check-in without being expected. Always allowed.
+- Assignments in a deleted zone or on another Site expect nobody. An expected member who is suspended or has left
+  and has no Check-in is left out rather than shown absent.
+- A past day is read against the assignments as they stand now: closing an assignment today also stops it from
+  counting on earlier days.
+- The floor plan module owns the plan side: `SiteZones.expected(siteId, day)`. It does not depend on `attendance`.
+
 ## Rules
 
 - A person may check in on several Sites in one day and is present on each.
@@ -47,7 +65,7 @@ missing `VIEW_PROJECT` -> 403. `POST` and `DELETE` need the CSRF header.
 
 | Method and path | Notes |
 |---|---|
-| `GET /` | Today's Attendance. 200. |
+| `GET /` | The Attendance of a day. Optional `?date=YYYY-MM-DD`; without it, today. A past day is read-only. A date after today or one that is not a real `YYYY-MM-DD` day -> 400 (`code` `INVALID_ARGUMENT`). 200. |
 | `GET /zones` | The zones a person can check in to: live zones of all floor plans of the Site, ordered by floor plan name and then as drawn. Needs only `VIEW_PROJECT`, not `VIEW_PLAN`. 200 with a list of `zone` objects (below), empty without floor plans. |
 | `POST /check-ins` | Checks the caller in today. Body `{ "zoneId": "…" }`; `zoneId` null or absent, `{}` or no body mean no zone. 201 with the Check-in, also when it already existed. Unknown or deleted zone, or a zone of another Site -> 404 and nothing is stored. |
 | `DELETE /check-ins/{checkInId}` | Removes a Check-in. 204, no body. |
@@ -68,6 +86,8 @@ Attendance:
       "name": "Ana Perez",
       "avatarUrl": null,
       "state": "PRESENT",
+      "planned": true,
+      "expectedZone": { "id": "…", "name": "Slab B", "floorPlanId": "…", "floorPlanName": "Level 1" },
       "checkIn": {
         "id": "…",
         "membershipId": "…",
@@ -79,15 +99,23 @@ Attendance:
       "removable": true
     }
   ],
-  "me": { "membershipId": "…" }
+  "me": {
+    "membershipId": "…",
+    "expectedZone": { "id": "…", "name": "Slab B", "floorPlanId": "…", "floorPlanName": "Level 1" }
+  }
 }
 ```
 
-`people` is ordered by name, ignoring case. `state` is always `PRESENT` for now. `removable` is true when the
+`people` is ordered by name, ignoring case. `people` has everyone with a Check-in
+that day and everyone expected. `state` is `PRESENT`, `ABSENT` or `UNPLANNED` (above). `planned` is true for
+`PRESENT` and `ABSENT`; `expectedZone` is where the plan expects the person and null when not planned. `checkIn`
+is the person's current Check-in and null for `ABSENT`; `checkIn.zone` is their current zone. `today` is false
+for a past day. `removable` is true when the
 caller may remove the row's Check-in now: the day is today and the caller recorded it or holds `MANAGE_PLAN`; it
 is always false on a past day. `avatarUrl` is a download link
 valid for one hour, or null. `checkIn.zone` is null for present with no zone.
-`me.membershipId` is the caller, so a client finds its own row in `people`. The body
+`me.membershipId` is the caller, so a client finds its own row in `people`; `me.expectedZone` is where the plan
+expects the caller that day (null when not expected), for preselecting the zone when checking in. The body
 of `POST /check-ins` is the `checkIn` object above.
 
 ## Site Report

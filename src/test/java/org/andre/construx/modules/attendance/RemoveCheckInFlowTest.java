@@ -110,7 +110,7 @@ class RemoveCheckInFlowTest extends AttendanceZoneTestBase {
         remove(worker, moved).andExpect(status().isNoContent());
 
         api.get(owner, attendance).andExpect(jsonPath("$.people", hasSize(1)))
-                .andExpect(jsonPath("$.people[0].state").value("PRESENT"))
+                .andExpect(jsonPath("$.people[0].state").value("UNPLANNED"))
                 .andExpect(jsonPath("$.people[0].checkIn.id").value(first))
                 .andExpect(jsonPath("$.people[0].checkIn.zone.id").value(slabA.toString()))
                 .andExpect(jsonPath("$.people[0].checkIn.checkedInAt").value(MORNING));
