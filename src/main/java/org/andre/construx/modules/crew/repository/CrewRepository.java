@@ -13,5 +13,10 @@ public interface CrewRepository extends JpaRepository<Crew, UUID> {
     @Query("select c from Crew c join fetch c.leader where c.organization.id = :organizationId order by c.name")
     List<Crew> findByOrganizationId(UUID organizationId);
 
+    /** The crews of the organization one member leads, by name. */
+    @Query("select c from Crew c join fetch c.leader where c.organization.id = :organizationId "
+            + "and c.leader.id = :leaderId order by c.name")
+    List<Crew> findByOrganizationIdAndLeaderId(UUID organizationId, UUID leaderId);
+
     Optional<Crew> findByIdAndOrganizationId(UUID id, UUID organizationId);
 }

@@ -48,7 +48,7 @@ public class AttendanceController {
     @ResponseStatus(HttpStatus.CREATED)
     public AttendanceService.CheckInData checkIn(
             SiteScope site, @RequestBody(required = false) AttendanceService.CheckInRequest request) {
-        return service.checkIn(site, request == null ? new AttendanceService.CheckInRequest(null) : request);
+        return service.checkIn(site, request == null ? new AttendanceService.CheckInRequest(null, null) : request);
     }
 
     @GetMapping("/zones")
