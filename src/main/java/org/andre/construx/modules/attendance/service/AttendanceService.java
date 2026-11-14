@@ -2,6 +2,7 @@ package org.andre.construx.modules.attendance.service;
 
 import org.andre.construx.modules.attendance.model.CheckIn;
 import org.andre.construx.modules.attendance.repository.CheckInRepository;
+import org.andre.construx.modules.attendance.repository.CheckInRepository.PersonDays;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.service.SiteZones;
 import org.andre.construx.modules.floorplan.service.SiteZones.ZoneRef;
@@ -9,11 +10,16 @@ import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.time.LocalDay;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
@@ -37,14 +43,16 @@ public class AttendanceService {
 
     private final CheckInRepository checkIns;
     private final PersonDirectory directory;
+    private final MembershipDirectory memberships;
     private final SiteZones siteZones;
     private final LocalDay localDay;
     private final Clock clock;
 
-    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, SiteZones siteZones,
-                             LocalDay localDay, Clock clock) {
+    public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, MembershipDirectory memberships,
+                             SiteZones siteZones, LocalDay localDay, Clock clock) {
         this.checkIns = checkIns;
         this.directory = directory;
+        this.memberships = memberships;
         this.siteZones = siteZones;
         this.localDay = localDay;
         this.clock = clock;
@@ -62,8 +70,12 @@ public class AttendanceService {
     /** {@code zoneId} null or absent: no zone. */
     public record CheckInRequest(UUID zoneId) {}
 
-    /** One person of the day; {@code checkIn} is their current (latest) Check-in. */
-    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn) {}
+    /**
+     * One person of the day; {@code checkIn} is their current Check-in, the latest one not removed.
+     * {@code removable} tells whether the caller may remove it now.
+     */
+    public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, CheckInData checkIn,
+                            boolean removable) {}
 
     /** What Attendance says about the caller. */
     public record Me(UUID membershipId) {}
@@ -78,6 +90,7 @@ public class AttendanceService {
         LocalDate day = localDay.today();
         List<CheckIn> ofDay = checkIns.findOfDay(site.siteId(), day);
         Names names = names(ofDay);
+        boolean today = day.equals(localDay.today());
 
         // Oldest first, so the latest Check-in of a person is the one left in the map.
         Map<UUID, CheckIn> current = new LinkedHashMap<>();
@@ -88,11 +101,11 @@ public class AttendanceService {
                 .map(checkIn -> {
                     OrganizationMembership member = checkIn.getMembership();
                     return new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
-                            State.PRESENT, names.data(checkIn));
+                            State.PRESENT, names.data(checkIn), today && mayRemove(site, checkIn));
                 })
                 .sorted(BY_NAME)
                 .toList();
-        return new AttendanceData(day, true, people, new Me(site.membershipId()));
+        return new AttendanceData(day, today, people, new Me(site.membershipId()));
     }
 
     /** The zones a person can check in to: the live zones of the Site's floor plans. */
@@ -105,7 +118,8 @@ public class AttendanceService {
     /**
      * Records the caller as present on the Site today, in a zone or in none. A later Check-in to another zone
      * (or to none) moves the person and the earlier ones stay as history. Checking in to where the person's
-     * latest Check-in of today already puts them changes nothing: that Check-in is returned and none is stored.
+     * current Check-in (the latest of today that was not removed) already puts them changes nothing: that
+     * Check-in is returned and none is stored.
      */
     @Transactional
     public CheckInData checkIn(SiteScope site, CheckInRequest request) {
@@ -115,12 +129,77 @@ public class AttendanceService {
         Instant now = clock.instant();
         LocalDate day = localDay.of(now);
 
-        CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayOrderByCheckedInAtDesc(
+        CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayAndRemovedAtIsNullOrderByCheckedInAtDesc(
                         site.siteId(), caller.getId(), day).stream()
                 .findFirst()
                 .filter(latest -> latest.isIn(zone))
                 .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, zone, day, now, caller)));
         return names(List.of(checkIn)).data(checkIn);
+    }
+
+    /** One person of the summary; {@code name} is the profile name, or the email without one. */
+    public record PersonSummary(UUID membershipId, String name, long daysPresent, LocalDate lastDayPresent) {}
+
+    /**
+     * Attendance of a Site over its whole life. {@code averagePeoplePerDay} is person-days over
+     * {@code daysWithCheckIns}, to one decimal, and null when there are no Check-ins. {@code people} has most
+     * days present first, then by name.
+     */
+    public record AttendanceSummary(long daysWithCheckIns, BigDecimal averagePeoplePerDay,
+                                    List<PersonSummary> people) {}
+
+    /**
+     * The Site's Attendance to date, for the Site Report. A person counts once per day however many Check-ins
+     * they have, removed Check-ins are ignored, and people who have left the company keep their name.
+     */
+    @Transactional(readOnly = true)
+    public AttendanceSummary summary(SiteScope site) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        List<PersonDays> perPerson = checkIns.findDaysPerPerson(site.siteId());
+        if (perPerson.isEmpty()) return new AttendanceSummary(0, null, List.of());
+
+        Map<UUID, OrganizationMembership> members = new LinkedHashMap<>();
+        Set<UUID> userIds = new LinkedHashSet<>();
+        for (OrganizationMembership member : memberships.byIds(site.organizationId(),
+                perPerson.stream().map(PersonDays::membershipId).toList())) {
+            members.put(member.getId(), member);
+            userIds.add(member.getUserAccount().getId());
+        }
+        Names names = new Names(directory.byUserId(userIds));
+
+        List<PersonSummary> people = perPerson.stream()
+                .map(p -> new PersonSummary(p.membershipId(), names.name(members.get(p.membershipId())),
+                        p.days(), p.lastDay()))
+                .sorted(Comparator.comparingLong(PersonSummary::daysPresent).reversed()
+                        .thenComparing(PersonSummary::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        long days = checkIns.countDays(site.siteId());
+        long personDays = people.stream().mapToLong(PersonSummary::daysPresent).sum();
+        BigDecimal average = BigDecimal.valueOf(personDays).divide(BigDecimal.valueOf(days), 1, RoundingMode.HALF_UP);
+        return new AttendanceSummary(days, average, people);
+    }
+
+    /**
+     * Removes a Check-in made by mistake: it is kept, marked with who removed it and when, and ignored from then
+     * on, so the person falls back to their previous Check-in of the day or is no longer present. Allowed to
+     * the member who recorded it and to members with {@code MANAGE_PLAN}, only on the day it belongs to
+     * ({@link org.andre.construx.modules.attendance.model.CheckInLockedException} otherwise). Removing an
+     * already removed Check-in changes nothing.
+     */
+    @Transactional
+    public void remove(SiteScope site, UUID checkInId) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        CheckIn checkIn = checkIns.findByIdAndSiteId(checkInId, site.siteId())
+                .orElseThrow(() -> new ResourceNotFoundException("Check-in not found"));
+        if (!mayRemove(site, checkIn)) {
+            throw new AccessDeniedException("Only who recorded the Check-in or a plan manager can remove it");
+        }
+        Instant now = clock.instant();
+        checkIn.remove(site.membership(), now, localDay.of(now));
+    }
+
+    private static boolean mayRemove(SiteScope site, CheckIn checkIn) {
+        return checkIn.getRecordedBy().getId().equals(site.membershipId()) || site.can(PermissionAction.MANAGE_PLAN);
     }
 
     /** Display names and photos of everyone in a batch of Check-ins, read once. */

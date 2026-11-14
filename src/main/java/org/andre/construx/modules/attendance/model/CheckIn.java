@@ -15,7 +15,8 @@ import java.util.UUID;
 
 /**
  * One person recorded as present on a Site at a moment (ADR 0007). There is no check-out: a later Check-in the
- * same day replaces this one as the person's current one, and this row stays as history. Never updated.
+ * same day replaces this one as the person's current one, and this row stays as history. The only change it
+ * accepts is its removal, on its own day: the row is kept, marked with who removed it and when, and ignored.
  */
 @Entity
 @Table(name = "check_in")
@@ -56,6 +57,13 @@ public class CheckIn {
     @JoinColumn(name = "recorded_by_membership_id", nullable = false)
     private OrganizationMembership recordedBy;
 
+    /** Set when the Check-in was removed as a mistake; a removed Check-in is ignored everywhere. */
+    private Instant removedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "removed_by_membership_id")
+    private OrganizationMembership removedBy;
+
     public CheckIn(Project site, OrganizationMembership membership, FloorPlanZone zone, LocalDate day,
                    Instant checkedInAt, OrganizationMembership recordedBy) {
         this.id = UUID.randomUUID();
@@ -70,5 +78,26 @@ public class CheckIn {
     /** Whether this Check-in already says the person is in that zone ({@code null}: in no zone). */
     public boolean isIn(FloorPlanZone other) {
         return zone == null ? other == null : other != null && zone.getId().equals(other.getId());
+    }
+
+    public boolean isRemoved() {
+        return removedAt != null;
+    }
+
+    /**
+     * Marks the Check-in as removed. Removing an already removed one changes nothing and keeps the first
+     * removal. Only the day the Check-in belongs to accepts it: {@code today} is the current day.
+     */
+    public void remove(OrganizationMembership by, Instant at, LocalDate today) {
+        DomainValidation.required(by, "Who removes it is required");
+        DomainValidation.required(at, "Moment is required");
+        if (isRemoved()) {
+            return;
+        }
+        if (!day.equals(today)) {
+            throw new CheckInLockedException();
+        }
+        this.removedAt = at;
+        this.removedBy = by;
     }
 }

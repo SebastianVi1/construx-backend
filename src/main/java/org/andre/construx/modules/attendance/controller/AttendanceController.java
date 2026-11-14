@@ -4,7 +4,9 @@ import org.andre.construx.modules.attendance.service.AttendanceService;
 import org.andre.construx.modules.floorplan.service.SiteZones;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 /** Contract: {@code docs/attendance.md}. */
 @RestController
@@ -39,5 +42,11 @@ public class AttendanceController {
     @GetMapping("/zones")
     public List<SiteZones.ZoneRef> zones(SiteScope site) {
         return service.zones(site);
+    }
+
+    @DeleteMapping("/check-ins/{checkInId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void remove(SiteScope site, @PathVariable UUID checkInId) {
+        service.remove(site, checkInId);
     }
 }

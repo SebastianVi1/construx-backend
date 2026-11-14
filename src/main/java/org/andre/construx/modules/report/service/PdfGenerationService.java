@@ -45,6 +45,11 @@ public class PdfGenerationService {
 
     public record TeamMember(String displayName, String roleName) {}
 
+    public record AttendanceRow(String name, long daysPresent, LocalDate lastDayPresent) {}
+
+    /** Attendance over the Site's life; {@code people} is empty when the Site has no Check-ins. */
+    public record AttendanceData(long daysWithCheckIns, BigDecimal averagePeoplePerDay, List<AttendanceRow> people) {}
+
     public record SiteReportData(
             String reportTitle,
             String siteName,
@@ -65,7 +70,9 @@ public class PdfGenerationService {
             // Phases
             List<PhaseData> phases,
             // Team
-            List<TeamMember> team) {}
+            List<TeamMember> team,
+            // Attendance
+            AttendanceData attendance) {}
 
     // ─── Public API ──────────────────────────────────────────────────────────
 
@@ -81,6 +88,7 @@ public class PdfGenerationService {
             addExpenseSection(doc, data);
             addPhaseSection(doc, data);
             addTeamSection(doc, data);
+            addAttendanceSection(doc, data.attendance());
         } catch (DocumentException e) {
             throw new IllegalStateException("PDF generation failed", e);
         } finally {
@@ -272,6 +280,43 @@ public class PdfGenerationService {
             Color bg = (row++ % 2 == 0) ? COLOR_WHITE : COLOR_ROW_ALT;
             addDataCell(table, m.displayName(), valueFont, bg);
             addDataCell(table, m.roleName(), valueFont, bg);
+        }
+        doc.add(table);
+    }
+
+    private void addAttendanceSection(Document doc, AttendanceData attendance) throws DocumentException {
+        addSectionHeader(doc, "Asistencia");
+
+        Font textFont = FontFactory.getFont(FontFactory.HELVETICA, 9f, Color.BLACK);
+        if (attendance == null || attendance.people() == null || attendance.people().isEmpty()) {
+            Paragraph none = new Paragraph("Sin registros de entrada.", textFont);
+            none.setSpacingAfter(20f);
+            doc.add(none);
+            return;
+        }
+
+        doc.add(new Paragraph("Días con registros de entrada: " + attendance.daysWithCheckIns(), textFont));
+        Paragraph average = new Paragraph("Promedio de personas por día: "
+                + attendance.averagePeoplePerDay().setScale(1, RoundingMode.HALF_UP).toPlainString(), textFont);
+        average.setSpacingAfter(8f);
+        doc.add(average);
+
+        Font labelFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9f, COLOR_WHITE);
+        PdfPTable table = new PdfPTable(3);
+        table.setWidthPercentage(100f);
+        table.setWidths(new float[]{3f, 1.2f, 1.5f});
+        table.setSpacingAfter(20f);
+
+        addHeaderCell(table, "Persona", labelFont);
+        addHeaderCell(table, "Días presentes", labelFont);
+        addHeaderCell(table, "Último día presente", labelFont);
+
+        int row = 0;
+        for (AttendanceRow person : attendance.people()) {
+            Color bg = (row++ % 2 == 0) ? COLOR_WHITE : COLOR_ROW_ALT;
+            addDataCell(table, person.name(), textFont, bg);
+            addDataCell(table, String.valueOf(person.daysPresent()), textFont, bg);
+            addDataCell(table, fmtDate(person.lastDayPresent()), textFont, bg);
         }
         doc.add(table);
     }
