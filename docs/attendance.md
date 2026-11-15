@@ -38,6 +38,8 @@ Attendance of a day compares that day's Check-ins with the zone plan. Nothing bu
   another zone (or to no zone) adds a record and moves the person; the earlier ones stay as history.
 - A person's row shows their current Check-in, the latest of the day that was not removed; its zone is their
   current zone, and no zone means present with no zone.
+- A Check-in is made for a person: the caller himself or herself, or, by someone answering for them, another
+  active member of the company, with or without access to the Site. Its recorder is the member who made it.
 - Checking in to the zone (or no zone) of the person's current Check-in stores nothing and returns that
   Check-in. Going back to an earlier zone after a move is a new Check-in.
 - Only a live zone of a floor plan of this Site can be checked in to. A Check-in keeps its zone after the zone is
@@ -53,9 +55,12 @@ Attendance of a day compares that day's Check-ins with the zone plan. Nothing bu
 ## Permissions
 
 No permission action of its own. Reading Attendance and checking oneself in need `VIEW_PROJECT` on the Site:
-`ORGANIZATION` scope, or `PROJECT` scope with access to the Site. Removing a Check-in needs `VIEW_PROJECT` and
-one of: being the member who recorded it, or `MANAGE_PLAN` on the Site. The person checked in by someone else
-cannot remove that Check-in unless they hold `MANAGE_PLAN`.
+`ORGANIZATION` scope, or `PROJECT` scope with access to the Site. Checking in someone else needs `VIEW_PROJECT`
+on the Site and one of: `MANAGE_PLAN` on the Site, for any active member of the company; or being the leader of
+a Crew the person belongs to (the leader still opens the Site like anybody else). A member of the company
+without access to the Site cannot check in there, only be checked in by someone with that right. Removing a
+Check-in needs `VIEW_PROJECT` and one of: being the member who recorded it, or `MANAGE_PLAN` on the Site. The
+person checked in by someone else cannot remove that Check-in unless they hold `MANAGE_PLAN`.
 
 ## Endpoints
 
@@ -67,8 +72,12 @@ missing `VIEW_PROJECT` -> 403. `POST` and `DELETE` need the CSRF header.
 |---|---|
 | `GET /` | The Attendance of a day. Optional `?date=YYYY-MM-DD`; without it, today. A past day is read-only. A date after today or one that is not a real `YYYY-MM-DD` day -> 400 (`code` `INVALID_ARGUMENT`). 200. |
 | `GET /zones` | The zones a person can check in to: live zones of all floor plans of the Site, ordered by floor plan name and then as drawn. Needs only `VIEW_PROJECT`, not `VIEW_PLAN`. 200 with a list of `zone` objects (below), empty without floor plans. |
-| `POST /check-ins` | Checks the caller in today. Body `{ "zoneId": "…" }`; `zoneId` null or absent, `{}` or no body mean no zone. 201 with the Check-in, also when it already existed. Unknown or deleted zone, or a zone of another Site -> 404 and nothing is stored. |
+| `POST /check-ins` | Checks the caller, or another person, in today. Body `{ "membershipId": "…", "zoneId": "…" }`; `membershipId` null or absent means the caller, `zoneId` null or absent, `{}` or no body mean no zone. 201 with the Check-in, also when it already existed. Unknown or deleted zone, or a zone of another Site -> 404 and nothing is stored. |
 | `DELETE /check-ins/{checkInId}` | Removes a Check-in. 204, no body. |
+
+`POST /check-ins` answers, in this order: unknown, suspended, departed or other-company member -> 404 (nothing
+stored); caller neither a `MANAGE_PLAN` holder nor the leader of a Crew the person belongs to -> 403; unknown or
+deleted zone, or a zone of another Site -> 404 (nothing stored); otherwise 201.
 
 `DELETE /check-ins/{checkInId}` answers, in this order: unknown Check-in or one of another Site -> 404; caller
 neither its recorder nor a `MANAGE_PLAN` holder -> 403; already removed -> 204 with no change (the first removal
@@ -101,7 +110,8 @@ Attendance:
   ],
   "me": {
     "membershipId": "…",
-    "expectedZone": { "id": "…", "name": "Slab B", "floorPlanId": "…", "floorPlanName": "Level 1" }
+    "expectedZone": { "id": "…", "name": "Slab B", "floorPlanId": "…", "floorPlanName": "Level 1" },
+    "canCheckInOthers": true
   }
 }
 ```
@@ -115,8 +125,9 @@ caller may remove the row's Check-in now: the day is today and the caller record
 is always false on a past day. `avatarUrl` is a download link
 valid for one hour, or null. `checkIn.zone` is null for present with no zone.
 `me.membershipId` is the caller, so a client finds its own row in `people`; `me.expectedZone` is where the plan
-expects the caller that day (null when not expected), for preselecting the zone when checking in. The body
-of `POST /check-ins` is the `checkIn` object above.
+expects the caller that day (null when not expected), for preselecting the zone when checking in;
+`me.canCheckInOthers` is true for a member who may record a Check-in for someone else (`MANAGE_PLAN`, or leading
+a Crew), so the page offers the action. The body of `POST /check-ins` is the `checkIn` object above.
 
 ## Site Report
 

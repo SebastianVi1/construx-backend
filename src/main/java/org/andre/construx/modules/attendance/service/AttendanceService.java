@@ -3,6 +3,7 @@ package org.andre.construx.modules.attendance.service;
 import org.andre.construx.modules.attendance.model.CheckIn;
 import org.andre.construx.modules.attendance.repository.CheckInRepository;
 import org.andre.construx.modules.attendance.repository.CheckInRepository.PersonDays;
+import org.andre.construx.modules.crew.service.CrewDirectory;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.service.SiteZones;
 import org.andre.construx.modules.floorplan.service.SiteZones.ZoneRef;
@@ -46,15 +47,17 @@ public class AttendanceService {
     private final CheckInRepository checkIns;
     private final PersonDirectory directory;
     private final MembershipDirectory memberships;
+    private final CrewDirectory crews;
     private final SiteZones siteZones;
     private final LocalDay localDay;
     private final Clock clock;
 
     public AttendanceService(CheckInRepository checkIns, PersonDirectory directory, MembershipDirectory memberships,
-                             SiteZones siteZones, LocalDay localDay, Clock clock) {
+                             CrewDirectory crews, SiteZones siteZones, LocalDay localDay, Clock clock) {
         this.checkIns = checkIns;
         this.directory = directory;
         this.memberships = memberships;
+        this.crews = crews;
         this.siteZones = siteZones;
         this.localDay = localDay;
         this.clock = clock;
@@ -74,8 +77,10 @@ public class AttendanceService {
     public record CheckInData(UUID id, UUID membershipId, ZoneRef zone, LocalDate date, Instant checkedInAt,
                               PersonRef recordedBy) {}
 
-    /** {@code zoneId} null or absent: no zone. */
-    public record CheckInRequest(UUID zoneId) {}
+    /**
+     * {@code membershipId} null or absent: the caller. {@code zoneId} null or absent: no zone.
+     */
+    public record CheckInRequest(UUID membershipId, UUID zoneId) {}
 
     /**
      * One person of the day. {@code planned} tells whether the zone plan expected them and {@code expectedZone}
@@ -85,8 +90,12 @@ public class AttendanceService {
     public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, boolean planned,
                             ZoneRef expectedZone, CheckInData checkIn, boolean removable) {}
 
-    /** What Attendance says about the caller; {@code expectedZone} is where the plan expects them that day. */
-    public record Me(UUID membershipId, ZoneRef expectedZone) {}
+    /**
+     * What Attendance says about the caller; {@code expectedZone} is where the plan expects them that day and
+     * {@code canCheckInOthers} whether they may record a Check-in for another member (a plan manager, or a Crew
+     * leader for their own Crew).
+     */
+    public record Me(UUID membershipId, ZoneRef expectedZone, boolean canCheckInOthers) {}
 
     /** {@code today} tells whether {@code date} is the current day, the only one that accepts Check-ins. */
     public record AttendanceData(LocalDate date, boolean today, List<PersonRow> people, Me me) {}
@@ -145,7 +154,7 @@ public class AttendanceService {
         }
         people.sort(BY_NAME);
         return new AttendanceData(day, today, List.copyOf(people),
-                new Me(site.membershipId(), expected.get(site.membershipId())));
+                new Me(site.membershipId(), expected.get(site.membershipId()), mayCheckInOthers(site)));
     }
 
     /** The zones a person can check in to: the live zones of the Site's floor plans. */
@@ -156,25 +165,56 @@ public class AttendanceService {
     }
 
     /**
-     * Records the caller as present on the Site today, in a zone or in none. A later Check-in to another zone
-     * (or to none) moves the person and the earlier ones stay as history. Checking in to where the person's
-     * current Check-in (the latest of today that was not removed) already puts them changes nothing: that
-     * Check-in is returned and none is stored.
+     * Records the caller, or another active member of the company, as present on the Site today, in a zone or in
+     * none. The recorder is always the caller. A later Check-in to another zone (or to none) moves the person and
+     * the earlier ones stay as history. Checking in to where the person's current Check-in (the latest of today
+     * that was not removed) already puts them changes nothing: that Check-in is returned and none is stored.
      */
     @Transactional
     public CheckInData checkIn(SiteScope site, CheckInRequest request) {
         site.require(PermissionAction.VIEW_PROJECT);
-        FloorPlanZone zone = request.zoneId() == null ? null : siteZones.live(site.siteId(), request.zoneId());
         OrganizationMembership caller = site.membership();
+        OrganizationMembership person = person(site, request.membershipId());
+        FloorPlanZone zone = request.zoneId() == null ? null : siteZones.live(site.siteId(), request.zoneId());
         Instant now = clock.instant();
         LocalDate day = localDay.of(now);
 
         CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayAndRemovedAtIsNullOrderByCheckedInAtDesc(
-                        site.siteId(), caller.getId(), day).stream()
+                        site.siteId(), person.getId(), day).stream()
                 .findFirst()
                 .filter(latest -> latest.isIn(zone))
-                .orElseGet(() -> checkIns.save(new CheckIn(site.site(), caller, zone, day, now, caller)));
+                .orElseGet(() -> checkIns.save(new CheckIn(site.site(), person, zone, day, now, caller)));
         return names(List.of(checkIn)).data(checkIn);
+    }
+
+    /**
+     * Who the Check-in is for: the caller, or another active member of the company. A member who is unknown,
+     * suspended or has left, or who belongs to another company, is a 404; a caller who may not check that person
+     * in is a 403.
+     */
+    private OrganizationMembership person(SiteScope site, UUID membershipId) {
+        if (membershipId == null || membershipId.equals(site.membershipId())) return site.membership();
+        OrganizationMembership person = memberships.find(site.organizationId(), membershipId)
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (!mayCheckInOther(site, person)) {
+            throw new AccessDeniedException(
+                    "Only a plan manager or the leader of the person's Crew can check in another member");
+        }
+        return person;
+    }
+
+    /** A plan manager checks in anyone; a Crew leader only the members of the Crews they lead. */
+    private boolean mayCheckInOther(SiteScope site, OrganizationMembership person) {
+        if (site.can(PermissionAction.MANAGE_PLAN)) return true;
+        return crews.ledBy(site.organizationId(), site.membershipId()).stream()
+                .anyMatch(crew -> crew.memberIds().contains(person.getId()));
+    }
+
+    /** Whether the caller may check in anybody at all, which is what the Attendance page needs to offer it. */
+    private boolean mayCheckInOthers(SiteScope site) {
+        return site.can(PermissionAction.MANAGE_PLAN)
+                || !crews.ledBy(site.organizationId(), site.membershipId()).isEmpty();
     }
 
     /** One person of the summary; {@code name} is the profile name, or the email without one. */

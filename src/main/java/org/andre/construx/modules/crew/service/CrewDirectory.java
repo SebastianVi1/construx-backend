@@ -1,6 +1,7 @@
 package org.andre.construx.modules.crew.service;
 
 import org.andre.construx.modules.crew.model.Crew;
+import org.andre.construx.modules.crew.model.CrewMember;
 import org.andre.construx.modules.crew.model.Equipment;
 import org.andre.construx.modules.crew.repository.CrewRepository;
 import org.andre.construx.modules.crew.repository.EquipmentRepository;
@@ -31,6 +32,17 @@ public class CrewDirectory {
 
     /** A piece of equipment as other modules list it. */
     public record EquipmentSummary(UUID id, String type, String identifier) {}
+
+    /** A Crew with the members it has now. */
+    public record CrewRoster(UUID id, String name, UUID leaderId, List<UUID> memberIds) {}
+
+    /** The crews of the organization this member leads, by name, with their current members. */
+    public List<CrewRoster> ledBy(UUID organizationId, UUID leaderMembershipId) {
+        return crews.findByOrganizationIdAndLeaderId(organizationId, leaderMembershipId).stream()
+                .map(crew -> new CrewRoster(crew.getId(), crew.getName(), crew.getLeader().getId(),
+                        crew.getMembers().stream().map(CrewMember::getMembershipId).toList()))
+                .toList();
+    }
 
     /**
      * 404 unless the crew belongs to the organization. Returns the entity only because zone assignments still hold a
