@@ -4,18 +4,24 @@ import org.andre.construx.modules.attendance.repository.CheckInRepository;
 import org.andre.construx.support.Api;
 import org.andre.construx.support.Api.Session;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class RollCallFlowTest extends AttendanceZoneTestBase {
-    @Autowired CheckInRepository checkInRows;
+    @MockitoSpyBean CheckInRepository checkInRows;
 
     @Test
     void aCrewLeaderSeesAndRecordsTheExpectedCrewInOneRollCall() throws Exception {
@@ -39,6 +45,22 @@ class RollCallFlowTest extends AttendanceZoneTestBase {
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].recordedBy.membershipId").value(workerMembership.toString()))
                 .andExpect(jsonPath("$[0].zone.id").value(slabB.toString()));
+    }
+
+    @Test
+    void attendanceReusesTheLatestCheckInForTheRollCallRoster() throws Exception {
+        String crewId = crew("Rebar crew", workerMembership, otherWorkerMembership);
+        assign(slabB, "\"crewId\":\"" + crewId + "\"");
+        checkIn(worker, slabA).andExpect(status().isCreated());
+        clock.set("2026-03-10T15:01:00Z");
+        checkIn(worker, slabB).andExpect(status().isCreated());
+        clearInvocations(checkInRows);
+
+        api.get(worker, attendance).andExpect(status().isOk())
+                .andExpect(jsonPath("$.people[*].checkIn.zone.id", hasItem(slabB.toString())))
+                .andExpect(jsonPath("$.me.rollCallCrews[0].members[*].checkIn.zone.id", hasItem(slabB.toString())));
+
+        verify(checkInRows, times(1)).findOfDay(eq(siteId), eq(LocalDate.parse("2026-03-10")));
     }
 
     @Test
