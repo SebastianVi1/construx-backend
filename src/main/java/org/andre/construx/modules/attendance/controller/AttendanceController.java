@@ -51,6 +51,13 @@ public class AttendanceController {
         return service.checkIn(site, request == null ? new AttendanceService.CheckInRequest(null, null) : request);
     }
 
+    @PostMapping("/roll-calls")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<AttendanceService.CheckInData> rollCall(
+            SiteScope site, @RequestBody(required = false) AttendanceService.RollCallRequest request) {
+        return service.rollCall(site, request);
+    }
+
     @GetMapping("/zones")
     public List<SiteZones.ZoneRef> zones(SiteScope site) {
         return service.zones(site);

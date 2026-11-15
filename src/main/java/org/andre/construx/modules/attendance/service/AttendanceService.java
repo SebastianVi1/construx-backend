@@ -95,7 +95,17 @@ public class AttendanceService {
      * {@code canCheckInOthers} whether they may record a Check-in for another member (a plan manager, or a Crew
      * leader for their own Crew).
      */
-    public record Me(UUID membershipId, ZoneRef expectedZone, boolean canCheckInOthers) {}
+    public record Me(UUID membershipId, ZoneRef expectedZone, boolean canCheckInOthers,
+                     List<RollCallCrew> rollCallCrews) {}
+
+    /** A Crew member and their current Check-in, if already present today. */
+    public record RollCallMember(UUID membershipId, String name, CheckInData checkIn) {}
+
+    /** A Crew the caller may take roll for today. */
+    public record RollCallCrew(UUID crewId, String name, ZoneRef expectedZone, List<RollCallMember> members) {}
+
+    /** Members to record in one atomic roll call. */
+    public record RollCallRequest(UUID crewId, List<UUID> membershipIds, UUID zoneId) {}
 
     /** {@code today} tells whether {@code date} is the current day, the only one that accepts Check-ins. */
     public record AttendanceData(LocalDate date, boolean today, List<PersonRow> people, Me me) {}
@@ -153,8 +163,9 @@ public class AttendanceService {
                     State.ABSENT, true, expected.get(member.getId()), null, false));
         }
         people.sort(BY_NAME);
+        List<RollCallCrew> rollCallCrews = today ? rollCallCrews(site, day) : List.of();
         return new AttendanceData(day, today, List.copyOf(people),
-                new Me(site.membershipId(), expected.get(site.membershipId()), mayCheckInOthers(site)));
+                new Me(site.membershipId(), expected.get(site.membershipId()), mayCheckInOthers(site), rollCallCrews));
     }
 
     /** The zones a person can check in to: the live zones of the Site's floor plans. */
@@ -178,13 +189,99 @@ public class AttendanceService {
         FloorPlanZone zone = request.zoneId() == null ? null : siteZones.live(site.siteId(), request.zoneId());
         Instant now = clock.instant();
         LocalDate day = localDay.of(now);
+        CheckIn checkIn = record(site, caller, person, zone, now, day);
+        return names(List.of(checkIn)).data(checkIn);
+    }
 
-        CheckIn checkIn = checkIns.findBySiteIdAndMembershipIdAndDayAndRemovedAtIsNullOrderByCheckedInAtDesc(
+    /** Records one Crew roll call after validating every requested member and the zone. */
+    @Transactional
+    public List<CheckInData> rollCall(SiteScope site, RollCallRequest request) {
+        site.require(PermissionAction.VIEW_PROJECT);
+        if (request == null || request.crewId() == null || request.membershipIds() == null
+                || request.membershipIds().isEmpty() || request.membershipIds().contains(null)) {
+            throw new IllegalArgumentException("crewId and at least one membershipId are required");
+        }
+
+        CrewDirectory.CrewRoster crew = crews.roster(site.organizationId(), request.crewId());
+        boolean planManager = site.can(PermissionAction.MANAGE_PLAN);
+        if (!planManager && !crew.leaderId().equals(site.membershipId())) {
+            throw new AccessDeniedException("Only the Crew leader or a plan manager can take roll");
+        }
+
+        Instant now = clock.instant();
+        LocalDate day = localDay.of(now);
+        SiteZones.ExpectedCrew expectedCrew = siteZones.expectedCrews(site.siteId(), day).stream()
+                .filter(expected -> expected.crewId().equals(crew.id()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Crew is not expected on this Site today"));
+        FloorPlanZone zone = request.zoneId() == null ? null : siteZones.live(site.siteId(), request.zoneId());
+
+        List<OrganizationMembership> people = new ArrayList<>();
+        for (UUID membershipId : new LinkedHashSet<>(request.membershipIds())) {
+            if (!crew.memberIds().contains(membershipId)) {
+                throw new IllegalArgumentException("Every roll-call member must belong to the Crew");
+            }
+            people.add(person(site, membershipId));
+        }
+
+        OrganizationMembership caller = site.membership();
+        List<CheckIn> checkInsForCrew = people.stream()
+                .map(person -> record(site, caller, person, zone, now, day))
+                .toList();
+        Names names = names(checkInsForCrew);
+        return checkInsForCrew.stream().map(names::data).toList();
+    }
+
+    private CheckIn record(SiteScope site, OrganizationMembership caller, OrganizationMembership person,
+                           FloorPlanZone zone, Instant now, LocalDate day) {
+        return checkIns.findBySiteIdAndMembershipIdAndDayAndRemovedAtIsNullOrderByCheckedInAtDesc(
                         site.siteId(), person.getId(), day).stream()
                 .findFirst()
                 .filter(latest -> latest.isIn(zone))
                 .orElseGet(() -> checkIns.save(new CheckIn(site.site(), person, zone, day, now, caller)));
-        return names(List.of(checkIn)).data(checkIn);
+    }
+
+    private List<RollCallCrew> rollCallCrews(SiteScope site, LocalDate day) {
+        Map<UUID, CheckIn> current = new LinkedHashMap<>();
+        for (CheckIn checkIn : checkIns.findOfDay(site.siteId(), day)) {
+            current.put(checkIn.getMembership().getId(), checkIn);
+        }
+        List<SiteZones.ExpectedCrew> expectedCrews = siteZones.expectedCrews(site.siteId(), day);
+        List<CrewDirectory.CrewRoster> eligible = new ArrayList<>();
+        boolean planManager = site.can(PermissionAction.MANAGE_PLAN);
+        for (SiteZones.ExpectedCrew expected : expectedCrews) {
+            CrewDirectory.CrewRoster crew = crews.roster(site.organizationId(), expected.crewId());
+            if (planManager || crew.leaderId().equals(site.membershipId())) eligible.add(crew);
+        }
+        Set<UUID> memberIds = new LinkedHashSet<>();
+        eligible.forEach(crew -> memberIds.addAll(crew.memberIds()));
+        Map<UUID, OrganizationMembership> activeMembers = new LinkedHashMap<>();
+        memberships.byIds(site.organizationId(), memberIds).stream()
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+                .forEach(member -> activeMembers.put(member.getId(), member));
+
+        Set<UUID> userIds = new LinkedHashSet<>();
+        activeMembers.values().forEach(member -> userIds.add(member.getUserAccount().getId()));
+        current.values().forEach(checkIn -> {
+            userIds.add(checkIn.getMembership().getUserAccount().getId());
+            userIds.add(checkIn.getRecordedBy().getUserAccount().getId());
+        });
+        Names names = new Names(userIds.isEmpty() ? Map.of() : directory.byUserId(userIds));
+        Map<UUID, CheckInData> currentData = new LinkedHashMap<>();
+        current.forEach((id, checkIn) -> currentData.put(id, names.data(checkIn)));
+
+        List<RollCallCrew> result = new ArrayList<>();
+        for (SiteZones.ExpectedCrew expected : expectedCrews) {
+            CrewDirectory.CrewRoster crew = eligible.stream().filter(c -> c.id().equals(expected.crewId()))
+                    .findFirst().orElse(null);
+            if (crew == null) continue;
+            List<RollCallMember> crewMembers = crew.memberIds().stream()
+                    .filter(activeMembers::containsKey)
+                    .map(id -> new RollCallMember(id, names.name(activeMembers.get(id)), currentData.get(id)))
+                    .toList();
+            result.add(new RollCallCrew(crew.id(), crew.name(), expected.zone(), crewMembers));
+        }
+        return List.copyOf(result);
     }
 
     /**

@@ -73,6 +73,7 @@ missing `VIEW_PROJECT` -> 403. `POST` and `DELETE` need the CSRF header.
 | `GET /` | The Attendance of a day. Optional `?date=YYYY-MM-DD`; without it, today. A past day is read-only. A date after today or one that is not a real `YYYY-MM-DD` day -> 400 (`code` `INVALID_ARGUMENT`). 200. |
 | `GET /zones` | The zones a person can check in to: live zones of all floor plans of the Site, ordered by floor plan name and then as drawn. Needs only `VIEW_PROJECT`, not `VIEW_PLAN`. 200 with a list of `zone` objects (below), empty without floor plans. |
 | `POST /check-ins` | Checks the caller, or another person, in today. Body `{ "membershipId": "…", "zoneId": "…" }`; `membershipId` null or absent means the caller, `zoneId` null or absent, `{}` or no body mean no zone. 201 with the Check-in, also when it already existed. Unknown or deleted zone, or a zone of another Site -> 404 and nothing is stored. |
+| `POST /roll-calls` | Checks selected active members of an expected Crew in today. Body `{ "crewId": "…", "membershipIds": ["…"], "zoneId": "…" }`; `zoneId` null means no zone. Empty lists or membership IDs outside the Crew -> 400 with no writes; unknown Crew or invalid zone -> 404; callers must lead the Crew or hold `MANAGE_PLAN` (403). Duplicate IDs are processed once. Each member's current same-zone Check-in is returned without another write. The request validates all members before storing any Check-in and runs transactionally. 201 with a list of Check-ins. |
 | `DELETE /check-ins/{checkInId}` | Removes a Check-in. 204, no body. |
 
 `POST /check-ins` answers, in this order: unknown, suspended, departed or other-company member -> 404 (nothing
@@ -128,6 +129,8 @@ valid for one hour, or null. `checkIn.zone` is null for present with no zone.
 expects the caller that day (null when not expected), for preselecting the zone when checking in;
 `me.canCheckInOthers` is true for a member who may record a Check-in for someone else (`MANAGE_PLAN`, or leading
 a Crew), so the page offers the action. The body of `POST /check-ins` is the `checkIn` object above.
+
+`me.rollCallCrews` lists today's expected Crews the caller may take roll for. A plan manager sees every expected Crew; a Crew leader sees only Crews they lead. Each entry has `crewId`, `name`, `expectedZone`, and `members`; each member has `membershipId`, `name`, and their current `checkIn`, or null when absent. Past Attendance reads return an empty `rollCallCrews` list. The submitted `zoneId` may differ from or be null instead of `expectedZone`.
 
 ## Site Report
 
