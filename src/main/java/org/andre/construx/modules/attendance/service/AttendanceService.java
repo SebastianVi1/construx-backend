@@ -165,7 +165,7 @@ public class AttendanceService {
                     today && !member.getId().equals(site.membershipId()) && mayCheckInOther(site, member)));
         }
         people.sort(BY_NAME);
-        List<RollCallCrew> rollCallCrews = today ? rollCallCrews(site, day) : List.of();
+        List<RollCallCrew> rollCallCrews = today ? rollCallCrews(site, day, current, names) : List.of();
         return new AttendanceData(day, today, List.copyOf(people),
                 new Me(site.membershipId(), expected.get(site.membershipId()), mayCheckInOthers(site), rollCallCrews));
     }
@@ -243,11 +243,7 @@ public class AttendanceService {
                 .orElseGet(() -> checkIns.save(new CheckIn(site.site(), person, zone, day, now, caller)));
     }
 
-    private List<RollCallCrew> rollCallCrews(SiteScope site, LocalDate day) {
-        Map<UUID, CheckIn> current = new LinkedHashMap<>();
-        for (CheckIn checkIn : checkIns.findOfDay(site.siteId(), day)) {
-            current.put(checkIn.getMembership().getId(), checkIn);
-        }
+    private List<RollCallCrew> rollCallCrews(SiteScope site, LocalDate day, Map<UUID, CheckIn> current, Names names) {
         List<SiteZones.ExpectedCrew> expectedCrews = siteZones.expectedCrews(site.siteId(), day);
         List<CrewDirectory.CrewRoster> eligible = new ArrayList<>();
         boolean planManager = site.can(PermissionAction.MANAGE_PLAN);
@@ -262,13 +258,6 @@ public class AttendanceService {
                 .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
                 .forEach(member -> activeMembers.put(member.getId(), member));
 
-        Set<UUID> userIds = new LinkedHashSet<>();
-        activeMembers.values().forEach(member -> userIds.add(member.getUserAccount().getId()));
-        current.values().forEach(checkIn -> {
-            userIds.add(checkIn.getMembership().getUserAccount().getId());
-            userIds.add(checkIn.getRecordedBy().getUserAccount().getId());
-        });
-        Names names = new Names(userIds.isEmpty() ? Map.of() : directory.byUserId(userIds));
         Map<UUID, CheckInData> currentData = new LinkedHashMap<>();
         current.forEach((id, checkIn) -> currentData.put(id, names.data(checkIn)));
 
