@@ -44,6 +44,13 @@ public class CrewDirectory {
                 .toList();
     }
 
+    /** A Crew with its current members and leader, or 404 when it is outside the organization. */
+    public CrewRoster roster(UUID organizationId, UUID crewId) {
+        Crew crew = crew(organizationId, crewId);
+        return new CrewRoster(crew.getId(), crew.getName(), crew.getLeader().getId(),
+                crew.getMembers().stream().map(CrewMember::getMembershipId).toList());
+    }
+
     /**
      * 404 unless the crew belongs to the organization. Returns the entity only because zone assignments still hold a
      * JPA association to it; read crews through {@link #crews} instead.

@@ -3,6 +3,7 @@ package org.andre.construx.modules.floorplan.service;
 import org.andre.construx.modules.crew.model.CrewMember;
 import org.andre.construx.modules.floorplan.model.FloorPlanZone;
 import org.andre.construx.modules.floorplan.model.ZoneAssignment;
+import org.andre.construx.modules.crew.model.Crew;
 import org.andre.construx.modules.floorplan.repository.FloorPlanZoneRepository;
 import org.andre.construx.modules.floorplan.repository.ZoneAssignmentRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
@@ -48,6 +49,9 @@ public class SiteZones {
     /** A person the zone plan expects on the Site, and the zone it expects them in. */
     public record Expected(UUID membershipId, ZoneRef zone) {}
 
+    /** A Crew assigned to a live zone on the Site for the day. */
+    public record ExpectedCrew(UUID crewId, ZoneRef zone) {}
+
     /**
      * The people the plan expects on the Site on a day, once each: everyone with an open zone assignment that
      * covers the day in a live zone of the Site, directly or as a member of an assigned Crew (its members as
@@ -70,6 +74,19 @@ public class SiteZones {
             }
         }
         return List.copyOf(byPerson.values());
+    }
+
+    /** Crews assigned to live zones on the Site for the day, keeping the first expected zone for each Crew. */
+    @Transactional(readOnly = true)
+    public List<ExpectedCrew> expectedCrews(UUID siteId, LocalDate day) {
+        Map<UUID, ExpectedCrew> byCrew = new LinkedHashMap<>();
+        for (ZoneAssignment assignment : assignments.findOpenOfSiteCovering(siteId, day)) {
+            Crew crew = assignment.getCrew();
+            if (crew != null) {
+                byCrew.putIfAbsent(crew.getId(), new ExpectedCrew(crew.getId(), ref(assignment.getZone())));
+            }
+        }
+        return List.copyOf(byCrew.values());
     }
 
     /** Names a zone as it is now, deleted or not: a record that points at it keeps showing its name. */
