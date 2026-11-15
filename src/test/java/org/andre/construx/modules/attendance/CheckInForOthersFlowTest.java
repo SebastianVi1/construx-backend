@@ -184,6 +184,21 @@ class CheckInForOthersFlowTest extends AttendanceZoneTestBase {
     }
 
     @Test
+    void anAbsentRowOnlyOffersCheckInWhenThisCallerMayCheckInThatPerson() throws Exception {
+        String assignments = site + "/floor-plans/" + planId + "/zones/" + slabA + "/assignments";
+        api.post(owner, assignments, "{" + person(workerMembership) + "}").andExpect(status().isCreated());
+        api.post(owner, assignments, "{" + person(outsiderMembership) + "}").andExpect(status().isCreated());
+
+        api.get(crewLeader, attendance).andExpect(status().isOk())
+                .andExpect(row(workerMembership, "checkInAllowed", true))
+                .andExpect(row(outsiderMembership, "checkInAllowed", false));
+        api.get(planner, attendance).andExpect(status().isOk())
+                .andExpect(row(workerMembership, "checkInAllowed", true))
+                .andExpect(row(outsiderMembership, "checkInAllowed", true));
+        api.post(crewLeader, checkIns, body(outsiderMembership, null)).andExpect(status().isForbidden());
+    }
+
+    @Test
     void anUnknownSuspendedOrDepartedMemberIsNotFound() throws Exception {
         UUID suspended = members.add(orgId, api.signUp().user(), "WORKER");
         UUID departed = members.add(orgId, api.signUp().user(), "WORKER");

@@ -85,10 +85,11 @@ public class AttendanceService {
     /**
      * One person of the day. {@code planned} tells whether the zone plan expected them and {@code expectedZone}
      * where (null when not planned). {@code checkIn} is their current Check-in, the latest one not removed (null
-     * when absent); its zone is their current zone. {@code removable} tells whether the caller may remove it now.
+     * when absent); its zone is their current zone. {@code removable} tells whether the caller may remove it now;
+     * {@code checkInAllowed} is the caller's permission for this absent person today.
      */
     public record PersonRow(UUID membershipId, String name, URI avatarUrl, State state, boolean planned,
-                            ZoneRef expectedZone, CheckInData checkIn, boolean removable) {}
+                            ZoneRef expectedZone, CheckInData checkIn, boolean removable, boolean checkInAllowed) {}
 
     /**
      * What Attendance says about the caller; {@code expectedZone} is where the plan expects them that day and
@@ -156,11 +157,12 @@ public class AttendanceService {
             boolean planned = expected.containsKey(member.getId());
             people.add(new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
                     planned ? State.PRESENT : State.UNPLANNED, planned, expectedZone, names.data(checkIn),
-                    today && mayRemove(site, checkIn)));
+                    today && mayRemove(site, checkIn), false));
         }
         for (OrganizationMembership member : missing) {
             people.add(new PersonRow(member.getId(), names.name(member), names.avatarUrl(member),
-                    State.ABSENT, true, expected.get(member.getId()), null, false));
+                    State.ABSENT, true, expected.get(member.getId()), null, false,
+                    today && !member.getId().equals(site.membershipId()) && mayCheckInOther(site, member)));
         }
         people.sort(BY_NAME);
         List<RollCallCrew> rollCallCrews = today ? rollCallCrews(site, day) : List.of();

@@ -106,7 +106,8 @@ Attendance:
         "checkedInAt": "2026-03-10T15:00:00Z",
         "recordedBy": { "membershipId": "…", "name": "Ana Perez" }
       },
-      "removable": true
+      "removable": true,
+      "checkInAllowed": false
     }
   ],
   "me": {
@@ -125,10 +126,12 @@ for a past day. `removable` is true when the
 caller may remove the row's Check-in now: the day is today and the caller recorded it or holds `MANAGE_PLAN`; it
 is always false on a past day. `avatarUrl` is a download link
 valid for one hour, or null. `checkIn.zone` is null for present with no zone.
+`checkInAllowed` is true only for an absent person the caller may check in today; it is false for
+other rows and past days. A Crew leader sees it only for members of a Crew they lead.
 `me.membershipId` is the caller, so a client finds its own row in `people`; `me.expectedZone` is where the plan
 expects the caller that day (null when not expected), for preselecting the zone when checking in;
 `me.canCheckInOthers` is true for a member who may record a Check-in for someone else (`MANAGE_PLAN`, or leading
-a Crew), so the page offers the action. The body of `POST /check-ins` is the `checkIn` object above.
+a Crew); the page uses each row's `checkInAllowed` for the action. The body of `POST /check-ins` is the `checkIn` object above.
 
 `me.rollCallCrews` lists today's expected Crews the caller may take roll for. A plan manager sees every expected Crew; a Crew leader sees only Crews they lead. Each entry has `crewId`, `name`, `expectedZone`, and `members`; each member has `membershipId`, `name`, and their current `checkIn`, or null when absent. Past Attendance reads return an empty `rollCallCrews` list. The submitted `zoneId` may differ from or be null instead of `expectedZone`.
 
