@@ -14,6 +14,8 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
 
     Optional<Supplier> findByOrganizationIdAndNormalizedKey(UUID organizationId, String normalizedKey);
 
+    long countByOrganizationIdAndArchivedAtIsNull(UUID organizationId);
+
     @Query("""
             select s from Supplier s
             where s.organization.id = :organizationId
