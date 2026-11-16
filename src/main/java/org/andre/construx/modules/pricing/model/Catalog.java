@@ -28,4 +28,12 @@ public class Catalog {
 
     @Column(nullable = false)
     private Instant createdAt;
+
+    /** The Catalog created by the organization's first catalog write; MXN only in v1. */
+    public Catalog(UUID organizationId, Instant createdAt) {
+        this.id = UUID.randomUUID();
+        this.organizationId = organizationId;
+        this.currency = "MXN";
+        this.createdAt = createdAt;
+    }
 }

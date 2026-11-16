@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface FamilyRepository extends JpaRepository<Family, UUID> {
@@ -17,4 +18,8 @@ public interface FamilyRepository extends JpaRepository<Family, UUID> {
     List<Family> list(@Param("organizationId") UUID organizationId, @Param("includeArchived") boolean includeArchived);
 
     long countByOrganizationIdAndArchivedAtIsNull(UUID organizationId);
+
+    Optional<Family> findByIdAndOrganizationId(UUID id, UUID organizationId);
+
+    boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
 }

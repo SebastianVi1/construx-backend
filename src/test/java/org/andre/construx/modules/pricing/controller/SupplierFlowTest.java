@@ -127,6 +127,100 @@ class SupplierFlowTest {
         assertEquals(2, count());
     }
 
+    private static final String FULL = """
+            {"name":"Cementos del Valle","code":" prov-01 ","rfc":"cva010101ab1","address":"Av. Juárez 10",
+             "neighborhood":"Centro","city":"Puebla","state":"Puebla","postalCode":"72000","phone":"222 111 2233",
+             "mobile":"222 444 5566","fax":"222 777 8899","email":"ventas@cdv.mx","contact":"Ana  López",
+             "notes":"Entrega martes","isDefault":true}""";
+
+    @Test
+    void createKeepsTheContactFieldsAndCreatesTheCatalog() throws Exception {
+        api.get(owner, "/api/organizations/" + orgId + "/catalog").andExpect(jsonPath("$.exists").value(false));
+        api.post(owner, suppliers, FULL).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("PROV-01"))
+                .andExpect(jsonPath("$.rfc").value("CVA010101AB1"))
+                .andExpect(jsonPath("$.address").value("Av. Juárez 10"))
+                .andExpect(jsonPath("$.neighborhood").value("Centro"))
+                .andExpect(jsonPath("$.city").value("Puebla"))
+                .andExpect(jsonPath("$.state").value("Puebla"))
+                .andExpect(jsonPath("$.postalCode").value("72000"))
+                .andExpect(jsonPath("$.phone").value("222 111 2233"))
+                .andExpect(jsonPath("$.mobile").value("222 444 5566"))
+                .andExpect(jsonPath("$.fax").value("222 777 8899"))
+                .andExpect(jsonPath("$.email").value("ventas@cdv.mx"))
+                .andExpect(jsonPath("$.contact").value("Ana López"))
+                .andExpect(jsonPath("$.notes").value("Entrega martes"))
+                .andExpect(jsonPath("$.isDefault").value(true))
+                .andExpect(jsonPath("$.source").value("MANUAL"))
+                .andExpect(jsonPath("$.resourceCount").value(0));
+        api.post(owner, suppliers, "{\"name\":\"Bare\"}").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value(nullValue()))
+                .andExpect(jsonPath("$.isDefault").value(false));
+        api.get(owner, "/api/organizations/" + orgId + "/catalog").andExpect(jsonPath("$.exists").value(true))
+                .andExpect(jsonPath("$.counts.suppliers").value(2));
+    }
+
+    @Test
+    void codeIsUniqueAndEmailAndRfcAreChecked() throws Exception {
+        create("{\"name\":\"A\",\"code\":\"P1\"}");
+        api.post(owner, suppliers, "{\"name\":\"B\",\"code\":\"p1\"}").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_SUPPLIER"));
+        String b = create("{\"name\":\"B\"}");
+        api.patch(owner, suppliers + "/" + b, "{\"code\":\"P1\"}").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_SUPPLIER"));
+        api.post(owner, suppliers, "{\"name\":\"C\",\"email\":\"not-an-email\"}").andExpect(status().isBadRequest());
+        api.post(owner, suppliers, "{\"name\":\"C\",\"rfc\":\"ABCDEFGHIJKLMN\"}").andExpect(status().isBadRequest());
+        assertEquals(2, count());
+    }
+
+    @Test
+    void patchChangesAndClearsTheNewFields() throws Exception {
+        String id = create(FULL);
+        api.patch(owner, suppliers + "/" + id, "{\"phone\":\"\",\"contact\":\"Luis\",\"isDefault\":false}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phone").value(nullValue()))
+                .andExpect(jsonPath("$.contact").value("Luis"))
+                .andExpect(jsonPath("$.isDefault").value(false))
+                .andExpect(jsonPath("$.email").value("ventas@cdv.mx"))
+                .andExpect(jsonPath("$.code").value("PROV-01"));
+        api.patch(owner, suppliers + "/" + id, "{\"code\":\"\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(nullValue()));
+    }
+
+    @Test
+    void theCodeOfAnImportedSupplierCannotBePatched() throws Exception {
+        String id = create("{\"name\":\"Imported\",\"code\":\"NEO-7\"}");
+        jdbc.update("update supplier set source = 'NEODATA_CONSTRUBASE' where id = ?", UUID.fromString(id));
+        api.patch(owner, suppliers + "/" + id, "{\"code\":\"NEO-8\"}").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IMPORTED_FIELD"));
+        api.patch(owner, suppliers + "/" + id, "{\"code\":\"\"}").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IMPORTED_FIELD"));
+        api.patch(owner, suppliers + "/" + id, "{\"code\":\"neo-7\",\"phone\":\"555\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("NEO-7"))
+                .andExpect(jsonPath("$.phone").value("555"))
+                .andExpect(jsonPath("$.source").value("NEODATA_CONSTRUBASE"));
+    }
+
+    @Test
+    void queryMatchesNameCodeOrContactAndResourceCountCountsItsResources() throws Exception {
+        String depot = create("{\"name\":\"Home Depot\",\"code\":\"HD-01\"}");
+        create("{\"name\":\"Ferretería Lupita\",\"contact\":\"Martha Depósito\"}");
+        create("{\"name\":\"Cemex\",\"code\":\"CMX\"}");
+        CatalogSeed seed = new CatalogSeed(jdbc, orgId);
+        UUID unit = seed.unit("PZA", "Pieza");
+        seed.set(seed.resource("MAT-1", "MATERIAL", "Clavo", unit), "supplier_id", UUID.fromString(depot));
+        seed.set(seed.resource("MAT-2", "MATERIAL", "Tornillo", unit), "supplier_id", UUID.fromString(depot));
+        api.get(owner, suppliers + "?query=DEP").andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].name").value("Ferretería Lupita"))
+                .andExpect(jsonPath("$[0].resourceCount").value(0))
+                .andExpect(jsonPath("$[1].name").value("Home Depot"))
+                .andExpect(jsonPath("$[1].resourceCount").value(2));
+        api.get(owner, suppliers + "?query=cmx").andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("Cemex"));
+        api.get(owner, suppliers + "?query=").andExpect(jsonPath("$.length()").value(3));
+    }
+
     @Test
     void otherTenantsGetNotFound() throws Exception {
         String id = create("{\"name\":\"Mine\"}");

@@ -91,4 +91,18 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
             group by r.family.id
             """)
     List<Object[]> countByFamily(@Param("organizationId") UUID organizationId);
+
+    /** Resources per Supplier, archived included: rows of {@code [UUID, Long]}. */
+    @Query("""
+            select r.supplier.id, count(r) from Resource r
+            where r.organizationId = :organizationId and r.supplier is not null
+            group by r.supplier.id
+            """)
+    List<Object[]> countBySupplier(@Param("organizationId") UUID organizationId);
+
+    long countByOrganizationIdAndSupplierId(UUID organizationId, UUID supplierId);
+
+    long countByOrganizationIdAndUnitId(UUID organizationId, UUID unitId);
+
+    long countByOrganizationIdAndFamilyId(UUID organizationId, UUID familyId);
 }
