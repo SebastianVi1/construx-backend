@@ -28,4 +28,14 @@ public class Catalog {
 
     @Column(nullable = false)
     private Instant createdAt;
+
+    /** The Catalog an organization gets with its first hand-made Resource. */
+    public static Catalog open(UUID organizationId, Instant at) {
+        Catalog catalog = new Catalog();
+        catalog.id = UUID.randomUUID();
+        catalog.organizationId = organizationId;
+        catalog.currency = "MXN";
+        catalog.createdAt = at;
+        return catalog;
+    }
 }

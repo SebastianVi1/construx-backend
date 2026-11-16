@@ -23,6 +23,9 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ResourceCostHistory {
+    public static final int SKU_MAX = 64;
+    public static final int NOTE_MAX = 160;
+
     @Id
     private UUID id;
 
@@ -54,4 +57,18 @@ public class ResourceCostHistory {
 
     @Column(length = 160)
     private String note;
+
+    ResourceCostHistory(Resource resource, BigDecimal amount, Instant effectiveFrom, CostSource source,
+                        UUID recordedByMembershipId, Supplier supplier, String sku, String note) {
+        this.id = UUID.randomUUID();
+        this.organizationId = resource.getOrganizationId();
+        this.resourceId = resource.getId();
+        this.amount = amount;
+        this.effectiveFrom = effectiveFrom;
+        this.source = source;
+        this.recordedByMembershipId = recordedByMembershipId;
+        this.supplier = supplier;
+        this.sku = PricingText.optional(sku, SKU_MAX, "SKU", "sku");
+        this.note = PricingText.optional(note, NOTE_MAX, "Note", "note");
+    }
 }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface UnitRepository extends JpaRepository<Unit, UUID> {
@@ -15,6 +16,8 @@ public interface UnitRepository extends JpaRepository<Unit, UUID> {
             order by u.code
             """)
     List<Unit> list(@Param("organizationId") UUID organizationId, @Param("includeArchived") boolean includeArchived);
+
+    Optional<Unit> findByIdAndOrganizationId(UUID id, UUID organizationId);
 
     long countByOrganizationIdAndArchivedAtIsNull(UUID organizationId);
 }

@@ -66,6 +66,8 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
                           @Param("pattern") String pattern,
                           Pageable pageable);
 
+    boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
+
     /** Non-archived Resources per type: rows of {@code [ResourceType, Long]}. */
     @Query("""
             select r.type, count(r) from Resource r
