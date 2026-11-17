@@ -100,6 +100,41 @@ public class LaborCategoryDetail {
         return detail;
     }
 
+    /** Tolerances of the verification against the file (docs/pricing.md §5.4). */
+    private static final BigDecimal FSR_TOLERANCE = new BigDecimal("0.0005");
+    private static final BigDecimal REAL_WAGE_TOLERANCE = new BigDecimal("0.05");
+
+    /**
+     * A Labor category typed by hand while the organization has complete FASAR parameters: the FSR is computed
+     * from them and any typed FSR is ignored.
+     */
+    public static LaborCategoryDetail computed(Resource resource, BigDecimal nominalWage, BigDecimal perDiem,
+                                               BigDecimal mealsLodging, BigDecimal funeralExpenses,
+                                               BigDecimal otherBenefits, FasarCalculator fasar) {
+        LaborCategoryDetail detail = manual(resource, nominalWage, BigDecimal.ONE, perDiem, mealsLodging,
+                funeralExpenses, otherBenefits);
+        detail.compute(fasar);
+        return detail;
+    }
+
+    /**
+     * Takes the FSR, FSBC and SBC computed from complete FASAR parameters for this nominal wage (source
+     * {@code COMPUTED}) and verifies them against the imported values.
+     */
+    public void compute(FasarCalculator fasar) {
+        FasarCalculator.Wage wage = fasar.wage(nominalWage);
+        this.fsr = wage.fsr().setScale(FSR_DECIMALS, RoundingMode.HALF_UP);
+        this.fsbc = wage.fsbc().setScale(FSR_DECIMALS, RoundingMode.HALF_UP);
+        this.sbc = wage.sbc();
+        this.fsrSource = FsrSource.COMPUTED;
+        this.fsrMismatch = differs(fsr, importedFsr, FSR_TOLERANCE)
+                || differs(realWage(), importedRealWage, REAL_WAGE_TOLERANCE);
+    }
+
+    private static boolean differs(BigDecimal value, BigDecimal imported, BigDecimal tolerance) {
+        return imported != null && value.subtract(imported).abs().compareTo(tolerance) > 0;
+    }
+
     /** Null keeps a value. A typed FSR becomes {@code MANUAL}. Everything is checked before anything changes. */
     public void revise(BigDecimal nominalWage, BigDecimal fsr, BigDecimal perDiem, BigDecimal mealsLodging,
                        BigDecimal funeralExpenses, BigDecimal otherBenefits) {
