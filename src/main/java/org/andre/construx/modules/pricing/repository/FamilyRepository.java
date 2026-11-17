@@ -20,4 +20,6 @@ public interface FamilyRepository extends JpaRepository<Family, UUID> {
     Optional<Family> findByIdAndOrganizationId(UUID id, UUID organizationId);
 
     long countByOrganizationIdAndArchivedAtIsNull(UUID organizationId);
+
+    boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
 }

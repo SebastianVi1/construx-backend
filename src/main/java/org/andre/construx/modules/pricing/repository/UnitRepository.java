@@ -20,4 +20,6 @@ public interface UnitRepository extends JpaRepository<Unit, UUID> {
     Optional<Unit> findByIdAndOrganizationId(UUID id, UUID organizationId);
 
     long countByOrganizationIdAndArchivedAtIsNull(UUID organizationId);
+
+    boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
 }
