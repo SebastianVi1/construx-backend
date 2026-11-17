@@ -43,13 +43,15 @@ public class ExpenseService {
     private final ProjectService projects;
     private final ActivityService activities;
     private final ResourceDirectory catalog;
+    private final LaborCostService laborCost;
 
     public ExpenseService(ExpenseRepository expenses, ProjectService projects, ActivityService activities,
-                          ResourceDirectory catalog) {
+                          ResourceDirectory catalog, LaborCostService laborCost) {
         this.expenses = expenses;
         this.projects = projects;
         this.activities = activities;
         this.catalog = catalog;
+        this.laborCost = laborCost;
     }
 
     /**
@@ -80,11 +82,14 @@ public class ExpenseService {
     public record CategoryTotal(ExpenseCategory category, BigDecimal amount) {}
 
     /**
-     * {@code remaining} is null without a budget and negative on an overrun. {@code allocatedToPhases} is the sum
-     * of the phase budgets and {@code unallocated} what the site has left to give phases, null without a budget.
+     * {@code spent} is {@code recordedExpenses} plus {@code laborAccrued}, the Site's Accrued labor cost to date
+     * (docs/pricing.md §6.4), which {@code byCategory} counts under LABOR. {@code remaining} is null without a
+     * budget and negative on an overrun. {@code allocatedToPhases} is the sum of the phase budgets and
+     * {@code unallocated} what the site has left to give phases, null without a budget.
      */
-    public record BudgetSummary(BigDecimal allocatedBudget, BigDecimal spent, BigDecimal remaining,
-                                BigDecimal allocatedToPhases, BigDecimal unallocated, List<CategoryTotal> byCategory) {}
+    public record BudgetSummary(BigDecimal allocatedBudget, BigDecimal recordedExpenses, BigDecimal laborAccrued,
+                                BigDecimal spent, BigDecimal remaining, BigDecimal allocatedToPhases,
+                                BigDecimal unallocated, List<CategoryTotal> byCategory) {}
 
     @Transactional(readOnly = true)
     public List<ExpenseData> list(SiteScope site) {
@@ -154,15 +159,17 @@ public class ExpenseService {
         for (Object[] row : expenses.sumByCategory(project.getId())) {
             totals.put((ExpenseCategory) row[0], (BigDecimal) row[1]);
         }
+        BigDecimal recorded = totals.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2);
+        BigDecimal accrued = laborCost.total(site.organizationId(), project.getId()).setScale(2);
+        totals.merge(ExpenseCategory.LABOR, accrued, BigDecimal::add);
         List<CategoryTotal> byCategory = Arrays.stream(ExpenseCategory.values())
                 .map(c -> new CategoryTotal(c, totals.getOrDefault(c, BigDecimal.ZERO).setScale(2)))
                 .toList();
-        BigDecimal spent = byCategory.stream().map(CategoryTotal::amount).reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2);
+        BigDecimal spent = recorded.add(accrued);
         BigDecimal budget = project.getAllocatedBudget();
         BigDecimal toPhases = projects.allocatedToPhases(project.getId());
-        return new BudgetSummary(budget, spent, budget == null ? null : budget.subtract(spent), toPhases,
-                BudgetAllocation.unallocated(budget, toPhases), byCategory);
+        return new BudgetSummary(budget, recorded, accrued, spent, budget == null ? null : budget.subtract(spent),
+                toPhases, BudgetAllocation.unallocated(budget, toPhases), byCategory);
     }
 
     /** The task inside the site (404), then the budget permission or being its current Lead (403). */

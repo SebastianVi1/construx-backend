@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 public interface ResourceCostHistoryRepository extends JpaRepository<ResourceCostHistory, UUID> {
@@ -28,4 +30,9 @@ public interface ResourceCostHistoryRepository extends JpaRepository<ResourceCos
                                               @Param("from") Instant from,
                                               @Param("to") Instant to,
                                               Pageable pageable);
+
+    /** Every row of these Resources of the organization. */
+    @Query("select h from ResourceCostHistory h where h.organizationId = :organizationId and h.resourceId in :resourceIds")
+    List<ResourceCostHistory> findOfResources(@Param("organizationId") UUID organizationId,
+                                              @Param("resourceIds") Collection<UUID> resourceIds);
 }

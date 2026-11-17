@@ -28,4 +28,8 @@ public interface LaborRateAssignmentRepository extends JpaRepository<LaborRateAs
             + "order by r.effectiveFrom desc")
     List<LaborRateAssignment> elsewhere(UUID organizationId, UUID membershipId, UUID projectId,
                                         org.springframework.data.domain.Pageable page);
+
+    /** Every row of these Sites of the organization, any person, any time. */
+    @Query("select r from LaborRateAssignment r where r.organizationId = :organizationId and r.projectId in :projectIds")
+    List<LaborRateAssignment> ofProjects(UUID organizationId, Collection<UUID> projectIds);
 }
