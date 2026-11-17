@@ -164,6 +164,53 @@ public class FasarParameterSet {
     }
 
     /**
+     * The PARTIAL set an import builds from {@code N_Campos Generales} when there is no FASAR workbook and no set
+     * yet (docs/pricing.md §5.3): minimum wage, four contribution rates (employer side), other charges and the
+     * employer+worker flag; every other value 0 and the set cannot compute FSRs. Rates are fractions already.
+     */
+    public static FasarParameterSet fromGeneralFields(UUID organizationId, BigDecimal minimumWage,
+                                                      Map<FasarConcept, BigDecimal> employerRates,
+                                                      BigDecimal otherChargesPct, Boolean sumEmployerAndWorker,
+                                                      Instant at) {
+        FasarParameterSet set = new FasarParameterSet();
+        BigDecimal zero = BigDecimal.ZERO;
+        set.id = UUID.randomUUID();
+        set.organizationId = organizationId;
+        set.uma = zero;
+        set.minimumWage = minimumWage == null ? zero : minimumWage.setScale(2, java.math.RoundingMode.HALF_UP);
+        set.sumEmployerAndWorker = sumEmployerAndWorker == null || sumEmployerAndWorker;
+        set.calendarDays = zero;
+        set.sundays = zero;
+        set.workedSundays = zero;
+        set.vacationDays = zero;
+        set.mondayDays = zero;
+        set.holidays = zero;
+        set.weatherDays = zero;
+        set.customDays = zero;
+        set.leaveSickDays = zero;
+        set.unionDays = zero;
+        set.bonusDays = zero;
+        set.vacationPremiumPct = zero;
+        set.sundayPremiumPct = zero;
+        set.otherChargesPct = otherChargesPct == null ? zero
+                : otherChargesPct.setScale(8, java.math.RoundingMode.HALF_UP);
+        set.excessThresholdUma = new BigDecimal("3");
+        set.sbcCapUma = new BigDecimal("25");
+        set.factorRounding = 6;
+        employerRates.forEach((concept, rate) -> {
+            if (rate != null) {
+                set.contributions.put(concept,
+                        new Contribution(rate.setScale(8, java.math.RoundingMode.HALF_UP), zero));
+            }
+        });
+        set.complete = false;
+        set.source = Source.GENERAL_FIELDS;
+        set.version = 1;
+        set.updatedAt = at;
+        return set;
+    }
+
+    /**
      * Replaces every value with a hand-typed complete set. Everything is checked, the working days included
      * ({@code Tl > 0}), before anything changes.
      */

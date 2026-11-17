@@ -183,6 +183,14 @@ class CatalogImportFlowTest {
                 Integer.class, orgId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from equipment_standby_percentage where organization_id = ?",
                 Integer.class, orgId)).isEqualTo(1);
+        // no FASAR workbook: a PARTIAL set from N_Campos Generales, percentages divided by 100 (200 % -> 2 %)
+        api.get(owner, base + "/fasar").andExpect(jsonPath("$.status").value("PARTIAL"))
+                .andExpect(jsonPath("$.source").value("GENERAL_FIELDS"))
+                .andExpect(jsonPath("$.minimumWage").value("248.93"));
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.fasar.status").value("PARTIAL"));
+        assertThat(jdbc.queryForObject("select c.employer_rate from fasar_contribution c join fasar_parameter_set s "
+                + "on s.id = c.set_id where s.organization_id = ? and c.concept = 'RETIREMENT'", java.math.BigDecimal.class,
+                orgId)).isEqualByComparingTo("0.02");
     }
 
     @Test

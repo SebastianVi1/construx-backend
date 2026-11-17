@@ -11,6 +11,9 @@ import org.andre.construx.modules.pricing.model.FsrSource;
 import org.andre.construx.modules.pricing.model.LaborCategoryDetail;
 import org.andre.construx.modules.pricing.model.PricingRuleException;
 import org.andre.construx.modules.pricing.model.Resource;
+import org.andre.construx.modules.pricing.model.ImportStatus;
+import org.andre.construx.modules.pricing.model.PricingConflictException;
+import org.andre.construx.modules.pricing.repository.CatalogImportRepository;
 import org.andre.construx.modules.pricing.repository.FasarParameterSetRepository;
 import org.andre.construx.modules.pricing.repository.LaborCategoryDetailRepository;
 import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
@@ -44,10 +47,12 @@ public class FasarService {
     private final DerivedCostService derivedCosts;
     private final CatalogService catalog;
     private final ResourceService reads;
+    private final CatalogImportRepository imports;
 
     public FasarService(FasarParameterSetRepository sets, LaborCategoryDetailRepository laborDetails,
                         ResourceRepository resources, ResourceCostHistoryRepository history,
-                        DerivedCostService derivedCosts, CatalogService catalog, ResourceService reads) {
+                        DerivedCostService derivedCosts, CatalogService catalog, ResourceService reads,
+                        CatalogImportRepository imports) {
         this.sets = sets;
         this.laborDetails = laborDetails;
         this.resources = resources;
@@ -55,6 +60,7 @@ public class FasarService {
         this.derivedCosts = derivedCosts;
         this.catalog = catalog;
         this.reads = reads;
+        this.imports = imports;
     }
 
     /** A full replacement: every value is required. */
@@ -113,7 +119,13 @@ public class FasarService {
         org.require(PermissionAction.MANAGE_PRICES);
         UUID organizationId = org.organizationId();
         UUID membershipId = org.membership().getId();
-        // An import running (catalog_import, a later slice) will answer 409 IMPORT_IN_PROGRESS here.
+        imports.findByActiveOrganizationId(organizationId)
+                .filter(job -> job.getStatus() == ImportStatus.IMPORTING)
+                .ifPresent(job -> {
+                    throw new PricingConflictException("IMPORT_IN_PROGRESS",
+                            "The catalog is being imported; try again when the import finishes",
+                            Map.of("activeImportId", job.getId()));
+                });
         Parameters parameters = parameters(input);
         Instant now = now();
         FasarParameterSet set = sets.findByOrganizationId(organizationId).orElse(null);

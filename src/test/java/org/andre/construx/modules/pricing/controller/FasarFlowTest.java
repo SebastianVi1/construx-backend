@@ -90,6 +90,32 @@ class FasarFlowTest {
         return overrides == null ? json : overrides.replace("$DAYS", days).replace("$CONTRIBUTIONS", contributions);
     }
 
+    /** A catalog import of this organization in {@code status}, as the import job leaves it. */
+    private UUID importIn(String status, boolean active) {
+        UUID id = UUID.randomUUID();
+        UUID membership = jdbc.queryForObject("select id from organization_membership where organization_id = ?",
+                UUID.class, orgId);
+        jdbc.update("insert into catalog_import (id, organization_id, active_organization_id, status, file_key, "
+                        + "file_name, file_size, file_sha256, uploaded_by_membership_id, created_at) "
+                        + "values (?, ?, ?, ?, 'k', 'p.xlsx', 1, ?, ?, ?)", id, orgId, active ? orgId : null, status,
+                "0".repeat(64), membership, java.sql.Timestamp.from(java.time.Instant.now()));
+        return id;
+    }
+
+    @Test
+    void replacingIsRefusedWhileTheCatalogIsBeingImported() throws Exception {
+        UUID importing = importIn("IMPORTING", true);
+        api.put(owner, base + "/fasar", body(null)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IMPORT_IN_PROGRESS"))
+                .andExpect(jsonPath("$.activeImportId").value(importing.toString()));
+        api.get(owner, base + "/fasar").andExpect(jsonPath("$.status").value("NONE"));
+
+        jdbc.update("update catalog_import set status = 'DONE', active_organization_id = null where id = ?",
+                importing);
+        importIn("VALIDATED", true);
+        api.put(owner, base + "/fasar", body(null)).andExpect(status().isOk());
+    }
+
     /** An imported Labor category whose file FSR and real wage are kept for verification. */
     private UUID imported(String code, String nominalWage, String fsr, String realWage) {
         UUID id = seed.resource(code, "LABOR", code, jor);
