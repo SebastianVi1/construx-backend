@@ -29,7 +29,7 @@ public class Catalog {
     @Column(nullable = false)
     private Instant createdAt;
 
-    /** The Catalog an organization gets with its first hand-made Resource. */
+    /** The Catalog created by the organization's first catalog write; MXN only in v1. */
     public static Catalog open(UUID organizationId, Instant at) {
         Catalog catalog = new Catalog();
         catalog.id = UUID.randomUUID();

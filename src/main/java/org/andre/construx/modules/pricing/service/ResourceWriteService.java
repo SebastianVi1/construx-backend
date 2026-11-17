@@ -2,7 +2,6 @@ package org.andre.construx.modules.pricing.service;
 
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.pricing.model.Catalog;
 import org.andre.construx.modules.pricing.model.Family;
 import org.andre.construx.modules.pricing.model.PricingConflictException;
 import org.andre.construx.modules.pricing.model.PricingRuleException;
@@ -11,14 +10,9 @@ import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.andre.construx.modules.pricing.model.Supplier;
 import org.andre.construx.modules.pricing.model.Unit;
-import org.andre.construx.modules.pricing.repository.CatalogRepository;
-import org.andre.construx.modules.pricing.repository.FamilyRepository;
 import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
-import org.andre.construx.modules.pricing.repository.SupplierRepository;
-import org.andre.construx.modules.pricing.repository.UnitRepository;
 import org.andre.construx.modules.pricing.service.ResourceService.ResourceDetail;
-import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,20 +30,16 @@ public class ResourceWriteService {
     private final ResourceService reads;
     private final ResourceRepository resources;
     private final ResourceCostHistoryRepository history;
-    private final CatalogRepository catalogs;
-    private final UnitRepository units;
-    private final FamilyRepository families;
-    private final SupplierRepository suppliers;
+    private final CatalogService catalog;
+    private final SupplierService suppliers;
 
     public ResourceWriteService(ResourceService reads, ResourceRepository resources,
-                                ResourceCostHistoryRepository history, CatalogRepository catalogs,
-                                UnitRepository units, FamilyRepository families, SupplierRepository suppliers) {
+                                ResourceCostHistoryRepository history, CatalogService catalog,
+                                SupplierService suppliers) {
         this.reads = reads;
         this.resources = resources;
         this.history = history;
-        this.catalogs = catalogs;
-        this.units = units;
-        this.families = families;
+        this.catalog = catalog;
         this.suppliers = suppliers;
     }
 
@@ -94,9 +84,7 @@ public class ResourceWriteService {
         if (resources.existsByOrganizationIdAndCode(organizationId, resource.getCode())) {
             throw new PricingConflictException("DUPLICATE_CODE", "A resource with this code already exists");
         }
-        if (catalogs.findByOrganizationId(organizationId).isEmpty()) {
-            catalogs.save(Catalog.open(organizationId, now));
-        }
+        catalog.ensureCatalog(organizationId);
         // Ids are assigned, so save() merges a copy: the first cost goes on before the Resource is saved.
         var first = resource.recordCost(cost, now, org.membership().getId(), null, null, null);
         resources.save(resource);
@@ -148,18 +136,15 @@ public class ResourceWriteService {
     }
 
     private Unit unit(UUID organizationId, UUID id) {
-        return units.findByIdAndOrganizationId(id, organizationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        return catalog.loadUnit(organizationId, id);
     }
 
     private Family family(UUID organizationId, UUID id) {
-        return families.findByIdAndOrganizationId(id, organizationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family not found"));
+        return catalog.loadFamily(organizationId, id);
     }
 
     private Supplier supplier(UUID organizationId, UUID id) {
-        return suppliers.findByIdAndOrganizationId(id, organizationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found"));
+        return suppliers.load(organizationId, id);
     }
 
     private static UUID id(String value, String field) {
