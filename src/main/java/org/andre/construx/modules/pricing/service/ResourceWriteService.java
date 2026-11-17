@@ -4,6 +4,7 @@ import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.pricing.model.Catalog;
 import org.andre.construx.modules.pricing.model.Family;
+import org.andre.construx.modules.pricing.model.LaborCategoryDetail;
 import org.andre.construx.modules.pricing.model.PricingConflictException;
 import org.andre.construx.modules.pricing.model.PricingRuleException;
 import org.andre.construx.modules.pricing.model.PricingValidationException;
@@ -13,6 +14,7 @@ import org.andre.construx.modules.pricing.model.Supplier;
 import org.andre.construx.modules.pricing.model.Unit;
 import org.andre.construx.modules.pricing.repository.CatalogRepository;
 import org.andre.construx.modules.pricing.repository.FamilyRepository;
+import org.andre.construx.modules.pricing.repository.LaborCategoryDetailRepository;
 import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.modules.pricing.repository.SupplierRepository;
@@ -28,8 +30,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
- * Hand edits of the Catalog: creating simple Materials and Equipment rates, editing, archiving and recording
- * their costs (docs/pricing.md §2.4, §2.5). Labor categories arrive with the labor slice.
+ * Hand edits of the Catalog: creating simple Materials, Equipment rates and Labor categories, editing,
+ * archiving and recording their costs (docs/pricing.md §2.4, §2.5). Every cost change recomputes the derived
+ * cost of the organization's composites (§3).
  */
 @Service
 public class ResourceWriteService {
@@ -40,10 +43,13 @@ public class ResourceWriteService {
     private final UnitRepository units;
     private final FamilyRepository families;
     private final SupplierRepository suppliers;
+    private final LaborCategoryDetailRepository laborDetails;
+    private final DerivedCostService derivedCosts;
 
     public ResourceWriteService(ResourceService reads, ResourceRepository resources,
                                 ResourceCostHistoryRepository history, CatalogRepository catalogs,
-                                UnitRepository units, FamilyRepository families, SupplierRepository suppliers) {
+                                UnitRepository units, FamilyRepository families, SupplierRepository suppliers,
+                                LaborCategoryDetailRepository laborDetails, DerivedCostService derivedCosts) {
         this.reads = reads;
         this.resources = resources;
         this.history = history;
@@ -51,12 +57,18 @@ public class ResourceWriteService {
         this.units = units;
         this.families = families;
         this.suppliers = suppliers;
+        this.laborDetails = laborDetails;
+        this.derivedCosts = derivedCosts;
     }
 
-    /** {@code isComposite} and {@code hasLaborDetail} only exist to be refused. */
+    /** The wage of a Labor category; in a patch, null keeps a value. */
+    public record LaborWage(BigDecimal nominalWage, BigDecimal fsr, BigDecimal perDiem, BigDecimal mealsLodging,
+                            BigDecimal funeralExpenses, BigDecimal otherBenefits) {}
+
+    /** {@code isComposite} only exists to be refused; {@code laborDetail} only fits a Labor category. */
     public record ResourceCreate(ResourceType type, String code, String name, String description, UUID unitId,
                                  UUID familyId, UUID supplierId, String brand, BigDecimal cost, Boolean isComposite,
-                                 boolean hasLaborDetail) {}
+                                 LaborWage laborDetail) {}
 
     /**
      * Null keeps the stored value; {@code ""} clears an optional text, the family or the supplier. Ids travel
@@ -64,7 +76,7 @@ public class ResourceWriteService {
      */
     public record ResourcePatch(String name, String description, String unitId, String familyId, String supplierId,
                                 String brand, Boolean discontinued, String reference, String sapCode,
-                                String technicalSheet, String procedure) {}
+                                String technicalSheet, String procedure, LaborWage laborDetail) {}
 
     public record CostEntry(BigDecimal amount, UUID supplierId, String sku, String note) {}
 
@@ -81,16 +93,24 @@ public class ResourceWriteService {
         if (body.type() == ResourceType.WORK_ITEM || Boolean.TRUE.equals(body.isComposite())) {
             throw new PricingValidationException("Composite resources and work items cannot be created by hand");
         }
-        if (body.type() == ResourceType.LABOR) {
-            throw new PricingValidationException("Labor categories cannot be created by hand yet");
-        }
-        if (body.hasLaborDetail()) {
+        boolean labor = body.type() == ResourceType.LABOR;
+        if (!labor && body.laborDetail() != null) {
             throw new PricingValidationException("Only labor categories have a labor detail");
         }
         Instant now = now();
         Resource resource = Resource.manual(organizationId, body.type(), body.code(), body.name(),
                 body.description(), unit, family, supplier, body.brand(), now);
-        BigDecimal cost = Resource.checkCost(body.cost(), "cost");
+        LaborCategoryDetail detail = null;
+        BigDecimal cost = null;
+        if (labor) {
+            if (body.cost() != null) {
+                throw new PricingRuleException("cost", "INVALID",
+                        "A labor cost comes from its wage; give laborDetail instead");
+            }
+            detail = laborDetail(resource, body.laborDetail());
+        } else {
+            cost = Resource.checkCost(body.cost(), "cost");
+        }
         if (resources.existsByOrganizationIdAndCode(organizationId, resource.getCode())) {
             throw new PricingConflictException("DUPLICATE_CODE", "A resource with this code already exists");
         }
@@ -98,8 +118,12 @@ public class ResourceWriteService {
             catalogs.save(Catalog.open(organizationId, now));
         }
         // Ids are assigned, so save() merges a copy: the first cost goes on before the Resource is saved.
-        var first = resource.recordCost(cost, now, org.membership().getId(), null, null, null);
+        var first = labor ? resource.recordWage(detail, now, org.membership().getId())
+                : resource.recordCost(cost, now, org.membership().getId(), null, null, null);
         resources.save(resource);
+        if (detail != null) {
+            laborDetails.save(detail);
+        }
         history.save(first);
         resources.flush();
         return reads.get(org, resource.getId());
@@ -114,13 +138,37 @@ public class ResourceWriteService {
                 : patch.familyId().isBlank() ? null : family(organizationId, id(patch.familyId(), "familyId"));
         Supplier supplier = patch.supplierId() == null ? r.getSupplier()
                 : patch.supplierId().isBlank() ? null : supplier(organizationId, id(patch.supplierId(), "supplierId"));
+        LaborCategoryDetail detail = null;
+        if (patch.laborDetail() != null) {
+            if (r.getType() != ResourceType.LABOR || r.isComposite()) {
+                throw new PricingValidationException("Only simple labor categories have a labor detail");
+            }
+            detail = laborDetails.findByResourceIdAndOrganizationId(resourceId, organizationId).orElse(null);
+        }
         org.require(PermissionAction.MANAGE_PRICES);
+        Instant now = now();
         r.describe(keep(patch.name(), r.getName()), keep(patch.description(), r.getDescription()), unit, family,
                 supplier, keep(patch.brand(), r.getBrand()),
                 patch.discontinued() != null ? patch.discontinued() : r.isDiscontinued(),
                 keep(patch.reference(), r.getReference()), keep(patch.sapCode(), r.getSapCode()),
                 keep(patch.technicalSheet(), r.getTechnicalSheet()), keep(patch.procedure(), r.getProcedure()),
-                now());
+                now);
+        if (patch.laborDetail() != null) {
+            LaborWage wage = patch.laborDetail();
+            if (detail == null) {
+                // A Labor category without wage data (e.g. migrated) gets its first wage by hand.
+                detail = laborDetail(r, wage);
+                laborDetails.save(detail);
+            } else {
+                detail.revise(wage.nominalWage(), wage.fsr(), wage.perDiem(), wage.mealsLodging(),
+                        wage.funeralExpenses(), wage.otherBenefits());
+            }
+            var entry = r.recordWage(detail, now, org.membership().getId());
+            if (entry != null) {
+                history.save(entry);
+                derivedCosts.recompute(organizationId, now);
+            }
+        }
         resources.flush();
         return reads.get(org, resourceId);
     }
@@ -141,10 +189,19 @@ public class ResourceWriteService {
         Resource r = reads.load(organizationId, resourceId);
         Supplier supplier = entry.supplierId() == null ? null : supplier(organizationId, entry.supplierId());
         org.require(PermissionAction.MANAGE_PRICES);
-        history.save(r.recordCost(entry.amount(), now(), org.membership().getId(), supplier, entry.sku(),
+        Instant now = now();
+        history.save(r.recordCost(entry.amount(), now, org.membership().getId(), supplier, entry.sku(),
                 entry.note()));
+        derivedCosts.recompute(organizationId, now);
         resources.flush();
         return reads.get(org, resourceId);
+    }
+
+    /** A hand-made wage; without complete FASAR parameters (a later slice) the FSR is typed in. */
+    private static LaborCategoryDetail laborDetail(Resource resource, LaborWage wage) {
+        LaborWage w = wage != null ? wage : new LaborWage(null, null, null, null, null, null);
+        return LaborCategoryDetail.manual(resource, w.nominalWage(), w.fsr(), w.perDiem(), w.mealsLodging(),
+                w.funeralExpenses(), w.otherBenefits());
     }
 
     private Unit unit(UUID organizationId, UUID id) {

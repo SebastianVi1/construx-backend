@@ -76,4 +76,62 @@ final class CatalogSeed {
                 + "where h.resource_id = resource.id) where id = ?", resourceId);
         return id;
     }
+
+    /** A composite Resource without cost: a Gang ({@code LABOR}), a composite Material or a Work item. */
+    UUID composite(String code, String type, String name, UUID unitId) {
+        UUID id = resource(code, type, name, unitId);
+        set(id, "is_composite", true);
+        return id;
+    }
+
+    /** A percentage Resource over the labor subtotal ({@code %MO}). */
+    UUID percentage(String code, String name, UUID unitId) {
+        UUID id = resource(code, "MATERIAL", name, unitId);
+        set(id, "is_percentage", true);
+        set(id, "percentage_base", (short) 2);
+        return id;
+    }
+
+    /** One Unit price analysis line, as the import writes it. */
+    UUID line(UUID parentId, int lineNo, UUID componentId, String operator, String quantity) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("insert into unit_price_analysis_line (id, organization_id, parent_resource_id, "
+                        + "component_resource_id, line_no, operator, quantity) values (?, ?, ?, ?, ?, ?, ?)",
+                id, organizationId, parentId, componentId, lineNo, operator, new BigDecimal(quantity));
+        return id;
+    }
+
+    /** An imported Labor category detail; benefits are zero. */
+    void laborDetail(UUID resourceId, String nominalWage, String fsr, String importedRealWage) {
+        jdbc.update("insert into labor_category_detail (resource_id, organization_id, nominal_wage, fsr, fsr_source, "
+                        + "imported_fsr, imported_real_wage, per_diem, meals_lodging, funeral_expenses, other_benefits, "
+                        + "fsr_mismatch) values (?, ?, ?, ?, 'IMPORTED', ?, ?, 0, 0, 0, 0, false)",
+                resourceId, organizationId, new BigDecimal(nominalWage), new BigDecimal(fsr), new BigDecimal(fsr),
+                new BigDecimal(importedRealWage));
+    }
+
+    /** An imported Equipment rate detail with a few machinery values. */
+    void equipmentDetail(UUID resourceId) {
+        jdbc.update("insert into equipment_rate_detail (resource_id, organization_id, power_unit, power, "
+                        + "economic_life_hours, hours_per_year, operation_factor, salvage_pct, interest_rate, "
+                        + "brand, model, commercial_value, fuel_qty_per_hour) "
+                        + "values (?, ?, 'HP', 95.5, 12000, 2000, 0.8, 0.1, 0.12, 'CAT', '416F', 1500000, 0.15)",
+                resourceId, organizationId);
+    }
+
+    /** One operation ({@code operation = true}) or consumption line of an Equipment rate. */
+    void equipmentLine(boolean operation, UUID equipmentId, int lineNo, UUID componentId, String operator,
+                       String quantity) {
+        jdbc.update("insert into " + (operation ? "equipment_operation_line" : "equipment_consumption_line")
+                        + " (id, organization_id, equipment_resource_id, component_resource_id, operator, quantity, "
+                        + "line_no) values (?, ?, ?, ?, ?, ?, ?)",
+                UUID.randomUUID(), organizationId, equipmentId, componentId, operator, new BigDecimal(quantity),
+                lineNo);
+    }
+
+    void standby(String charge, String standbyPct, String reservePct) {
+        jdbc.update("insert into equipment_standby_percentage (id, organization_id, charge, standby_pct, reserve_pct) "
+                + "values (?, ?, ?, ?, ?)", UUID.randomUUID(), organizationId, charge, new BigDecimal(standbyPct),
+                new BigDecimal(reservePct));
+    }
 }

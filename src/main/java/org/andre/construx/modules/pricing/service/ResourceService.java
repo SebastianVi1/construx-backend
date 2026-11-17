@@ -49,13 +49,16 @@ public class ResourceService {
     private final ResourceCostHistoryRepository history;
     private final MembershipDirectory memberships;
     private final PersonDirectory people;
+    private final ResourceCompositionService composition;
 
     public ResourceService(ResourceRepository resources, ResourceCostHistoryRepository history,
-                           MembershipDirectory memberships, PersonDirectory people) {
+                           MembershipDirectory memberships, PersonDirectory people,
+                           ResourceCompositionService composition) {
         this.resources = resources;
         this.history = history;
         this.memberships = memberships;
         this.people = people;
+        this.composition = composition;
     }
 
     public record UnitRef(UUID id, String code) {}
@@ -81,7 +84,8 @@ public class ResourceService {
 
     /**
      * {@code history} is the newest {@value #DETAIL_HISTORY} entries of a simple Resource, null for a composite.
-     * The labor, equipment and analysis parts of the contract arrive with their slices.
+     * {@code analysis} only for composites, {@code laborDetail} only for simple Labor categories and
+     * {@code equipmentDetail} only for Equipment rates with machinery data; null otherwise.
      */
     public record ResourceDetail(UUID id, String code, ResourceType type, String name, UnitRef unit, FamilyRef family,
                                  SupplierRef supplier, String brand, boolean isPercentage, boolean isComposite,
@@ -90,7 +94,10 @@ public class ResourceService {
                                  Instant archivedAt, String description, String reference, String sapCode,
                                  String technicalSheet, String procedure, String grouper, String importedCost,
                                  LocalDate importedCostOn, Instant createdAt, Instant updatedAt,
-                                 List<CostData> history, UsedIn usedIn) {}
+                                 ResourceCompositionService.LaborDetail laborDetail,
+                                 ResourceCompositionService.EquipmentDetail equipmentDetail,
+                                 ResourceCompositionService.Analysis analysis, List<CostData> history,
+                                 UsedIn usedIn) {}
 
     /** Search criteria of {@code GET /resources}; null means no filter, an empty {@code types} all types. */
     public record ResourceFilter(Collection<ResourceType> types, String query, UUID familyId, UUID unitId,
@@ -120,7 +127,8 @@ public class ResourceService {
                 r.isDiscontinued(), money(r.getCurrentCost()), r.getCostUpdatedAt(), r.getSource(),
                 r.getMissingFromImportAt(), r.getArchivedAt(), r.getDescription(), r.getReference(), r.getSapCode(),
                 r.getTechnicalSheet(), r.getProcedure(), r.getGrouper(), money(r.getImportedCost()),
-                r.getImportedCostOn(), r.getCreatedAt(), r.getUpdatedAt(), costs, new UsedIn(0, List.of()));
+                r.getImportedCostOn(), r.getCreatedAt(), r.getUpdatedAt(), composition.laborDetail(r),
+                composition.equipmentDetail(r), composition.analysis(r), costs, composition.usedIn(r));
     }
 
     /** The whole Cost history newest first; {@code from}/{@code to} bound {@code effectiveFrom} inclusively. */

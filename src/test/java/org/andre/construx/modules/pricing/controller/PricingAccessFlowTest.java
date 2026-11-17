@@ -78,7 +78,8 @@ class PricingAccessFlowTest {
     private void reads(Session s, String resource, org.springframework.test.web.servlet.ResultMatcher expected)
             throws Exception {
         for (String path : new String[] {"/catalog", "/resources", "/resources/" + resource,
-                "/resources/" + resource + "/costs", "/units", "/families", "/suppliers"}) {
+                "/resources/" + resource + "/costs", "/units", "/families", "/suppliers",
+                "/equipment-standby-percentages"}) {
             api.get(s, base + path).andExpect(expected);
         }
     }

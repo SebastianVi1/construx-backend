@@ -5,6 +5,8 @@ import org.andre.construx.modules.pricing.service.CatalogService;
 import org.andre.construx.modules.pricing.service.CatalogService.CatalogSummary;
 import org.andre.construx.modules.pricing.service.CatalogService.FamilyData;
 import org.andre.construx.modules.pricing.service.CatalogService.UnitData;
+import org.andre.construx.modules.pricing.service.ResourceCompositionService;
+import org.andre.construx.modules.pricing.service.ResourceCompositionService.StandbyPercentage;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -17,9 +19,17 @@ import java.util.List;
 @RequestMapping("/api/organizations/{organizationId}")
 public class CatalogController {
     private final CatalogService catalog;
+    private final ResourceCompositionService composition;
 
-    public CatalogController(CatalogService catalog) {
+    public CatalogController(CatalogService catalog, ResourceCompositionService composition) {
         this.catalog = catalog;
+        this.composition = composition;
+    }
+
+    /** Standby and reserve shares per equipment charge, read-only in v1 (docs/pricing.md §2.6). */
+    @GetMapping("/equipment-standby-percentages")
+    public List<StandbyPercentage> standbyPercentages(OrgScope org) {
+        return composition.standbyPercentages(org);
     }
 
     @GetMapping("/catalog")

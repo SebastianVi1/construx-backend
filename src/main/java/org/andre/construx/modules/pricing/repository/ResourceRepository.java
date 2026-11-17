@@ -68,6 +68,20 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
 
     boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
 
+    /**
+     * What a derivation needs of every Resource of the organization, archived included (they keep deriving
+     * their parents' costs): rows of {@code [UUID id, ResourceType type, Boolean composite, Boolean percentage,
+     * BigDecimal currentCost]}.
+     */
+    @Query("""
+            select r.id, r.type, r.composite, r.percentage, r.currentCost from Resource r
+            where r.organizationId = :organizationId
+            """)
+    List<Object[]> derivationInputs(@Param("organizationId") UUID organizationId);
+
+    /** The composite Resources of the organization, archived included. */
+    List<Resource> findByOrganizationIdAndCompositeTrue(UUID organizationId);
+
     /** Non-archived Resources per type: rows of {@code [ResourceType, Long]}. */
     @Query("""
             select r.type, count(r) from Resource r

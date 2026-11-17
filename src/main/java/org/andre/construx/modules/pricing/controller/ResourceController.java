@@ -10,6 +10,7 @@ import org.andre.construx.modules.pricing.service.ResourceService.ResourceDetail
 import org.andre.construx.modules.pricing.service.ResourceService.ResourceFilter;
 import org.andre.construx.modules.pricing.service.ResourceWriteService;
 import org.andre.construx.modules.pricing.service.ResourceWriteService.CostEntry;
+import org.andre.construx.modules.pricing.service.ResourceWriteService.LaborWage;
 import org.andre.construx.modules.pricing.service.ResourceWriteService.ResourceCreate;
 import org.andre.construx.modules.pricing.service.ResourceWriteService.ResourcePatch;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,7 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /** The Catalog's Resources and their Cost history (docs/pricing.md §2.4, §2.5). */
@@ -44,10 +44,10 @@ public class ResourceController {
         this.writes = writes;
     }
 
-    /** Money travels as a string with two decimals; {@code laborDetail} is read only to be refused here. */
+    /** Money travels as a string with two decimals; {@code laborDetail} only for a Labor category. */
     public record CreateBody(ResourceType type, String code, String name, String description, UUID unitId,
                              UUID familyId, UUID supplierId, String brand, BigDecimal cost, Boolean isComposite,
-                             Map<String, Object> laborDetail) {}
+                             LaborWage laborDetail) {}
 
     public record CostBody(BigDecimal amount, UUID supplierId, String sku, String note) {}
 
@@ -56,7 +56,7 @@ public class ResourceController {
     public ResourceDetail create(OrgScope org, @RequestBody CreateBody body) {
         return writes.create(org, new ResourceCreate(body.type(), body.code(), body.name(), body.description(),
                 body.unitId(), body.familyId(), body.supplierId(), body.brand(), body.cost(), body.isComposite(),
-                body.laborDetail() != null));
+                body.laborDetail()));
     }
 
     @PatchMapping("/{resourceId}")
