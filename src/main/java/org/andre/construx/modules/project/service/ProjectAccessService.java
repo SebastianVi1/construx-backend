@@ -6,6 +6,7 @@ import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.project.access.SiteScope;
+import org.andre.construx.modules.project.model.LaborRateAssignment;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.model.ProjectAccess;
 import org.andre.construx.modules.project.repository.ActivityRepository;
@@ -28,23 +29,29 @@ public class ProjectAccessService {
     private final ActivityRepository activities;
     private final MembershipDirectory memberships;
     private final PersonDirectory directory;
+    private final LaborRateService laborRates;
 
     public ProjectAccessService(ProjectAccessRepository accesses, ActivityRepository activities,
-                                MembershipDirectory memberships, PersonDirectory directory) {
+                                MembershipDirectory memberships, PersonDirectory directory,
+                                LaborRateService laborRates) {
         this.accesses = accesses;
         this.activities = activities;
         this.memberships = memberships;
         this.directory = directory;
+        this.laborRates = laborRates;
     }
 
     /** No email: workers can read this list. */
     public record AccessData(UUID accessId, UUID membershipId, UUID userId, String fullName,
                              String roleCode, String roleName, URI avatarUrl) {}
 
+    /** A person on the site with their current Labor rate; the rate is null unless the caller may read rates. */
+    public record SiteMember(AccessData access, LaborRateService.LaborRate laborRate) {}
+
     @Transactional(readOnly = true)
-    public List<AccessData> list(SiteScope site) {
+    public List<SiteMember> list(SiteScope site) {
         site.require(PermissionAction.VIEW_PROJECT);
-        return staff(site.siteId());
+        return withRates(site, staff(site.siteId()));
     }
 
     /** Active members with access to the site, with name and photo. No permission check: callers authorize. */
@@ -57,7 +64,7 @@ public class ProjectAccessService {
     }
 
     @Transactional
-    public AccessData add(SiteScope site, UUID membershipId) {
+    public SiteMember add(SiteScope site, UUID membershipId) {
         site.require(PermissionAction.MANAGE_PROJECT);
         OrganizationMembership membership = memberships.find(site.organizationId(), membershipId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
@@ -65,7 +72,26 @@ public class ProjectAccessService {
             throw new DataIntegrityViolationException("Member already has access to this site");
         }
         ProjectAccess access = accesses.save(new ProjectAccess(site.site(), membership));
-        return toData(access, directory.byUserId(List.of(membership.getUserAccount().getId())));
+        return withRate(site, access);
+    }
+
+    /** Sets a person's Labor rate on the site (docs/pricing.md §6.1); 200 with the access and its rate. */
+    @Transactional
+    public SiteMember setLaborRate(SiteScope site, UUID accessId, LaborRateAssignment.Choice choice) {
+        laborRates.set(site, accessId, choice);
+        return withRate(site, load(site.siteId(), accessId));
+    }
+
+    private SiteMember withRate(SiteScope site, ProjectAccess access) {
+        AccessData data = toData(access,
+                directory.byUserId(List.of(access.getOrganizationMembership().getUserAccount().getId())));
+        return withRates(site, List.of(data)).getFirst();
+    }
+
+    private List<SiteMember> withRates(SiteScope site, List<AccessData> staff) {
+        Map<UUID, LaborRateService.LaborRate> rates = laborRates.visibleCurrent(site,
+                staff.stream().map(AccessData::membershipId).toList());
+        return staff.stream().map(a -> new SiteMember(a, rates.get(a.membershipId()))).toList();
     }
 
     @Transactional

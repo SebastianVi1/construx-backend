@@ -163,6 +163,19 @@ public class ResourceService {
                 supplier(h.getSupplier()), h.getSku(), h.getNote())).toList();
     }
 
+    /** The member who made a write, by name (email when the profile has none); null when unknown. */
+    PersonRef person(UUID organizationId, UUID membershipId) {
+        if (membershipId == null) {
+            return null;
+        }
+        OrganizationMembership membership = memberships.byIds(organizationId, Set.of(membershipId)).stream()
+                .findFirst().orElse(null);
+        if (membership == null) {
+            return null;
+        }
+        return author(membership, people.byUserId(List.of(membership.getUserAccount().getId())));
+    }
+
     private static PersonRef author(OrganizationMembership membership, Map<UUID, Person> persons) {
         if (membership == null) {
             return null;

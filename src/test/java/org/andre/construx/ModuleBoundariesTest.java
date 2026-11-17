@@ -68,6 +68,24 @@ class ModuleBoundariesTest {
         assertTrue(leaks.isEmpty(), "ProjectService methods returning the Project entity: " + leaks);
     }
 
+    /** The Labor rate reaches the catalog from {@code project.service} only (docs/pricing.md §1.12). */
+    @Test
+    void projectReachesPricingOnlyFromItsServices() {
+        Set<String> leaks = new TreeSet<>();
+        for (JavaClass origin : classes) {
+            if (!origin.getPackageName().startsWith(ROOT + ".modules.project.")
+                    || origin.getPackageName().equals(ROOT + ".modules.project.service")) {
+                continue;
+            }
+            for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
+                if (dependency.getTargetClass().getPackageName().startsWith(ROOT + ".modules.pricing.")) {
+                    leaks.add(shortName(topLevel(origin)) + " -> " + shortName(topLevel(dependency.getTargetClass())));
+                }
+            }
+        }
+        assertTrue(leaks.isEmpty(), "project reaches pricing outside its services:\n" + String.join("\n", leaks));
+    }
+
     private static void assertOnlyAllowed(Set<String> found) {
         Set<String> unexpected = new TreeSet<>(found);
         unexpected.removeAll(ALLOWED);

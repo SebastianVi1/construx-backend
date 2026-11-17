@@ -248,6 +248,12 @@ public class Resource {
      * the current cost; null when nothing changed.
      */
     public ResourceCostHistory recordWage(LaborCategoryDetail detail, Instant at, UUID recordedByMembershipId) {
+        return recordWage(detail, at, recordedByMembershipId, CostSource.MANUAL);
+    }
+
+    /** As {@link #recordWage(LaborCategoryDetail, Instant, UUID)}, with the source of the change ({@code FASAR}). */
+    public ResourceCostHistory recordWage(LaborCategoryDetail detail, Instant at, UUID recordedByMembershipId,
+                                          CostSource source) {
         if (type != ResourceType.LABOR || composite || !id.equals(detail.getResourceId())) {
             throw new IllegalArgumentException("Only a simple labor category has a wage");
         }
@@ -255,21 +261,24 @@ public class Resource {
         if (currentCost != null && currentCost.compareTo(realWage) == 0) {
             return null;
         }
-        return newCost(realWage, at, recordedByMembershipId, null, null, null);
+        return newCost(realWage, at, recordedByMembershipId, null, null, null, source);
     }
 
     /**
      * The cost of a composite worked out from its Unit price analysis (docs/pricing.md §3.2); the time of the
      * cost moves only when the value changes, and no Cost history entry is written.
      */
-    public void deriveCost(BigDecimal cost, Instant at) {
+    /** Returns whether the cost changed. */
+    public boolean deriveCost(BigDecimal cost, Instant at) {
         if (!composite) {
             throw new IllegalStateException("Only a composite resource has a derived cost");
         }
         if (currentCost == null || currentCost.compareTo(cost) != 0) {
             currentCost = cost;
             costUpdatedAt = at;
+            return true;
         }
+        return false;
     }
 
     public DerivedCost.Component toComponent() {
@@ -279,9 +288,14 @@ public class Resource {
     /** Entries of one Resource never share an instant, so the newest is current. */
     private ResourceCostHistory newCost(BigDecimal amount, Instant at, UUID recordedByMembershipId,
                                         Supplier supplier, String sku, String note) {
+        return newCost(amount, at, recordedByMembershipId, supplier, sku, note, CostSource.MANUAL);
+    }
+
+    private ResourceCostHistory newCost(BigDecimal amount, Instant at, UUID recordedByMembershipId,
+                                        Supplier supplier, String sku, String note, CostSource source) {
         Instant effectiveFrom = costUpdatedAt != null && !at.isAfter(costUpdatedAt)
                 ? costUpdatedAt.plusNanos(1000) : at;
-        ResourceCostHistory entry = new ResourceCostHistory(this, amount, effectiveFrom, CostSource.MANUAL,
+        ResourceCostHistory entry = new ResourceCostHistory(this, amount, effectiveFrom, source,
                 recordedByMembershipId, supplier, sku, note);
         this.currentCost = amount;
         this.costUpdatedAt = effectiveFrom;

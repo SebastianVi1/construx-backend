@@ -2,6 +2,7 @@ package org.andre.construx.modules.pricing.service;
 
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.PermissionAction;
+import org.andre.construx.modules.pricing.model.FasarCalculator;
 import org.andre.construx.modules.pricing.model.Family;
 import org.andre.construx.modules.pricing.model.LaborCategoryDetail;
 import org.andre.construx.modules.pricing.model.PricingConflictException;
@@ -37,11 +38,13 @@ public class ResourceWriteService {
     private final SupplierService suppliers;
     private final LaborCategoryDetailRepository laborDetails;
     private final DerivedCostService derivedCosts;
+    private final FasarService fasar;
 
     public ResourceWriteService(ResourceService reads, ResourceRepository resources,
                                 ResourceCostHistoryRepository history, CatalogService catalog,
                                 SupplierService suppliers, LaborCategoryDetailRepository laborDetails,
-                                DerivedCostService derivedCosts) {
+                                DerivedCostService derivedCosts, FasarService fasar) {
+        this.fasar = fasar;
         this.reads = reads;
         this.resources = resources;
         this.history = history;
@@ -97,7 +100,7 @@ public class ResourceWriteService {
                 throw new PricingRuleException("cost", "INVALID",
                         "A labor cost comes from its wage; give laborDetail instead");
             }
-            detail = laborDetail(resource, body.laborDetail());
+            detail = laborDetail(resource, body.laborDetail(), fasar.calculator(organizationId).orElse(null));
         } else {
             cost = Resource.checkCost(body.cost(), "cost");
         }
@@ -143,13 +146,18 @@ public class ResourceWriteService {
                 now);
         if (patch.laborDetail() != null) {
             LaborWage wage = patch.laborDetail();
+            FasarCalculator computed = fasar.calculator(organizationId).orElse(null);
             if (detail == null) {
                 // A Labor category without wage data (e.g. migrated) gets its first wage by hand.
-                detail = laborDetail(r, wage);
+                detail = laborDetail(r, wage, computed);
                 laborDetails.save(detail);
             } else {
-                detail.revise(wage.nominalWage(), wage.fsr(), wage.perDiem(), wage.mealsLodging(),
-                        wage.funeralExpenses(), wage.otherBenefits());
+                // With complete FASAR parameters a typed FSR is ignored: it is computed from the new wage.
+                detail.revise(wage.nominalWage(), computed != null ? null : wage.fsr(), wage.perDiem(),
+                        wage.mealsLodging(), wage.funeralExpenses(), wage.otherBenefits());
+                if (computed != null) {
+                    detail.compute(computed);
+                }
             }
             var entry = r.recordWage(detail, now, org.membership().getId());
             if (entry != null) {
@@ -185,9 +193,13 @@ public class ResourceWriteService {
         return reads.get(org, resourceId);
     }
 
-    /** A hand-made wage; without complete FASAR parameters (a later slice) the FSR is typed in. */
-    private static LaborCategoryDetail laborDetail(Resource resource, LaborWage wage) {
+    /** A hand-made wage; the FSR is computed from complete FASAR parameters, else typed in. */
+    private static LaborCategoryDetail laborDetail(Resource resource, LaborWage wage, FasarCalculator computed) {
         LaborWage w = wage != null ? wage : new LaborWage(null, null, null, null, null, null);
+        if (computed != null) {
+            return LaborCategoryDetail.computed(resource, w.nominalWage(), w.perDiem(), w.mealsLodging(),
+                    w.funeralExpenses(), w.otherBenefits(), computed);
+        }
         return LaborCategoryDetail.manual(resource, w.nominalWage(), w.fsr(), w.perDiem(), w.mealsLodging(),
                 w.funeralExpenses(), w.otherBenefits());
     }
