@@ -196,7 +196,7 @@ public class ResourceService {
     }
 
     /** Lower-case LIKE pattern for a contains search, or null when the query is blank. */
-    private static String pattern(String query) {
+    static String pattern(String query) {
         String folded = PricingText.fold(query);
         if (folded.isEmpty()) {
             return null;

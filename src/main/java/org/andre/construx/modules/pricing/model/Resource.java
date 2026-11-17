@@ -197,15 +197,14 @@ public class Resource {
         if (unit == null) {
             throw new PricingRuleException("unitId", "REQUIRED", "Unit is required");
         }
-        if (!sameId(unit.getId(), this.unit == null ? null : this.unit.getId()) && unit.getArchivedAt() != null) {
-            throw new PricingConflictException("ARCHIVED_UNIT", "Archived units cannot be chosen");
+        if (!sameId(unit.getId(), this.unit == null ? null : this.unit.getId())) {
+            unit.requireUsable();
         }
-        if (family != null && !sameId(family.getId(), this.family == null ? null : this.family.getId()) && family.getArchivedAt() != null) {
-            throw new PricingConflictException("ARCHIVED_FAMILY", "Archived families cannot be chosen");
+        if (family != null && !sameId(family.getId(), this.family == null ? null : this.family.getId())) {
+            family.requireUsable();
         }
-        if (supplier != null && !sameId(supplier.getId(), this.supplier == null ? null : this.supplier.getId())
-                && supplier.isArchived()) {
-            throw new PricingConflictException("ARCHIVED_SUPPLIER", "Archived suppliers cannot be chosen");
+        if (supplier != null && !sameId(supplier.getId(), this.supplier == null ? null : this.supplier.getId())) {
+            supplier.requireUsable();
         }
         this.name = cleanName;
         this.description = PricingText.optional(description, TEXT_MAX, "Description", "description");
@@ -238,8 +237,8 @@ public class Resource {
         if (isArchived()) {
             throw new PricingConflictException("ARCHIVED_RESOURCE", "Archived resources cannot receive new costs");
         }
-        if (supplier != null && supplier.isArchived()) {
-            throw new PricingConflictException("ARCHIVED_SUPPLIER", "Archived suppliers cannot be chosen");
+        if (supplier != null) {
+            supplier.requireUsable();
         }
         return newCost(checkCost(amount, "amount"), at, recordedByMembershipId, supplier, sku, note);
     }
