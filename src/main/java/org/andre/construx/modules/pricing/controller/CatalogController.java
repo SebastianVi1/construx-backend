@@ -5,6 +5,8 @@ import org.andre.construx.modules.pricing.service.CatalogService;
 import org.andre.construx.modules.pricing.service.CatalogService.CatalogSummary;
 import org.andre.construx.modules.pricing.service.CatalogService.FamilyData;
 import org.andre.construx.modules.pricing.service.CatalogService.UnitData;
+import org.andre.construx.modules.pricing.service.ResourceCompositionService;
+import org.andre.construx.modules.pricing.service.ResourceCompositionService.StandbyPercentage;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -27,9 +29,17 @@ import java.util.UUID;
 @RequestMapping("/api/organizations/{organizationId}")
 public class CatalogController {
     private final CatalogService catalog;
+    private final ResourceCompositionService composition;
 
-    public CatalogController(CatalogService catalog) {
+    public CatalogController(CatalogService catalog, ResourceCompositionService composition) {
         this.catalog = catalog;
+        this.composition = composition;
+    }
+
+    /** Standby and reserve shares per equipment charge, read-only in v1 (docs/pricing.md §2.6). */
+    @GetMapping("/equipment-standby-percentages")
+    public List<StandbyPercentage> standbyPercentages(OrgScope org) {
+        return composition.standbyPercentages(org);
     }
 
     public record UnitCreate(@NotBlank @Size(max = 20) String code, @Size(max = 120) String description) {}

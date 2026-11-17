@@ -43,7 +43,8 @@ public class Resource {
     public static final int TECHNICAL_SHEET_MAX = 255;
     /** numeric(14,2) holds at most twelve integer digits. */
     private static final BigDecimal COST_LIMIT = new BigDecimal("1000000000000");
-    private static final Set<ResourceType> HAND_COSTED = EnumSet.of(ResourceType.MATERIAL, ResourceType.EQUIPMENT);
+    private static final Set<ResourceType> HAND_MADE = EnumSet.of(ResourceType.MATERIAL, ResourceType.EQUIPMENT,
+            ResourceType.LABOR);
 
     @Id
     private UUID id;
@@ -133,14 +134,15 @@ public class Resource {
     private Instant updatedAt;
 
     /**
-     * A simple Material or Equipment rate typed in by hand, without cost until {@link #recordCost} runs.
-     * Labor categories, Gangs and Work items come with their own slices.
+     * A simple Material, Equipment rate or Labor category typed in by hand, without cost until
+     * {@link #recordCost} (or {@link #recordWage} for labor) runs. Gangs and Work items are only imported.
      */
     public static Resource manual(UUID organizationId, ResourceType type, String code, String name,
                                   String description, Unit unit, Family family, Supplier supplier, String brand,
                                   Instant at) {
-        if (!HAND_COSTED.contains(type)) {
-            throw new PricingRuleException("type", "INVALID", "Only materials and equipment can be created by hand");
+        if (!HAND_MADE.contains(type)) {
+            throw new PricingRuleException("type", "INVALID",
+                    "Only materials, equipment and labor categories can be created by hand");
         }
         Resource r = new Resource();
         r.id = UUID.randomUUID();
@@ -238,12 +240,50 @@ public class Resource {
         if (supplier != null) {
             supplier.requireUsable();
         }
-        BigDecimal checked = checkCost(amount, "amount");
+        return newCost(checkCost(amount, "amount"), at, recordedByMembershipId, supplier, sku, note);
+    }
+
+    /**
+     * The real wage of a simple Labor category as a new Cost history entry, written only when it differs from
+     * the current cost; null when nothing changed.
+     */
+    public ResourceCostHistory recordWage(LaborCategoryDetail detail, Instant at, UUID recordedByMembershipId) {
+        if (type != ResourceType.LABOR || composite || !id.equals(detail.getResourceId())) {
+            throw new IllegalArgumentException("Only a simple labor category has a wage");
+        }
+        BigDecimal realWage = checkCost(detail.realWage(), "laborDetail");
+        if (currentCost != null && currentCost.compareTo(realWage) == 0) {
+            return null;
+        }
+        return newCost(realWage, at, recordedByMembershipId, null, null, null);
+    }
+
+    /**
+     * The cost of a composite worked out from its Unit price analysis (docs/pricing.md §3.2); the time of the
+     * cost moves only when the value changes, and no Cost history entry is written.
+     */
+    public void deriveCost(BigDecimal cost, Instant at) {
+        if (!composite) {
+            throw new IllegalStateException("Only a composite resource has a derived cost");
+        }
+        if (currentCost == null || currentCost.compareTo(cost) != 0) {
+            currentCost = cost;
+            costUpdatedAt = at;
+        }
+    }
+
+    public DerivedCost.Component toComponent() {
+        return new DerivedCost.Component(id, type, composite, percentage, currentCost);
+    }
+
+    /** Entries of one Resource never share an instant, so the newest is current. */
+    private ResourceCostHistory newCost(BigDecimal amount, Instant at, UUID recordedByMembershipId,
+                                        Supplier supplier, String sku, String note) {
         Instant effectiveFrom = costUpdatedAt != null && !at.isAfter(costUpdatedAt)
                 ? costUpdatedAt.plusNanos(1000) : at;
-        ResourceCostHistory entry = new ResourceCostHistory(this, checked, effectiveFrom, CostSource.MANUAL,
+        ResourceCostHistory entry = new ResourceCostHistory(this, amount, effectiveFrom, CostSource.MANUAL,
                 recordedByMembershipId, supplier, sku, note);
-        this.currentCost = checked;
+        this.currentCost = amount;
         this.costUpdatedAt = effectiveFrom;
         this.updatedAt = at;
         return entry;
