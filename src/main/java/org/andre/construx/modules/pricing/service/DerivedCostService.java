@@ -33,24 +33,30 @@ public class DerivedCostService {
         this.lines = lines;
     }
 
+    /** Returns how many Work items got a different cost. */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recompute(UUID organizationId, Instant at) {
+    public int recompute(UUID organizationId, Instant at) {
         resources.flush();
         List<Component> components = resources.derivationInputs(organizationId).stream()
                 .map(row -> new Component((UUID) row[0], (ResourceType) row[1], (Boolean) row[2], (Boolean) row[3],
                         (BigDecimal) row[4]))
                 .toList();
         if (components.stream().noneMatch(Component::composite)) {
-            return;
+            return 0;
         }
         List<UnitPriceAnalysisLine> analysisLines = lines.findByOrganizationId(organizationId);
         Map<UUID, Result> results = DerivedCost.derive(components,
                 analysisLines.stream().map(UnitPriceAnalysisLine::toLine).toList());
+        int workItemsChanged = 0;
         for (Resource composite : resources.findByOrganizationIdAndCompositeTrue(organizationId)) {
-            composite.deriveCost(results.get(composite.getId()).cost(), at);
+            boolean changed = composite.deriveCost(results.get(composite.getId()).cost(), at);
+            if (changed && composite.getType() == ResourceType.WORK_ITEM) {
+                workItemsChanged++;
+            }
         }
         for (UnitPriceAnalysisLine line : analysisLines) {
             line.materialize(results.get(line.getParentResourceId()).lineAmounts().get(line.getId()));
         }
+        return workItemsChanged;
     }
 }

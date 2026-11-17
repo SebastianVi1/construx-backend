@@ -10,6 +10,7 @@ import org.andre.construx.modules.pricing.model.Unit;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.andre.construx.modules.pricing.repository.CatalogRepository;
 import org.andre.construx.modules.pricing.repository.FamilyRepository;
+import org.andre.construx.modules.pricing.repository.FasarParameterSetRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.modules.pricing.repository.SupplierRepository;
 import org.andre.construx.modules.pricing.repository.UnitRepository;
@@ -33,9 +34,12 @@ public class CatalogService {
     private final UnitRepository units;
     private final FamilyRepository families;
     private final SupplierRepository suppliers;
+    private final FasarParameterSetRepository fasarSets;
 
     public CatalogService(CatalogRepository catalogs, ResourceRepository resources, UnitRepository units,
-                          FamilyRepository families, SupplierRepository suppliers) {
+                          FamilyRepository families, SupplierRepository suppliers,
+                          FasarParameterSetRepository fasarSets) {
+        this.fasarSets = fasarSets;
         this.catalogs = catalogs;
         this.resources = resources;
         this.units = units;
@@ -43,7 +47,7 @@ public class CatalogService {
         this.suppliers = suppliers;
     }
 
-    /** Counts leave archived rows out. {@code fasar} is NONE until the FASAR slice exists. */
+    /** Counts leave archived rows out. */
     public record CatalogSummary(boolean exists, String currency, Map<String, Long> counts, long missingFromImport,
                                  Object lastImport, FasarSummary fasar, Object activeImport) {}
 
@@ -77,8 +81,18 @@ public class CatalogService {
         counts.put("units", units.countByOrganizationIdAndArchivedAtIsNull(organizationId));
         counts.put("families", families.countByOrganizationIdAndArchivedAtIsNull(organizationId));
         return new CatalogSummary(true, catalog.get().getCurrency(), counts,
-                resources.countMissingFromImport(organizationId), null,
-                new FasarSummary("NONE", null, null, null, null), null);
+                resources.countMissingFromImport(organizationId), null, fasar(organizationId), null);
+    }
+
+    /** NONE without a set; PARTIAL when it cannot compute FSRs (docs/pricing.md §5.3); COMPLETE otherwise. */
+    private FasarSummary fasar(UUID organizationId) {
+        return fasarSets.findByOrganizationId(organizationId)
+                .map(set -> new FasarSummary(set.status().name(),
+                        set.getYear() == null ? null : set.getYear().intValue(),
+                        set.getUma() == null ? null : set.getUma().toPlainString(),
+                        set.getMinimumWage() == null ? null : set.getMinimumWage().toPlainString(),
+                        set.getUpdatedAt()))
+                .orElseGet(() -> new FasarSummary("NONE", null, null, null, null));
     }
 
     @Transactional(readOnly = true)
