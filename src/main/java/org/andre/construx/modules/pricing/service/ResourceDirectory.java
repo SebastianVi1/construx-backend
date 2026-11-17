@@ -15,7 +15,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Catalog lookups for other modules (finance, crew): a Resource of the organization and its current cost, with no
+ * Catalog lookups for other modules (finance, crew, project): a Resource of the organization and its current cost, with no
  * permission check. Callers authorize; every lookup is filtered by organization, so another tenant's id is not found.
  */
 @Service
@@ -28,7 +28,7 @@ public class ResourceDirectory {
 
     /** {@code currentCost} is null until the Resource has a cost. */
     public record CatalogResource(UUID id, String code, String name, ResourceType type, String unitCode,
-                                  BigDecimal currentCost, boolean archived) {}
+                                  BigDecimal currentCost, boolean archived, boolean composite) {}
 
     /** The Resource inside the organization, or 404. */
     @Transactional(readOnly = true)
@@ -49,6 +49,6 @@ public class ResourceDirectory {
 
     private static CatalogResource toRef(Resource r) {
         return new CatalogResource(r.getId(), r.getCode(), r.getName(), r.getType(), r.getUnit().getCode(),
-                r.getCurrentCost(), r.isArchived());
+                r.getCurrentCost(), r.isArchived(), r.isComposite());
     }
 }
