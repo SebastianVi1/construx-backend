@@ -58,6 +58,10 @@ public class ResourceCostHistory {
     @Column(length = 160)
     private String note;
 
+    /** The Catalog import that wrote this entry, null for hand-made ones. */
+    @Column(name = "import_id")
+    private UUID importId;
+
     ResourceCostHistory(Resource resource, BigDecimal amount, Instant effectiveFrom, CostSource source,
                         UUID recordedByMembershipId, Supplier supplier, String sku, String note) {
         this.id = UUID.randomUUID();

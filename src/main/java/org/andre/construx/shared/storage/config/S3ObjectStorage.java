@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
@@ -62,6 +63,11 @@ public class S3ObjectStorage implements ObjectStorage {
         ResponseBytes<GetObjectResponse> response = client.getObjectAsBytes(
                 GetObjectRequest.builder().bucket(bucket).key(key).build());
         return response.asByteArray();
+    }
+
+    @Override
+    public InputStream open(String key) {
+        return client.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build());
     }
 
     @Override

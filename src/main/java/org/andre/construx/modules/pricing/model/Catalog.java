@@ -29,6 +29,10 @@ public class Catalog {
     @Column(nullable = false)
     private Instant createdAt;
 
+    /** The last {@code DONE} Catalog import. */
+    @Column(name = "last_import_id")
+    private UUID lastImportId;
+
     /** The Catalog created by the organization's first catalog write; MXN only in v1. */
     public static Catalog open(UUID organizationId, Instant at) {
         Catalog catalog = new Catalog();

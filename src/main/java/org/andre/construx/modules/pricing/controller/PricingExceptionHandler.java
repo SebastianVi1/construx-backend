@@ -27,6 +27,7 @@ public class PricingExceptionHandler {
         problem.setTitle("Conflicting state");
         problem.setInstance(URI.create(request.getRequestURI()));
         problem.setProperty("code", ex.getCode());
+        ex.getProperties().forEach(problem::setProperty);
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 

@@ -159,7 +159,7 @@ public class ResourceService {
         Map<UUID, Person> persons = people.byUserId(authors.values().stream()
                 .map(m -> m.getUserAccount().getId()).toList());
         return rows.stream().map(h -> new CostData(h.getId(), money(h.getAmount()), h.getEffectiveFrom(),
-                h.getSource(), author(authors.get(h.getRecordedByMembershipId()), persons), null,
+                h.getSource(), author(authors.get(h.getRecordedByMembershipId()), persons), h.getImportId(),
                 supplier(h.getSupplier()), h.getSku(), h.getNote())).toList();
     }
 

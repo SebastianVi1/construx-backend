@@ -1,5 +1,7 @@
 package org.andre.construx.shared.storage;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +31,11 @@ public interface ObjectStorage {
 
     /** Downloads the full content of a key as a byte array. Use sparingly; large files are expensive. */
     byte[] getBytes(String key);
+
+    /** Streams the content of a key, for large files read once (e.g. an import workbook). The caller closes it. */
+    default InputStream open(String key) {
+        return new ByteArrayInputStream(getBytes(key));
+    }
 
     /** Deleting a missing key is not an error. */
     void delete(String key);
