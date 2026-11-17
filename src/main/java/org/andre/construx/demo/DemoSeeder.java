@@ -258,7 +258,8 @@ public class DemoSeeder {
         }
 
         private void expense(String amount, LocalDate spentOn, String description, ExpenseCategory category) {
-            expenses.create(site, new BigDecimal(amount), spentOn, description, category);
+            expenses.create(site, new ExpenseService.NewExpense(new BigDecimal(amount), spentOn, description, category,
+                    null, null));
         }
     }
 

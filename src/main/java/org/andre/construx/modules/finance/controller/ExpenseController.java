@@ -4,7 +4,7 @@ package org.andre.construx.modules.finance.controller;
 import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -37,13 +37,33 @@ public class ExpenseController {
         this.expenses = expenses;
     }
 
-    public record ExpenseCreate(@NotNull @Positive @Digits(integer = 12, fraction = 2) BigDecimal amount,
-                                @NotNull LocalDate spentOn, @NotBlank @Size(max = 160) String description,
-                                @NotNull ExpenseCategory category) {}
+    /**
+     * Hand-typed ({@code amount}, {@code category}, {@code description}) or from the Catalog ({@code resourceId},
+     * {@code quantity}, optional {@code description}); the service refuses a mix (docs/pricing.md §6.5).
+     */
+    public record ExpenseCreate(@Positive @Digits(integer = 12, fraction = 2) BigDecimal amount,
+                                @NotNull LocalDate spentOn, @Size(max = 160) String description,
+                                ExpenseCategory category, UUID resourceId, BigDecimal quantity) {
+        @AssertTrue(message = "amount, category and description are required")
+        public boolean isComplete() {
+            return resourceId != null || (amount != null && category != null && description != null
+                    && !description.isBlank());
+        }
 
-    /** Every field optional; a missing field keeps the stored value. */
+        ExpenseService.NewExpense toNew() {
+            return new ExpenseService.NewExpense(amount, spentOn, description, category, resourceId, quantity);
+        }
+    }
+
+    /** Every field optional; a missing field keeps the stored value. {@code resourceId}/{@code quantity} are refused. */
     public record ExpensePatch(@Positive @Digits(integer = 12, fraction = 2) BigDecimal amount, LocalDate spentOn,
-                               @Size(max = 160) String description, ExpenseCategory category) {}
+                               @Size(max = 160) String description, ExpenseCategory category, UUID resourceId,
+                               BigDecimal quantity) {
+        ExpenseService.ExpenseChange toChange() {
+            return new ExpenseService.ExpenseChange(amount, spentOn, description, category,
+                    resourceId != null || quantity != null);
+        }
+    }
 
     /** Allocated budget, total spent, what remains and the spend per category. */
     @GetMapping("/budget")
@@ -60,15 +80,13 @@ public class ExpenseController {
     @ResponseStatus(HttpStatus.CREATED)
     public ExpenseService.ExpenseData create(SiteScope site,
                                              @Valid @RequestBody ExpenseCreate body) {
-        return expenses.create(site, body.amount(), body.spentOn(),
-                body.description(), body.category());
+        return expenses.create(site, body.toNew());
     }
 
     @PatchMapping("/expenses/{expenseId}")
     public ExpenseService.ExpenseData update(SiteScope site,
                                              @PathVariable UUID expenseId, @Valid @RequestBody ExpensePatch body) {
-        return expenses.update(site, expenseId, body.amount(),
-                body.spentOn(), body.description(), body.category());
+        return expenses.update(site, expenseId, body.toChange());
     }
 
     @DeleteMapping("/expenses/{expenseId}")
@@ -96,7 +114,6 @@ public class ExpenseController {
     public ExpenseService.ExpenseData createForTask(SiteScope site,
                                                     @PathVariable UUID goalId, @PathVariable UUID activityId,
                                                     @Valid @RequestBody ExpenseCreate body) {
-        return expenses.createForTask(site, goalId, activityId,
-                body.amount(), body.spentOn(), body.description(), body.category());
+        return expenses.createForTask(site, goalId, activityId, body.toNew());
     }
 }

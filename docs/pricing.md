@@ -554,6 +554,8 @@ When `resourceId` is present: `quantity` required (`> 0`, up to 6 decimals); `am
 
 The existing equipment create/update body gains `equipmentRateResourceId` (nullable, must be an `EQUIPMENT` Resource of the organization, `404`/`400`), responses gain `equipmentRate: { id, code, name, hourlyCost } | null`. When `equipmentRateResourceId` is set in a request that does not send `dailyCostCents`, `dailyCostCents = round(hourlyCost × 8 × 100)`; a sent `dailyCostCents` wins. The link is a pointer, not a snapshot: later hourly cost changes do not change `dailyCostCents` (the UI offers "update from rate").
 
+Implementation notes (both slices): on equipment `PATCH` an absent `equipmentRateResourceId` keeps the link, `""` removes it (keeping `dailyCostCents`) and an id links that rate; sending the linked id again without `dailyCostCents` is the "update from rate" action. A Resource of another type answers `400 NOT_AN_EQUIPMENT_RATE`. `hourlyCost` is the rate's `currentCost` (two decimals; `null` while it has none, and then nothing is prefilled). For §6.5, a `quantity` without `resourceId` is `400 CATALOG_EXPENSE_FIELDS`, so is a `PATCH` sending `resourceId`/`quantity` to a typed expense; the response `quantity` is the stored value without trailing zeros (`"12.5"`) and `unitCost` has two decimals.
+
 ## 7. Migration of existing data (V38, in the same migration as the new tables)
 
 Existing rows are test data (D1); the script converts them without special cases:

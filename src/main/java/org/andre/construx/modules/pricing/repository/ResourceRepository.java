@@ -20,6 +20,13 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
             """)
     Optional<Resource> findInOrganization(@Param("id") UUID id, @Param("organizationId") UUID organizationId);
 
+    @Query("""
+            select r from Resource r join fetch r.unit
+            where r.id in :ids and r.organizationId = :organizationId
+            """)
+    List<Resource> findAllInOrganization(@Param("ids") Collection<UUID> ids,
+                                         @Param("organizationId") UUID organizationId);
+
     /**
      * {@code pattern} is a lower-case LIKE pattern escaped with {@code \}, or null for no search.
      * Null filters match everything; {@code missingFromImport} only narrows when true.
