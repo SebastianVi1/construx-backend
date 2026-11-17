@@ -2,13 +2,16 @@ package org.andre.construx.modules.pricing.service;
 
 import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ResourceType;
+import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -21,9 +24,24 @@ import java.util.stream.Collectors;
 @Service
 public class ResourceDirectory {
     private final ResourceRepository resources;
+    private final ResourceCostHistoryRepository costs;
 
-    public ResourceDirectory(ResourceRepository resources) {
+    public ResourceDirectory(ResourceRepository resources, ResourceCostHistoryRepository costs) {
         this.resources = resources;
+        this.costs = costs;
+    }
+
+    /** One Cost history row. */
+    public record CostEntry(UUID resourceId, BigDecimal amount, Instant effectiveFrom) {}
+
+    /** The whole Cost history of these Resources of the organization, in no particular order. */
+    @Transactional(readOnly = true)
+    public List<CostEntry> costHistory(UUID organizationId, Collection<UUID> resourceIds) {
+        if (resourceIds.isEmpty()) {
+            return List.of();
+        }
+        return costs.findOfResources(organizationId, resourceIds).stream()
+                .map(h -> new CostEntry(h.getResourceId(), h.getAmount(), h.getEffectiveFrom())).toList();
     }
 
     /** {@code currentCost} is null until the Resource has a cost. */

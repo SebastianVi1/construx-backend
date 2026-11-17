@@ -75,6 +75,25 @@ public class LaborRateService {
 
     public record LaborRateView(LaborRate current, Suggested suggested, List<LaborRate> history) {}
 
+    /** A Labor rate row as other modules read it: {@code laborCategoryId} for CATALOG, {@code dailyAmount} for FIXED. */
+    public record RateRow(UUID projectId, UUID membershipId, LaborRateKind kind, UUID laborCategoryId,
+                          BigDecimal dailyAmount, Instant effectiveFrom) {}
+
+    /**
+     * Every Labor rate row (the whole history) of these Sites of the organization, for the accrual
+     * (docs/pricing.md §6.2). No permission check: callers authorize.
+     */
+    @Transactional(readOnly = true)
+    public List<RateRow> history(UUID organizationId, Collection<UUID> projectIds) {
+        if (projectIds.isEmpty()) {
+            return List.of();
+        }
+        return rates.ofProjects(organizationId, projectIds).stream()
+                .map(r -> new RateRow(r.getProjectId(), r.getMembershipId(), r.getKind(),
+                        r.getLaborCategoryResourceId(), r.getDailyAmount(), r.getEffectiveFrom()))
+                .toList();
+    }
+
     /** Whoever may set a rate can read it, and so can VIEW_BUDGET holders. */
     public boolean canRead(SiteScope site) {
         return site.can(PermissionAction.VIEW_BUDGET) || site.can(PermissionAction.MANAGE_PROJECT);
