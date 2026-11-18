@@ -19,6 +19,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,7 +28,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Seeded role matrix: Owner, Administrator and Finance manage prices, Member only reads, Worker sees nothing. */
+/**
+ * Seeded role matrix on the catalog reads: Owner, Administrator, Member and Finance read the Catalog, Worker gets
+ * 403 and a non-member 404. The former material and price-observation routes are gone.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -46,6 +51,7 @@ class PricingAccessFlowTest {
     private Session owner;
     private UUID orgId;
     private String base;
+    private List<String> reads;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -54,6 +60,12 @@ class PricingAccessFlowTest {
         owner = api.signUp();
         orgId = api.createOrganization(owner, "Acme " + UUID.randomUUID());
         base = "/api/organizations/" + orgId;
+        CatalogRows rows = new CatalogRows(jdbc, orgId);
+        rows.catalog();
+        UUID resource = rows.resource("MAT-1", "MATERIAL", "Arena", rows.unit("M3", null)).insert();
+        rows.cost(resource, "10", Instant.now(), null, null);
+        reads = List.of(base + "/catalog", base + "/units", base + "/families", base + "/suppliers",
+                base + "/resources", base + "/resources/" + resource, base + "/resources/" + resource + "/costs");
     }
 
     private Session as(String role) throws Exception {
@@ -62,85 +74,53 @@ class PricingAccessFlowTest {
         return session;
     }
 
-    /** Runs the whole write flow as the given session and expects every step to succeed. */
-    private void managesPrices(Session s, String tag) throws Exception {
-        String material = Api.id(api.post(s, base + "/materials",
-                "{\"name\":\"M " + tag + "\",\"unit\":\"BAG\",\"category\":\"STEEL\"}").andExpect(status().isCreated()));
-        String supplier = Api.id(api.post(s, base + "/suppliers", "{\"name\":\"S " + tag + "\"}")
-                .andExpect(status().isCreated()));
-        api.patch(s, base + "/materials/" + material, "{\"brand\":\"B\"}").andExpect(status().isOk());
-        api.patch(s, base + "/suppliers/" + supplier, "{\"branch\":\"Centro\"}").andExpect(status().isOk());
-        String observation = Api.id(api.post(s, base + "/price-observations", "{\"materialId\":\"" + material
-                + "\",\"supplierId\":\"" + supplier + "\",\"price\":10,\"observedOn\":\"2026-10-01\"}")
-                .andExpect(status().isCreated()));
-        api.get(s, base + "/materials").andExpect(status().isOk());
-        api.get(s, base + "/materials/" + material).andExpect(status().isOk());
-        api.get(s, base + "/suppliers").andExpect(status().isOk());
-        api.delete(s, base + "/price-observations/" + observation).andExpect(status().isNoContent());
-        api.post(s, base + "/materials/" + material + "/archive", null).andExpect(status().isOk());
-        api.post(s, base + "/suppliers/" + supplier + "/archive", null).andExpect(status().isOk());
+    @Test
+    void ownerAdministratorMemberAndFinanceReadTheCatalog() throws Exception {
+        for (Session reader : List.of(owner, as("ADMINISTRATOR"), as("MEMBER"), as("FINANCE"))) {
+            for (String path : reads) {
+                api.get(reader, path).andExpect(status().isOk());
+            }
+        }
     }
 
     @Test
-    void ownerAdministratorAndFinanceManagePrices() throws Exception {
-        managesPrices(owner, "owner");
-        managesPrices(as("ADMINISTRATOR"), "admin");
-        managesPrices(as("FINANCE"), "finance");
-    }
-
-    @Test
-    void memberReadsButCannotWrite() throws Exception {
-        String material = Api.id(api.post(owner, base + "/materials",
-                "{\"name\":\"Cemento\",\"unit\":\"BAG\",\"category\":\"STEEL\"}"));
-        String supplier = Api.id(api.post(owner, base + "/suppliers", "{\"name\":\"Depot\"}"));
-        String observation = Api.id(api.post(owner, base + "/price-observations", "{\"materialId\":\"" + material
-                + "\",\"supplierId\":\"" + supplier + "\",\"price\":10,\"observedOn\":\"2026-10-01\"}"));
-        Session member = as("MEMBER");
-        api.get(member, base + "/materials").andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].latestPrices[0].price").value("10.00"));
-        api.get(member, base + "/materials/" + material).andExpect(status().isOk());
-        api.get(member, base + "/suppliers").andExpect(status().isOk());
-        api.post(member, base + "/materials", "{\"name\":\"X\",\"unit\":\"BAG\",\"category\":\"STEEL\"}")
-                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        api.patch(member, base + "/materials/" + material, "{\"name\":\"X\"}").andExpect(status().isForbidden());
-        api.post(member, base + "/materials/" + material + "/archive", null).andExpect(status().isForbidden());
-        api.post(member, base + "/suppliers", "{\"name\":\"X\"}").andExpect(status().isForbidden());
-        api.patch(member, base + "/suppliers/" + supplier, "{\"name\":\"X\"}").andExpect(status().isForbidden());
-        api.post(member, base + "/suppliers/" + supplier + "/archive", null).andExpect(status().isForbidden());
-        api.post(member, base + "/price-observations", "{\"materialId\":\"" + material + "\",\"supplierId\":\""
-                + supplier + "\",\"price\":10,\"observedOn\":\"2026-10-01\"}").andExpect(status().isForbidden());
-        api.delete(member, base + "/price-observations/" + observation).andExpect(status().isForbidden());
-        assertEquals(1L, jdbc.queryForObject("select count(*) from material where organization_id = ?", Long.class, orgId));
-        assertEquals(1L, jdbc.queryForObject("select count(*) from supplier where organization_id = ?", Long.class, orgId));
-        assertEquals(1L, jdbc.queryForObject("select count(*) from price_observation where organization_id = ?",
-                Long.class, orgId));
-        assertEquals("Cemento", jdbc.queryForObject("select name from material where id = ?", String.class,
-                UUID.fromString(material)));
-    }
-
-    @Test
-    void workerCannotEvenRead() throws Exception {
-        String material = Api.id(api.post(owner, base + "/materials",
-                "{\"name\":\"Cemento\",\"unit\":\"BAG\",\"category\":\"STEEL\"}"));
+    void workerCannotRead() throws Exception {
         Session worker = as("WORKER");
-        api.get(worker, base + "/materials").andExpect(status().isForbidden());
-        api.get(worker, base + "/materials/" + material).andExpect(status().isForbidden());
-        api.get(worker, base + "/suppliers").andExpect(status().isForbidden());
+        for (String path : reads) {
+            api.get(worker, path).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
         api.post(worker, base + "/suppliers", "{\"name\":\"X\"}").andExpect(status().isForbidden());
     }
 
     @Test
     void nonMembersGetNotFoundEverywhere() throws Exception {
-        String material = Api.id(api.post(owner, base + "/materials",
-                "{\"name\":\"Cemento\",\"unit\":\"BAG\",\"category\":\"STEEL\"}"));
         Session stranger = api.signUp();
-        api.get(stranger, base + "/materials").andExpect(status().isNotFound());
-        api.get(stranger, base + "/materials/" + material).andExpect(status().isNotFound());
-        api.post(stranger, base + "/materials", "{\"name\":\"X\",\"unit\":\"BAG\",\"category\":\"STEEL\"}")
-                .andExpect(status().isNotFound());
-        api.get(stranger, base + "/suppliers").andExpect(status().isNotFound());
+        for (String path : reads) {
+            api.get(stranger, path).andExpect(status().isNotFound());
+        }
         api.post(stranger, base + "/suppliers", "{\"name\":\"X\"}").andExpect(status().isNotFound());
-        api.delete(stranger, base + "/price-observations/" + UUID.randomUUID()).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void suppliersStillManageAsBefore() throws Exception {
+        String supplier = Api.id(api.post(owner, base + "/suppliers", "{\"name\":\"Depot\"}")
+                .andExpect(status().isCreated()));
+        api.patch(owner, base + "/suppliers/" + supplier, "{\"branch\":\"Centro\"}").andExpect(status().isOk());
+        api.post(owner, base + "/suppliers/" + supplier + "/archive", null).andExpect(status().isOk());
+        Session member = as("MEMBER");
+        api.post(member, base + "/suppliers", "{\"name\":\"X\"}").andExpect(status().isForbidden());
+    }
+
+    @Test
+    void theFormerMaterialAndPriceObservationRoutesAreGone() throws Exception {
+        api.get(owner, base + "/materials").andExpect(status().isNotFound());
+        api.get(owner, base + "/materials/" + UUID.randomUUID()).andExpect(status().isNotFound());
+        api.post(owner, base + "/materials", "{\"name\":\"X\",\"unit\":\"BAG\",\"category\":\"STEEL\"}")
+                .andExpect(status().isNotFound());
+        api.patch(owner, base + "/materials/" + UUID.randomUUID(), "{\"name\":\"X\"}").andExpect(status().isNotFound());
+        api.post(owner, base + "/price-observations", "{}").andExpect(status().isNotFound());
+        api.delete(owner, base + "/price-observations/" + UUID.randomUUID()).andExpect(status().isNotFound());
+        api.post(owner, base + "/price-observations/import", null).andExpect(status().isNotFound());
     }
 
     @Test
@@ -150,4 +130,24 @@ class PricingAccessFlowTest {
                 .andExpect(status().isForbidden());
         assertEquals(0L, jdbc.queryForObject("select count(*) from supplier where organization_id = ?", Long.class, orgId));
     }
+
+    @Test
+    void anOwnerOfAnotherOrganizationGetsNotFoundOnEveryCatalogRead() throws Exception {
+        Session otherOwner = api.signUp();
+        api.createOrganization(otherOwner, "Other " + UUID.randomUUID());
+        for (String path : reads) {
+            api.get(otherOwner, path).andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        }
+    }
+
+    @Test
+    void removedRoutesReturnNotFoundForBothGetAndPost() throws Exception {
+        for (String path : List.of("/materials", "/materials/" + UUID.randomUUID(),
+                "/price-observations", "/price-observations/import")) {
+            api.get(owner, base + path).andExpect(status().isNotFound());
+            api.post(owner, base + path, "{}").andExpect(status().isNotFound());
+        }
+    }
+
 }
