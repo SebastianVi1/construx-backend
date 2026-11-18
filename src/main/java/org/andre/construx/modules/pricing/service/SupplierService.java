@@ -67,7 +67,7 @@ public class SupplierService {
         for (Object[] row : resources.countBySupplier(org.organizationId())) {
             used.put((UUID) row[0], (Long) row[1]);
         }
-        return suppliers.list(org.organizationId(), includeArchived, ResourceService.pattern(query)).stream()
+        return suppliers.list(org.organizationId(), includeArchived, CatalogSearch.containsPattern(query)).stream()
                 .map(s -> toData(s, used.getOrDefault(s.getId(), 0L)))
                 .toList();
     }

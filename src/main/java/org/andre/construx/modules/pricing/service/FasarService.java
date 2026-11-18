@@ -1,5 +1,6 @@
 package org.andre.construx.modules.pricing.service;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.pricing.model.FasarCalculator;
@@ -66,7 +67,7 @@ public class FasarService {
 
     public record CapsData(BigDecimal excessThresholdUma, BigDecimal sbcCapUma, Integer factorRounding) {}
 
-    public record ContributionData(String concept, BigDecimal employerRate, BigDecimal workerRate) {}
+    public record ContributionData(FasarConcept concept, BigDecimal employerRate, BigDecimal workerRate) {}
 
     public record Days(String calendar, String sundays, String workedSundays, String vacation, String mondays,
                        String holidays, String weather, String custom, String leaveSick, String union,
@@ -78,7 +79,13 @@ public class FasarService {
 
     public record Contribution(FasarConcept concept, String employerRate, String workerRate) {}
 
-    public record Derived(String tp, String tl, String tpOverTl, String fsbc) {}
+    /**
+     * The factors the formulas of docs/pricing.md §5.2 derive from the set; the JSON keeps the formula names
+     * ({@code tp}, {@code tl}, {@code tpOverTl}, {@code fsbc}).
+     */
+    public record Derived(@JsonProperty("tp") String paidDays, @JsonProperty("tl") String workedDays,
+                          @JsonProperty("tpOverTl") String paidPerWorkedDay,
+                          @JsonProperty("fsbc") String contributionBaseFactor) {}
 
     public record LaborCategories(long total, long computed, long mismatches) {}
 
@@ -155,7 +162,10 @@ public class FasarService {
         }
         Map<FasarConcept, FasarCalculator.Rate> rates = new EnumMap<>(FasarConcept.class);
         for (ContributionData row : in.contributions() != null ? in.contributions() : List.<ContributionData>of()) {
-            FasarConcept concept = concept(row.concept());
+            FasarConcept concept = row.concept();
+            if (concept == null) {
+                throw new PricingRuleException("contributions.concept", "INVALID", "Unknown contribution concept");
+            }
             if (rates.put(concept, new FasarCalculator.Rate(row.employerRate(), row.workerRate())) != null) {
                 throw new PricingRuleException("contributions", "INVALID",
                         "Each contribution concept goes once");
@@ -166,12 +176,6 @@ public class FasarService {
                         d.holidays(), d.weather(), d.custom(), d.leaveSick(), d.union(), d.bonus()),
                 p.vacationPct(), p.sundayPct(), p.otherChargesPct(), c.excessThresholdUma(), c.sbcCapUma(),
                 c.factorRounding(), rates);
-    }
-
-    private static FasarConcept concept(String value) {
-        return Arrays.stream(FasarConcept.values()).filter(c -> c.name().equals(value)).findFirst()
-                .orElseThrow(() -> new PricingRuleException(
-                        "contributions.concept", "INVALID", "Unknown contribution concept"));
     }
 
     private FasarView view(UUID organizationId, FasarParameterSet set, Recomputation recomputation) {

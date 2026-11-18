@@ -222,6 +222,13 @@ class FasarFlowTest {
         api.put(owner, base + "/fasar", missingConcept).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
 
+        String unknownConcept = body(null).replace("\"concept\":\"DAYCARE\"", "\"concept\":\"NURSERY\"");
+        api.put(owner, base + "/fasar", unknownConcept).andExpect(status().isBadRequest());
+
+        String noConcept = body(null).replace("\"concept\":\"DAYCARE\",", "");
+        api.put(owner, base + "/fasar", noConcept).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+
         String rateAboveOne = body(null).replace("\"employerRate\":\"0.204\"", "\"employerRate\":\"1.5\"");
         api.put(owner, base + "/fasar", rateAboveOne).andExpect(status().isBadRequest());
 

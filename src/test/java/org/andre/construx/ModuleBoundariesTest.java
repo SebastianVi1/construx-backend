@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -71,18 +72,8 @@ class ModuleBoundariesTest {
     /** The Labor rate reaches the catalog from {@code project.service} only (docs/pricing.md §1.12). */
     @Test
     void projectReachesPricingOnlyFromItsServices() {
-        Set<String> leaks = new TreeSet<>();
-        for (JavaClass origin : classes) {
-            if (!origin.getPackageName().startsWith(ROOT + ".modules.project.")
-                    || origin.getPackageName().equals(ROOT + ".modules.project.service")) {
-                continue;
-            }
-            for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
-                if (dependency.getTargetClass().getPackageName().startsWith(ROOT + ".modules.pricing.")) {
-                    leaks.add(shortName(topLevel(origin)) + " -> " + shortName(topLevel(dependency.getTargetClass())));
-                }
-            }
-        }
+        Set<String> leaks = leaksOutsideServices("project",
+                target -> target.startsWith(ROOT + ".modules.pricing."));
         assertTrue(leaks.isEmpty(), "project reaches pricing outside its services:\n" + String.join("\n", leaks));
     }
 
@@ -93,23 +84,32 @@ class ModuleBoundariesTest {
      */
     @Test
     void financeReachesAttendanceProjectAndPricingOnlyFromItsServices() {
+        Set<String> leaks = leaksOutsideServices("finance",
+                target -> target.startsWith(ROOT + ".modules.attendance.")
+                        || target.startsWith(ROOT + ".modules.pricing.")
+                        || target.equals(ROOT + ".modules.project.service"));
+        assertTrue(leaks.isEmpty(), "finance reaches other modules outside its services:\n" + String.join("\n", leaks));
+    }
+
+    /**
+     * {@code origin -> target} for every class of {@code module} outside its {@code service} package that depends
+     * on a class whose package matches {@code forbidden}.
+     */
+    private static Set<String> leaksOutsideServices(String module, Predicate<String> forbidden) {
+        String modulePackage = ROOT + ".modules." + module;
         Set<String> leaks = new TreeSet<>();
         for (JavaClass origin : classes) {
-            if (!origin.getPackageName().startsWith(ROOT + ".modules.finance.")
-                    || origin.getPackageName().equals(ROOT + ".modules.finance.service")) {
+            if (!origin.getPackageName().startsWith(modulePackage + ".")
+                    || origin.getPackageName().equals(modulePackage + ".service")) {
                 continue;
             }
             for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
-                String target = dependency.getTargetClass().getPackageName();
-                boolean reached = target.startsWith(ROOT + ".modules.attendance.")
-                        || target.startsWith(ROOT + ".modules.pricing.")
-                        || target.equals(ROOT + ".modules.project.service");
-                if (reached) {
+                if (forbidden.test(dependency.getTargetClass().getPackageName())) {
                     leaks.add(shortName(topLevel(origin)) + " -> " + shortName(topLevel(dependency.getTargetClass())));
                 }
             }
         }
-        assertTrue(leaks.isEmpty(), "finance reaches other modules outside its services:\n" + String.join("\n", leaks));
+        return leaks;
     }
 
     private static void assertOnlyAllowed(Set<String> found) {

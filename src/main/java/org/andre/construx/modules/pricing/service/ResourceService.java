@@ -9,7 +9,6 @@ import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.pricing.model.CatalogSource;
 import org.andre.construx.modules.pricing.model.CostSource;
 import org.andre.construx.modules.pricing.model.Family;
-import org.andre.construx.modules.pricing.model.PricingText;
 import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ResourceCostHistory;
 import org.andre.construx.modules.pricing.model.ResourceType;
@@ -113,7 +112,7 @@ public class ResourceService {
                 ? EnumSet.allOf(ResourceType.class) : filter.types();
         return CatalogPage.of(resources.search(org.organizationId(), types, filter.includeArchived(),
                 filter.missingFromImport(), filter.familyId(), filter.unitId(), filter.supplierId(),
-                filter.composite(), filter.discontinued(), pattern(filter.query()), pageable), ResourceService::toData);
+                filter.composite(), filter.discontinued(), CatalogSearch.containsPattern(filter.query()), pageable), ResourceService::toData);
     }
 
     @Transactional(readOnly = true)
@@ -206,14 +205,5 @@ public class ResourceService {
 
     static String money(BigDecimal amount) {
         return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
-    }
-
-    /** Lower-case LIKE pattern for a contains search, or null when the query is blank. */
-    static String pattern(String query) {
-        String folded = PricingText.fold(query);
-        if (folded.isEmpty()) {
-            return null;
-        }
-        return "%" + folded.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 }
