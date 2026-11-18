@@ -54,12 +54,12 @@ class EndpointAccessTest {
                 .andExpect(status().isAccepted());
         mvc.perform(post("/api/auth/password/reset").cookie(cookie).header("X-XSRF-TOKEN", token)
                         .contentType("application/json")
-                        .content("{\"token\":\"unknown\",\"newPassword\":\"brand-new-password\"}"))
+                        .content("{\"token\":\"unknown\",\"newPassword\":\"Brand-new-password1\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         mvc.perform(post("/api/auth/password").cookie(cookie).header("X-XSRF-TOKEN", token)
                         .contentType("application/json")
-                        .content("{\"currentPassword\":\"old-password-123\",\"newPassword\":\"brand-new-password\"}"))
+                        .content("{\"currentPassword\":\"old-password-123\",\"newPassword\":\"Brand-new-password1\"}"))
                 .andExpect(status().isUnauthorized());
     }
 }
