@@ -1,33 +1,27 @@
 package org.andre.construx.modules.pricing.model;
 
-import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.andre.construx.modules.organization.model.Organization;
-import org.andre.construx.shared.validation.DomainValidation;
 
 import java.time.Instant;
 import java.util.UUID;
 
-/** The one Catalog of an organization (ADR 0008); its rows reference the organization, not the Catalog. */
+/** The one Catalog of an organization; Resources, Units and Families reference the organization directly. */
 @Entity
-@Table(name = "catalog", uniqueConstraints = @UniqueConstraint(name = "uk_catalog_organization",
-        columnNames = "organization_id"))
+@Table(name = "catalog")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Catalog {
-    /** Only Mexican pesos in v1. */
-    public static final String CURRENCY = "MXN";
-
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
     private UUID id;
 
-    @NotNull
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "organization_id", nullable = false)
-    private Organization organization;
+    @Column(name = "organization_id", nullable = false, unique = true)
+    private UUID organizationId;
 
     @Column(nullable = false, length = 3)
     private String currency;
@@ -35,9 +29,17 @@ public class Catalog {
     @Column(nullable = false)
     private Instant createdAt;
 
-    public Catalog(Organization organization, Instant createdAt) {
-        this.organization = DomainValidation.required(organization, "Organization is required");
-        this.currency = CURRENCY;
-        this.createdAt = DomainValidation.required(createdAt, "Creation time is required");
+    /** The last {@code DONE} Catalog import. */
+    @Column(name = "last_import_id")
+    private UUID lastImportId;
+
+    /** The Catalog created by the organization's first catalog write; MXN only in v1. */
+    public static Catalog open(UUID organizationId, Instant at) {
+        Catalog catalog = new Catalog();
+        catalog.id = UUID.randomUUID();
+        catalog.organizationId = organizationId;
+        catalog.currency = "MXN";
+        catalog.createdAt = at;
+        return catalog;
     }
 }

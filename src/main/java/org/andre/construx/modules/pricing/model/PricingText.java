@@ -25,6 +25,25 @@ public final class PricingText {
         return cleaned == null ? "" : cleaned.toLowerCase(Locale.ROOT);
     }
 
+    /** A Catalog code: trimmed and upper-cased, never otherwise normalized ({@code 1:4}, {@code %MO1}). */
+    static String code(String value, int max, String label) {
+        return code(value, max, label, "code");
+    }
+
+    static String code(String value, int max, String label, String field) {
+        String cleaned = value == null ? "" : value.strip().toUpperCase(Locale.ROOT);
+        if (cleaned.isEmpty() || cleaned.length() > max) {
+            throw new PricingRuleException(field, cleaned.isEmpty() ? "REQUIRED" : "INVALID",
+                    label + " must have 1 to " + max + " characters");
+        }
+        return cleaned;
+    }
+
+    /** An optional Catalog code; blank becomes null. */
+    static String optionalCode(String value, int max, String label, String field) {
+        return value == null || value.isBlank() ? null : code(value, max, label, field);
+    }
+
     static String required(String value, int max, String label, String field) {
         String cleaned = clean(value);
         if (cleaned == null || cleaned.length() > max) {
@@ -32,16 +51,6 @@ public final class PricingText {
                     label + " must have 1 to " + max + " characters");
         }
         return cleaned;
-    }
-
-    /** Codes are trimmed and upper-cased, never otherwise normalized ({@code 1:4}, {@code %MO1} stay as typed). */
-    static String code(String value, int max, String label, String field) {
-        String trimmed = value == null ? null : value.strip().toUpperCase(Locale.ROOT);
-        if (trimmed == null || trimmed.isEmpty() || trimmed.length() > max) {
-            throw new PricingRuleException(field, trimmed == null || trimmed.isEmpty() ? "REQUIRED" : "INVALID",
-                    label + " must have 1 to " + max + " characters");
-        }
-        return trimmed;
     }
 
     static String optional(String value, int max, String label, String field) {

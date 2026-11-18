@@ -31,6 +31,10 @@ public class Equipment {
     @Column(name = "daily_cost_cents")
     private Long dailyCostCents;
 
+    /** The Catalog Equipment rate behind this machine: a pointer, its cost is never copied here on its own. */
+    @Column(name = "equipment_rate_resource_id")
+    private UUID equipmentRateResourceId;
+
     @Column(nullable = false)
     private boolean active = true;
 
@@ -52,6 +56,11 @@ public class Equipment {
         if (identifier != null) this.identifier = identifier.trim();
         if (dailyCostCents != null) this.dailyCostCents = dailyCostCents;
         if (active != null) this.active = active;
+    }
+
+    /** Null unlinks the Equipment rate. */
+    public void linkRate(UUID equipmentRateResourceId) {
+        this.equipmentRateResourceId = equipmentRateResourceId;
     }
 
     public void deactivate() {

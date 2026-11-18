@@ -1,5 +1,6 @@
 package org.andre.construx.modules.pricing.repository;
 
+import org.andre.construx.modules.pricing.service.InterruptedImportRecovery;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeAll;
@@ -9,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.sql.Date;
@@ -35,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class CatalogConversionTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired Flyway flyway;
+    // The context starts at V37, before catalog_import exists; the startup recovery would read that table.
+    @MockitoBean InterruptedImportRecovery recovery;
 
     private final UUID acme = UUID.randomUUID();
     private final UUID allMappings = UUID.randomUUID();
@@ -121,13 +125,6 @@ class CatalogConversionTest {
     private Instant instant(String sql, Object... args) {
         Timestamp value = jdbc.queryForObject(sql, Timestamp.class, args);
         return value == null ? null : value.toInstant();
-    }
-
-    @Test
-    void v38IsTheLatestMigration() {
-        assertEquals("38", jdbc.queryForObject("select \"version\" from \"flyway_schema_history\" "
-                + "where \"installed_rank\" = (select max(\"installed_rank\") from \"flyway_schema_history\")",
-                String.class));
     }
 
     @Test

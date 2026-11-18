@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,6 +67,49 @@ class ModuleBoundariesTest {
             }
         }
         assertTrue(leaks.isEmpty(), "ProjectService methods returning the Project entity: " + leaks);
+    }
+
+    /** The Labor rate reaches the catalog from {@code project.service} only (docs/pricing.md §1.12). */
+    @Test
+    void projectReachesPricingOnlyFromItsServices() {
+        Set<String> leaks = leaksOutsideServices("project",
+                target -> target.startsWith(ROOT + ".modules.pricing."));
+        assertTrue(leaks.isEmpty(), "project reaches pricing outside its services:\n" + String.join("\n", leaks));
+    }
+
+    /**
+     * The labor accrual reaches attendance, project and pricing from {@code finance.service} only
+     * (docs/pricing.md §1.12). The expense entity's JPA links to the Site and task and the controllers' request
+     * scope ({@code project.access}) predate it and stay allowed.
+     */
+    @Test
+    void financeReachesAttendanceProjectAndPricingOnlyFromItsServices() {
+        Set<String> leaks = leaksOutsideServices("finance",
+                target -> target.startsWith(ROOT + ".modules.attendance.")
+                        || target.startsWith(ROOT + ".modules.pricing.")
+                        || target.equals(ROOT + ".modules.project.service"));
+        assertTrue(leaks.isEmpty(), "finance reaches other modules outside its services:\n" + String.join("\n", leaks));
+    }
+
+    /**
+     * {@code origin -> target} for every class of {@code module} outside its {@code service} package that depends
+     * on a class whose package matches {@code forbidden}.
+     */
+    private static Set<String> leaksOutsideServices(String module, Predicate<String> forbidden) {
+        String modulePackage = ROOT + ".modules." + module;
+        Set<String> leaks = new TreeSet<>();
+        for (JavaClass origin : classes) {
+            if (!origin.getPackageName().startsWith(modulePackage + ".")
+                    || origin.getPackageName().equals(modulePackage + ".service")) {
+                continue;
+            }
+            for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
+                if (forbidden.test(dependency.getTargetClass().getPackageName())) {
+                    leaks.add(shortName(topLevel(origin)) + " -> " + shortName(topLevel(dependency.getTargetClass())));
+                }
+            }
+        }
+        return leaks;
     }
 
     private static void assertOnlyAllowed(Set<String> found) {

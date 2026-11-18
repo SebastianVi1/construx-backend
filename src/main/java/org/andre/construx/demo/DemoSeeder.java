@@ -233,7 +233,7 @@ public class DemoSeeder {
             projects.assignBudget(site, new BigDecimal(budget));
             siteAccess.clear();
             for (String key : staff) {
-                siteAccess.put(key, accesses.add(site, memberships.get(key)).accessId());
+                siteAccess.put(key, accesses.add(site, memberships.get(key)).access().accessId());
             }
         }
 
@@ -258,7 +258,8 @@ public class DemoSeeder {
         }
 
         private void expense(String amount, LocalDate spentOn, String description, ExpenseCategory category) {
-            expenses.create(site, new BigDecimal(amount), spentOn, description, category);
+            expenses.create(site, new ExpenseService.NewExpense(new BigDecimal(amount), spentOn, description, category,
+                    null, null));
         }
     }
 

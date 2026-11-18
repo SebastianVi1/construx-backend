@@ -1,25 +1,23 @@
 package org.andre.construx.modules.pricing.service;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
+import org.andre.construx.modules.organization.service.MembershipDirectory;
+import org.andre.construx.modules.pricing.model.CatalogSource;
 import org.andre.construx.modules.pricing.model.CostSource;
-import org.andre.construx.modules.pricing.model.PricingText;
+import org.andre.construx.modules.pricing.model.Family;
 import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ResourceCostHistory;
-import org.andre.construx.modules.pricing.model.ResourceSource;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.andre.construx.modules.pricing.model.Supplier;
 import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
-import org.andre.construx.modules.pricing.repository.ResourceSpecifications;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,36 +26,39 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-/** Reads of the organization's Resources and their Cost history (docs/pricing.md §2.4, §2.5). */
+/** Reads the organization's Catalog of Resources and their Cost history (docs/pricing.md §2.4, §2.5). */
 @Service
 public class ResourceService {
-    /** Entries shown inside the detail; the full history is the paged costs list. */
     static final int DETAIL_HISTORY = 100;
-    private static final Map<String, String> SORT_FIELDS = Map.of(
-            "code", "code", "name", "name", "currentCost", "currentCost", "costUpdatedAt", "costUpdatedAt");
-    private static final Sort BY_CODE = Sort.by("code");
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("effectiveFrom"), Sort.Order.desc("id"));
+    private static final Set<String> SORT_FIELDS = Set.of("code", "name", "currentCost", "costUpdatedAt");
+    private static final Instant EARLIEST = Instant.parse("1900-01-01T00:00:00Z");
+    private static final Instant LATEST = Instant.parse("9999-12-31T23:59:59Z");
 
     private final ResourceRepository resources;
     private final ResourceCostHistoryRepository history;
+    private final MembershipDirectory memberships;
     private final PersonDirectory people;
+    private final ResourceCompositionService composition;
 
     public ResourceService(ResourceRepository resources, ResourceCostHistoryRepository history,
-                           PersonDirectory people) {
+                           MembershipDirectory memberships, PersonDirectory people,
+                           ResourceCompositionService composition) {
         this.resources = resources;
         this.history = history;
+        this.memberships = memberships;
         this.people = people;
+        this.composition = composition;
     }
-
-    /** Null fields do not filter; {@code query} is a case-insensitive contains over code, name and description. */
-    public record ResourceFilter(List<ResourceType> types, String query, UUID familyId, UUID unitId, UUID supplierId,
-                                 Boolean composite, boolean includeArchived, Boolean missingFromImport,
-                                 Boolean discontinued) {}
 
     public record UnitRef(UUID id, String code) {}
 
@@ -67,119 +68,142 @@ public class ResourceService {
 
     public record PersonRef(UUID membershipId, String fullName) {}
 
+    /** Money is a string with two decimals; null until the Resource has a cost. */
+    public record ResourceData(UUID id, String code, ResourceType type, String name, UnitRef unit, FamilyRef family,
+                               SupplierRef supplier, String brand, boolean isPercentage, boolean isComposite,
+                               boolean isHourlyCost, boolean discontinued, String currentCost, Instant costUpdatedAt,
+                               CatalogSource source, Instant missingFromImportAt, Instant archivedAt) {}
+
+    public record CostData(UUID id, String amount, Instant effectiveFrom, CostSource source, PersonRef recordedBy,
+                           UUID importId, SupplierRef supplier, String sku, String note) {}
+
+    public record UsedIn(long count, List<ResourceRef> sample) {}
+
     public record ResourceRef(UUID id, String code, String name, ResourceType type) {}
 
-    /** {@code ResourceResponse}: money is a string with two decimals. */
-    public record ResourceData(UUID id, String code, ResourceType type, String name, UnitRef unit, FamilyRef family,
-                               SupplierRef supplier, String brand,
-                               @JsonProperty("isPercentage") boolean isPercentage,
-                               @JsonProperty("isComposite") boolean isComposite,
-                               @JsonProperty("isHourlyCost") boolean isHourlyCost,
-                               boolean discontinued, String currentCost, Instant costUpdatedAt,
-                               ResourceSource source, Instant missingFromImportAt, Instant archivedAt) {}
-
-    /** {@code importId} stays null until the import slice adds the column. */
-    public record CostEntry(UUID id, String amount, Instant effectiveFrom, CostSource source, PersonRef recordedBy,
-                            UUID importId, SupplierRef supplier, String sku, String note) {}
-
-    /** Parents whose analysis uses the Resource; empty until analysis lines exist. */
-    public record UsedIn(long count, List<ResourceRef> sample) {
-        static final UsedIn NONE = new UsedIn(0, List.of());
-    }
-
     /**
-     * {@code ResourceDetailResponse}: the list row plus the long fields, the last {@value #DETAIL_HISTORY} Cost
-     * history entries newest first and where the Resource is used.
+     * {@code history} is the newest {@value #DETAIL_HISTORY} entries of a simple Resource, null for a composite.
+     * {@code analysis} only for composites, {@code laborDetail} only for simple Labor categories and
+     * {@code equipmentDetail} only for Equipment rates with machinery data; null otherwise.
      */
-    public record ResourceDetail(@JsonUnwrapped ResourceData resource, String description, String reference,
-                                 String sapCode, String technicalSheet, String procedure, String grouper,
-                                 String importedCost, LocalDate importedCostOn, Instant createdAt, Instant updatedAt,
-                                 List<CostEntry> history, UsedIn usedIn) {}
+    public record ResourceDetail(UUID id, String code, ResourceType type, String name, UnitRef unit, FamilyRef family,
+                                 SupplierRef supplier, String brand, boolean isPercentage, boolean isComposite,
+                                 boolean isHourlyCost, boolean discontinued, String currentCost,
+                                 Instant costUpdatedAt, CatalogSource source, Instant missingFromImportAt,
+                                 Instant archivedAt, String description, String reference, String sapCode,
+                                 String technicalSheet, String procedure, String grouper, String importedCost,
+                                 LocalDate importedCostOn, Instant createdAt, Instant updatedAt,
+                                 ResourceCompositionService.LaborDetail laborDetail,
+                                 ResourceCompositionService.EquipmentDetail equipmentDetail,
+                                 ResourceCompositionService.Analysis analysis, List<CostData> history,
+                                 UsedIn usedIn) {}
+
+    /** Search criteria of {@code GET /resources}; null means no filter, an empty {@code types} all types. */
+    public record ResourceFilter(Collection<ResourceType> types, String query, UUID familyId, UUID unitId,
+                                 UUID supplierId, Boolean composite, boolean includeArchived,
+                                 Boolean missingFromImport, Boolean discontinued) {}
 
     @Transactional(readOnly = true)
-    public PageData<ResourceData> list(OrgScope org, ResourceFilter filter, int page, int size, String sort) {
+    public CatalogPage<ResourceData> list(OrgScope org, ResourceFilter filter, Integer page, Integer size,
+                                          String sort) {
         org.require(PermissionAction.VIEW_PRICES);
-        PageRequest request = PageQuery.of(page, size, sort, SORT_FIELDS, BY_CODE, BY_CODE);
-        return PageData.of(resources.findAll(ResourceSpecifications.resources(org.organizationId(), filter.types(),
-                pattern(filter.query()), filter.familyId(), filter.unitId(), filter.supplierId(), filter.composite(),
-                filter.includeArchived(), filter.missingFromImport(), filter.discontinued()), request),
-                ResourceService::toData);
+        Pageable pageable = CatalogPage.request(page, size, sort, SORT_FIELDS, Sort.by("code"), "code", "id");
+        Collection<ResourceType> types = filter.types() == null || filter.types().isEmpty()
+                ? EnumSet.allOf(ResourceType.class) : filter.types();
+        return CatalogPage.of(resources.search(org.organizationId(), types, filter.includeArchived(),
+                filter.missingFromImport(), filter.familyId(), filter.unitId(), filter.supplierId(),
+                filter.composite(), filter.discontinued(), CatalogSearch.containsPattern(filter.query()), pageable), ResourceService::toData);
     }
 
-    /** Archived Resources are returned too. */
     @Transactional(readOnly = true)
     public ResourceDetail get(OrgScope org, UUID resourceId) {
-        Resource resource = load(org.organizationId(), resourceId);
+        Resource r = load(org.organizationId(), resourceId);
         org.require(PermissionAction.VIEW_PRICES);
-        List<ResourceCostHistory> latest = history.findAll(
-                ResourceSpecifications.costs(org.organizationId(), resourceId, null, null),
-                PageRequest.of(0, DETAIL_HISTORY, NEWEST_FIRST)).getContent();
-        return new ResourceDetail(toData(resource), resource.getDescription(), resource.getReference(),
-                resource.getSapCode(), resource.getTechnicalSheet(), resource.getProcedure(), resource.getGrouper(),
-                money(resource.getImportedCost()), resource.getImportedCostOn(), resource.getCreatedAt(),
-                resource.getUpdatedAt(), toEntries(latest), UsedIn.NONE);
+        List<CostData> costs = r.isComposite() ? null : costs(org.organizationId(), history.findNewestFirst(
+                org.organizationId(), r.getId(), EARLIEST, LATEST, PageRequest.of(0, DETAIL_HISTORY)).getContent());
+        return new ResourceDetail(r.getId(), r.getCode(), r.getType(), r.getName(), unit(r), family(r.getFamily()),
+                supplier(r.getSupplier()), r.getBrand(), r.isPercentage(), r.isComposite(), r.isHourlyCost(),
+                r.isDiscontinued(), money(r.getCurrentCost()), r.getCostUpdatedAt(), r.getSource(),
+                r.getMissingFromImportAt(), r.getArchivedAt(), r.getDescription(), r.getReference(), r.getSapCode(),
+                r.getTechnicalSheet(), r.getProcedure(), r.getGrouper(), money(r.getImportedCost()),
+                r.getImportedCostOn(), r.getCreatedAt(), r.getUpdatedAt(), composition.laborDetail(r),
+                composition.equipmentDetail(r), composition.analysis(r), costs, composition.usedIn(r));
     }
 
-    /** The full Cost history newest first; {@code from} and {@code to} are inclusive and optional. */
+    /** The whole Cost history newest first; {@code from}/{@code to} bound {@code effectiveFrom} inclusively. */
     @Transactional(readOnly = true)
-    public PageData<CostEntry> costs(OrgScope org, UUID resourceId, Instant from, Instant to, int page, int size) {
+    public CatalogPage<CostData> costs(OrgScope org, UUID resourceId, Instant from, Instant to, Integer page,
+                                       Integer size) {
         load(org.organizationId(), resourceId);
         org.require(PermissionAction.VIEW_PRICES);
-        PageRequest request = PageQuery.of(page, size, null, Map.of(), NEWEST_FIRST, Sort.unsorted());
-        Page<ResourceCostHistory> entries = history.findAll(
-                ResourceSpecifications.costs(org.organizationId(), resourceId, from, to), request);
-        Map<UUID, Person> names = namesOf(entries.getContent());
-        return PageData.of(entries, e -> toEntry(e, names));
+        Pageable pageable = CatalogPage.request(page, size, null, Set.of(), Sort.unsorted());
+        var rows = history.findNewestFirst(org.organizationId(), resourceId, from != null ? from : EARLIEST,
+                to != null ? to : LATEST, pageable);
+        List<CostData> content = costs(org.organizationId(), rows.getContent());
+        return new CatalogPage<>(content, rows.getNumber(), rows.getSize(), rows.getTotalElements(),
+                rows.getTotalPages());
     }
 
     /** Resolves a Resource inside the tenant; another organization's id is not found. */
-    Resource load(UUID organizationId, UUID resourceId) {
-        return resources.findByIdAndOrganizationId(resourceId, organizationId)
+    public Resource load(UUID organizationId, UUID resourceId) {
+        return resources.findInOrganization(resourceId, organizationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
     }
 
-    private List<CostEntry> toEntries(List<ResourceCostHistory> entries) {
-        Map<UUID, Person> names = namesOf(entries);
-        return entries.stream().map(e -> toEntry(e, names)).toList();
+    private List<CostData> costs(UUID organizationId, List<ResourceCostHistory> rows) {
+        Set<UUID> authorIds = rows.stream().map(ResourceCostHistory::getRecordedByMembershipId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, OrganizationMembership> authors = memberships.byIds(organizationId, authorIds).stream()
+                .collect(Collectors.toMap(OrganizationMembership::getId, Function.identity()));
+        Map<UUID, Person> persons = people.byUserId(authors.values().stream()
+                .map(m -> m.getUserAccount().getId()).toList());
+        return rows.stream().map(h -> new CostData(h.getId(), money(h.getAmount()), h.getEffectiveFrom(),
+                h.getSource(), author(authors.get(h.getRecordedByMembershipId()), persons), h.getImportId(),
+                supplier(h.getSupplier()), h.getSku(), h.getNote())).toList();
     }
 
-    /** Names of the people who recorded {@code entries}, read in one query. */
-    private Map<UUID, Person> namesOf(List<ResourceCostHistory> entries) {
-        return people.byUserId(entries.stream().map(ResourceCostHistory::getRecordedBy)
-                .filter(Objects::nonNull).map(m -> m.getUserAccount().getId()).toList());
+    /** The member who made a write, by name (email when the profile has none); null when unknown. */
+    PersonRef person(UUID organizationId, UUID membershipId) {
+        if (membershipId == null) {
+            return null;
+        }
+        OrganizationMembership membership = memberships.byIds(organizationId, Set.of(membershipId)).stream()
+                .findFirst().orElse(null);
+        if (membership == null) {
+            return null;
+        }
+        return author(membership, people.byUserId(List.of(membership.getUserAccount().getId())));
     }
 
-    private static CostEntry toEntry(ResourceCostHistory e, Map<UUID, Person> names) {
-        OrganizationMembership by = e.getRecordedBy();
-        PersonRef recordedBy = by == null ? null
-                : new PersonRef(by.getId(), PersonDirectory.of(names, by.getUserAccount().getId()).fullName());
-        return new CostEntry(e.getId(), money(e.getAmount()), e.getEffectiveFrom(), e.getSource(), recordedBy,
-                null, supplierRef(e.getSupplier()), e.getSku(), e.getNote());
-    }
-
-    private static SupplierRef supplierRef(Supplier supplier) {
-        return supplier == null ? null : new SupplierRef(supplier.getId(), supplier.getName());
+    private static PersonRef author(OrganizationMembership membership, Map<UUID, Person> persons) {
+        if (membership == null) {
+            return null;
+        }
+        String fullName = PersonDirectory.of(persons, membership.getUserAccount().getId()).fullName();
+        return new PersonRef(membership.getId(),
+                fullName == null || fullName.isBlank() ? membership.getUserAccount().getEmail() : fullName);
     }
 
     static ResourceData toData(Resource r) {
-        FamilyRef family = r.getFamily() == null ? null
-                : new FamilyRef(r.getFamily().getId(), r.getFamily().getCode(), r.getFamily().getName());
-        return new ResourceData(r.getId(), r.getCode(), r.getType(), r.getName(),
-                new UnitRef(r.getUnit().getId(), r.getUnit().getCode()), family, supplierRef(r.getSupplier()),
-                r.getBrand(), r.isPercentage(), r.isComposite(), r.isHourlyCost(), r.isDiscontinued(), money(r.getCurrentCost()),
-                r.getCostUpdatedAt(), r.getSource(), r.getMissingFromImportAt(), r.getArchivedAt());
+        return new ResourceData(r.getId(), r.getCode(), r.getType(), r.getName(), unit(r), family(r.getFamily()),
+                supplier(r.getSupplier()), r.getBrand(), r.isPercentage(), r.isComposite(), r.isHourlyCost(),
+                r.isDiscontinued(), money(r.getCurrentCost()), r.getCostUpdatedAt(), r.getSource(),
+                r.getMissingFromImportAt(), r.getArchivedAt());
     }
 
-    private static String money(BigDecimal value) {
-        return value == null ? null : value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    private static UnitRef unit(Resource r) {
+        return new UnitRef(r.getUnit().getId(), r.getUnit().getCode());
     }
 
-    /** Lower-case LIKE pattern for a contains search, or null when the query is blank. */
-    private static String pattern(String query) {
-        String folded = PricingText.fold(query);
-        if (folded.isEmpty()) {
-            return null;
-        }
-        return "%" + folded.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+    private static FamilyRef family(Family family) {
+        return family == null ? null : new FamilyRef(family.getId(), family.getCode(), family.getName());
+    }
+
+    private static SupplierRef supplier(Supplier supplier) {
+        return supplier == null ? null : new SupplierRef(supplier.getId(), supplier.getName());
+    }
+
+    static String money(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 }

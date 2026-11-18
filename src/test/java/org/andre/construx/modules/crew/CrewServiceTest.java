@@ -6,6 +6,7 @@ import org.andre.construx.modules.crew.repository.CrewRepository;
 import org.andre.construx.modules.crew.repository.EquipmentRepository;
 import org.andre.construx.modules.crew.service.CrewService;
 import org.andre.construx.modules.crew.service.EquipmentService;
+import org.andre.construx.modules.pricing.service.ResourceDirectory;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -45,7 +46,7 @@ class CrewServiceTest {
         membershipRepo = mock(MembershipDirectory.class);
 
         crewService = new CrewService(crewRepo, membershipRepo);
-        equipmentService = new EquipmentService(equipmentRepo);
+        equipmentService = new EquipmentService(equipmentRepo, mock(ResourceDirectory.class));
 
         orgId = UUID.randomUUID();
         org = mock(Organization.class);
@@ -107,7 +108,7 @@ class CrewServiceTest {
         when(equipmentRepo.findByIdAndOrganizationId(equipId, orgId)).thenReturn(Optional.of(equipment));
 
         EquipmentService.EquipmentData result = equipmentService.updateEquipment(
-                scope, equipId, "Tower Crane", null, 20000L, null);
+                scope, equipId, "Tower Crane", null, 20000L, null, EquipmentService.RateLink.KEEP);
 
         assertEquals("Tower Crane", result.type());
         assertEquals("CR-01", result.identifier());
