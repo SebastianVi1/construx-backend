@@ -6,6 +6,8 @@ import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.pricing.importing.SyntheticPresupuesto;
+import org.andre.construx.modules.pricing.repository.CatalogImportRepository;
+import org.andre.construx.modules.pricing.service.StaleImportCanceller;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
 import org.andre.construx.modules.project.repository.ProjectRepository;
 import org.andre.construx.shared.storage.InMemoryObjectStorage;
@@ -26,6 +28,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +70,7 @@ class CatalogImportFlowTest {
     @Autowired ProjectAccessRepository accesses;
     @Autowired PlatformTransactionManager txm;
     @Autowired ObjectStorage storage;
+    @Autowired CatalogImportRepository importJobs;
 
     private Api api;
     private Members members;
@@ -315,6 +322,98 @@ class CatalogImportFlowTest {
         api.post(owner, base + "/catalog-imports/" + id + "/cancel", null).andExpect(status().isOk());
         api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + consumed + "\"}")
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theImportHistoryListsJobsNewestFirstForPriceManagersOnly() throws Exception {
+        String first = importAll(SyntheticPresupuesto.standard());
+        SyntheticPresupuesto broken = SyntheticPresupuesto.standard();
+        broken.sheet("Matrices").dropColumn("CodigoI");
+        String second = start(broken.bytes());
+        await(second, "FAILED");
+        String third = start(SyntheticPresupuesto.standard().bytes());
+        await(third, "VALIDATED");
+
+        api.get(owner, base + "/catalog-imports").andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3)).andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(50))
+                .andExpect(jsonPath("$.content[0].id").value(third))
+                .andExpect(jsonPath("$.content[0].status").value("VALIDATED"))
+                .andExpect(jsonPath("$.content[1].id").value(second))
+                .andExpect(jsonPath("$.content[1].failure.code").value("MISSING_COLUMN"))
+                .andExpect(jsonPath("$.content[2].id").value(first))
+                .andExpect(jsonPath("$.content[2].status").value("DONE"))
+                .andExpect(jsonPath("$.content[2].file.name").value("ConstruBASE_Presupuesto.xlsx"))
+                .andExpect(jsonPath("$.content[2].uploadedBy.fullName", notNullValue()))
+                .andExpect(jsonPath("$.content[2].summary.resources.MATERIAL.new").value(4));
+        api.get(owner, base + "/catalog-imports?page=1&size=2").andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(first)).andExpect(jsonPath("$.totalPages").value(2));
+        api.get(owner, base + "/catalog-imports?size=0").andExpect(status().isBadRequest());
+
+        Session viewer = api.signUp();
+        members.add(orgId, viewer.user(), "WORKER");
+        api.get(viewer, base + "/catalog-imports").andExpect(status().isForbidden());
+        Session stranger = api.signUp();
+        api.get(stranger, base + "/catalog-imports").andExpect(status().isNotFound());
+        UUID otherOrg = api.createOrganization(stranger, "Other " + UUID.randomUUID());
+        api.get(stranger, "/api/organizations/" + otherOrg + "/catalog-imports")
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void theCatalogSummaryShowsTheLastImportAndTheActiveJobToPriceManagers() throws Exception {
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.lastImport", nullValue()))
+                .andExpect(jsonPath("$.activeImport", nullValue()));
+        String first = start(SyntheticPresupuesto.standard().bytes());
+        await(first, "VALIDATED");
+        // no Catalog yet, but the job is already active
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.exists").value(false))
+                .andExpect(jsonPath("$.activeImport.id").value(first))
+                .andExpect(jsonPath("$.activeImport.status").value("VALIDATED"));
+        api.post(owner, base + "/catalog-imports/" + first + "/confirm", CONFIRM).andExpect(status().isAccepted());
+        await(first, "DONE");
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.lastImport.id").value(first))
+                .andExpect(jsonPath("$.lastImport.status").value("DONE"))
+                .andExpect(jsonPath("$.lastImport.fileName").value("ConstruBASE_Presupuesto.xlsx"))
+                .andExpect(jsonPath("$.lastImport.finishedAt", notNullValue()))
+                .andExpect(jsonPath("$.activeImport", nullValue()));
+
+        String second = start(SyntheticPresupuesto.standard().bytes());
+        await(second, "VALIDATED");
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.lastImport.id").value(first))
+                .andExpect(jsonPath("$.activeImport.id").value(second))
+                .andExpect(jsonPath("$.activeImport.file.name").value("ConstruBASE_Presupuesto.xlsx"))
+                .andExpect(jsonPath("$.activeImport.summary.resources.MATERIAL.unchanged").value(4));
+
+        // a member who only views prices sees the last import, not the job, its file or its uploader
+        Session viewer = api.signUp();
+        members.add(orgId, viewer.user(), "SUPERINTENDENT");
+        api.get(viewer, base + "/catalog").andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastImport.id").value(first))
+                .andExpect(jsonPath("$.activeImport", nullValue()));
+        api.get(viewer, base + "/catalog-imports/" + second).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aValidatedJobNobodyConfirmsIsCancelledAfter24Hours() throws Exception {
+        String id = start(SyntheticPresupuesto.standard().bytes());
+        Instant validatedAt = Instant.parse(JsonPath.read(await(id, "VALIDATED"), "$.validatedAt"));
+
+        StaleImportCanceller early = new StaleImportCanceller(importJobs, txm,
+                Clock.fixed(validatedAt.plus(Duration.ofHours(24)), ZoneOffset.UTC));
+        early.cancelStale();
+        api.get(owner, base + "/catalog-imports/" + id).andExpect(jsonPath("$.status").value("VALIDATED"));
+
+        Instant later = validatedAt.plus(Duration.ofHours(24)).plusSeconds(1);
+        new StaleImportCanceller(importJobs, txm, Clock.fixed(later, ZoneOffset.UTC)).cancelStale();
+        api.get(owner, base + "/catalog-imports/" + id).andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.finishedAt").value(later.toString()));
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.activeImport", nullValue()));
+        // it no longer blocks a new import, and a finished one is never touched
+        String next = importAll(SyntheticPresupuesto.standard());
+        new StaleImportCanceller(importJobs, txm, Clock.fixed(later.plus(Duration.ofDays(30)), ZoneOffset.UTC))
+                .cancelStale();
+        api.get(owner, base + "/catalog-imports/" + next).andExpect(jsonPath("$.status").value("DONE"));
     }
 
     @Test

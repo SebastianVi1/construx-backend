@@ -35,10 +35,12 @@ public class CatalogService {
     private final FamilyRepository families;
     private final SupplierRepository suppliers;
     private final FasarParameterSetRepository fasarSets;
+    private final CatalogImportService imports;
 
     public CatalogService(CatalogRepository catalogs, ResourceRepository resources, UnitRepository units,
                           FamilyRepository families, SupplierRepository suppliers,
-                          FasarParameterSetRepository fasarSets) {
+                          FasarParameterSetRepository fasarSets, CatalogImportService imports) {
+        this.imports = imports;
         this.fasarSets = fasarSets;
         this.catalogs = catalogs;
         this.resources = resources;
@@ -49,7 +51,8 @@ public class CatalogService {
 
     /** Counts leave archived rows out. */
     public record CatalogSummary(boolean exists, String currency, Map<String, Long> counts, long missingFromImport,
-                                 Object lastImport, FasarSummary fasar, Object activeImport) {}
+                                 CatalogImportService.LastImport lastImport, FasarSummary fasar,
+                                 CatalogImportService.ImportData activeImport) {}
 
     public record FasarSummary(String status, Integer year, String uma, String minimumWage, Instant updatedAt) {}
 
@@ -72,7 +75,7 @@ public class CatalogService {
             counts.put("suppliers", 0L);
             counts.put("units", 0L);
             counts.put("families", 0L);
-            return new CatalogSummary(false, "MXN", counts, 0, null, null, null);
+            return new CatalogSummary(false, "MXN", counts, 0, null, null, imports.activeImport(org));
         }
         for (Object[] row : resources.countByType(organizationId)) {
             counts.put(((ResourceType) row[0]).name(), (Long) row[1]);
@@ -81,7 +84,9 @@ public class CatalogService {
         counts.put("units", units.countByOrganizationIdAndArchivedAtIsNull(organizationId));
         counts.put("families", families.countByOrganizationIdAndArchivedAtIsNull(organizationId));
         return new CatalogSummary(true, catalog.get().getCurrency(), counts,
-                resources.countMissingFromImport(organizationId), null, fasar(organizationId), null);
+                resources.countMissingFromImport(organizationId),
+                imports.lastImport(organizationId, catalog.get().getLastImportId()), fasar(organizationId),
+                imports.activeImport(org));
     }
 
     /** NONE without a set; PARTIAL when it cannot compute FSRs (docs/pricing.md §5.3); COMPLETE otherwise. */
