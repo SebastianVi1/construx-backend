@@ -7,6 +7,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
 import org.andre.construx.modules.pricing.model.CatalogImport;
 import org.andre.construx.modules.pricing.model.CatalogImportUpload;
+import org.andre.construx.modules.pricing.model.ImportFileKind;
 import org.andre.construx.modules.pricing.model.ImportStatus;
 import org.andre.construx.modules.pricing.model.PricingConflictException;
 import org.andre.construx.modules.pricing.repository.CatalogImportRepository;
@@ -98,7 +99,8 @@ public class CatalogImportService {
     }
 
     @Transactional
-    public UploadData requestUpload(OrgScope org, String kind, String fileName, String contentType, long sizeBytes) {
+    public UploadData requestUpload(OrgScope org, ImportFileKind kind, String fileName, String contentType,
+                                    long sizeBytes) {
         org.require(PermissionAction.MANAGE_PRICES);
         CatalogImportUpload upload = uploads.save(CatalogImportUpload.open(org.organizationId(), kind, fileName,
                 contentType, sizeBytes, org.membershipId(), now()));
@@ -113,14 +115,14 @@ public class CatalogImportService {
      */
     @Transactional
     public ImportData create(OrgScope org, UUID presupuestoUploadId, UUID fasarUploadId) {
+        org.require(PermissionAction.MANAGE_PRICES);
         CatalogImportUpload upload = uploads.findByIdAndOrganizationId(presupuestoUploadId, org.organizationId())
-                .filter(u -> !u.isConsumed() && CatalogImportUpload.PRESUPUESTO.equals(u.getKind()))
+                .filter(u -> !u.isConsumed() && u.getKind() == ImportFileKind.PRESUPUESTO)
                 .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));
         CatalogImportUpload fasar = fasarUploadId == null ? null
                 : uploads.findByIdAndOrganizationId(fasarUploadId, org.organizationId())
-                .filter(u -> !u.isConsumed() && CatalogImportUpload.FASAR.equals(u.getKind()))
+                .filter(u -> !u.isConsumed() && u.getKind() == ImportFileKind.FASAR)
                 .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));
-        org.require(PermissionAction.MANAGE_PRICES);
         requireStored(upload);
         if (fasar != null) {
             requireStored(fasar);

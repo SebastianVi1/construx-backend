@@ -3,8 +3,8 @@ package org.andre.construx.modules.pricing.controller;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.pricing.model.ImportFileKind;
 import org.andre.construx.modules.pricing.service.CatalogImportService;
 import org.andre.construx.modules.pricing.service.CatalogImportService.ImportData;
 import org.andre.construx.modules.pricing.service.CatalogImportService.UploadData;
@@ -31,7 +31,7 @@ public class CatalogImportController {
         this.imports = imports;
     }
 
-    public record UploadRequest(@NotNull @Pattern(regexp = "PRESUPUESTO|FASAR") String kind,
+    public record UploadRequest(@NotNull ImportFileKind kind,
                                 @NotBlank String fileName, @NotBlank String contentType, @NotNull Long sizeBytes) {}
 
     public record CreateRequest(@NotNull UUID presupuestoUploadId, UUID fasarUploadId) {}

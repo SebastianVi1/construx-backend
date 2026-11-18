@@ -7,6 +7,7 @@ import org.andre.construx.modules.organization.repository.OrganizationMembership
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.pricing.importing.SyntheticPresupuesto;
 import org.andre.construx.modules.pricing.repository.CatalogImportRepository;
+import org.andre.construx.modules.pricing.service.InterruptedImportRecovery;
 import org.andre.construx.modules.pricing.service.StaleImportCanceller;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
 import org.andre.construx.modules.project.repository.ProjectRepository;
@@ -100,6 +101,19 @@ class CatalogImportFlowTest {
         return new Upload(JsonPath.read(json, "$.uploadId"), url.substring("memory://upload/".length()));
     }
 
+    /** Starts a job as {@code session} in another organization, without the checks of {@link #start}. */
+    private String startAs(Session session, String orgBase, byte[] workbook) throws Exception {
+        String body = "{\"kind\":\"PRESUPUESTO\",\"fileName\":\"ConstruBASE_Presupuesto.xlsx\",\"contentType\":\""
+                + XLSX + "\",\"sizeBytes\":" + workbook.length + "}";
+        String json = api.post(session, orgBase + "/catalog-imports/uploads", body).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String uploadId = JsonPath.read(json, "$.uploadId");
+        String url = JsonPath.read(json, "$.uploadUrl");
+        storage.put(url.substring("memory://upload/".length()), workbook, XLSX);
+        return Api.id(api.post(session, orgBase + "/catalog-imports",
+                "{\"presupuestoUploadId\":\"" + uploadId + "\"}").andExpect(status().isAccepted()));
+    }
+
     /** Uploads the workbook as the browser would and starts the job; returns its id. */
     private String start(byte[] workbook) throws Exception {
         Upload upload = slot(owner, workbook.length);
@@ -116,9 +130,13 @@ class CatalogImportFlowTest {
 
     /** Polls the job as the dashboard does until it reaches {@code status}. */
     private String await(String importId, String expected) throws Exception {
+        return awaitAs(owner, base, importId, expected);
+    }
+
+    private String awaitAs(Session session, String orgBase, String importId, String expected) throws Exception {
         String json = null;
         for (int i = 0; i < 200; i++) {
-            json = api.get(owner, base + "/catalog-imports/" + importId).andExpect(status().isOk())
+            json = api.get(session, orgBase + "/catalog-imports/" + importId).andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
             String current = JsonPath.read(json, "$.status");
             if (current.equals(expected)) {
@@ -305,6 +323,8 @@ class CatalogImportFlowTest {
                 .andExpect(jsonPath("$.code").value("IMPORT_FILE_TOO_LARGE"));
         api.post(owner, uploads, "{\"kind\":\"FASAR\",\"fileName\":\"f.xls\",\"contentType\":"
                 + "\"application/vnd.ms-excel\",\"sizeBytes\":10}").andExpect(status().isCreated());
+        api.post(owner, uploads, "{\"kind\":\"OTHER\",\"fileName\":\"p.xlsx\",\"contentType\":\"" + XLSX
+                + "\",\"sizeBytes\":10}").andExpect(status().isBadRequest());
 
         Upload missing = slot(owner, 100);
         api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + missing.id() + "\"}")
@@ -417,6 +437,30 @@ class CatalogImportFlowTest {
     }
 
     @Test
+    void aJobLeftRunningByARestartFailsAsInterruptedAndFreesTheSlot() throws Exception {
+        String stuck = start(SyntheticPresupuesto.standard().bytes());
+        await(stuck, "VALIDATED");
+        // the worker died mid-write: the row still says IMPORTING and holds the active slot
+        jdbc.update("update catalog_import set status = 'IMPORTING' where id = ?", UUID.fromString(stuck));
+        Session other = api.signUp();
+        String otherBase = "/api/organizations/" + api.createOrganization(other, "Other " + UUID.randomUUID());
+        String waiting = startAs(other, otherBase, SyntheticPresupuesto.standard().bytes());
+        awaitAs(other, otherBase, waiting, "VALIDATED");
+
+        Instant restart = Instant.parse("2027-02-01T10:00:00Z");
+        new InterruptedImportRecovery(importJobs, txm, Clock.fixed(restart, ZoneOffset.UTC)).failInterrupted();
+
+        api.get(owner, base + "/catalog-imports/" + stuck).andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failure.code").value("INTERRUPTED"))
+                .andExpect(jsonPath("$.failure.message").value(org.hamcrest.Matchers.containsString("reinici")))
+                .andExpect(jsonPath("$.finishedAt").value(restart.toString()));
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.activeImport", nullValue()));
+        importAll(SyntheticPresupuesto.standard());
+        // a dry run waiting for its confirmation is not running, so it is left alone
+        api.get(other, otherBase + "/catalog-imports/" + waiting).andExpect(jsonPath("$.status").value("VALIDATED"));
+    }
+
+    @Test
     void importsNeedManagePricesAndStayInsideTheOrganization() throws Exception {
         String id = start(SyntheticPresupuesto.standard().bytes());
         await(id, "VALIDATED");
@@ -427,6 +471,8 @@ class CatalogImportFlowTest {
                 + "\"contentType\":\"" + XLSX + "\",\"sizeBytes\":10}").andExpect(status().isForbidden());
         api.get(worker, base + "/catalog-imports/" + id).andExpect(status().isForbidden());
         api.post(worker, base + "/catalog-imports/" + id + "/cancel", null).andExpect(status().isForbidden());
+        api.post(worker, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + UUID.randomUUID() + "\"}")
+                .andExpect(status().isForbidden());
 
         Session stranger = api.signUp();
         api.get(stranger, base + "/catalog-imports/" + id).andExpect(status().isNotFound());

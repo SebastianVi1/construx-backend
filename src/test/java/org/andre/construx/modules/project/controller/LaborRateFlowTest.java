@@ -215,6 +215,21 @@ class LaborRateFlowTest {
     }
 
     @Test
+    void withoutManageProjectTheAnswerIs403BeforeTheCategoryIsLookedUp() throws Exception {
+        Session resident = api.signUp();
+        members.grantSite(siteId, members.add(orgId, resident.user(), "RESIDENT"));
+        UUID foreign = resource(api.createOrganization(api.signUp(), "Other " + UUID.randomUUID()),
+                "MO011", "LABOR", "610.00", false, false);
+        UUID material = resource(orgId, "MAT-1", "MATERIAL", "10.00", false, false);
+
+        api.put(resident, anaRate, catalog(UUID.randomUUID())).andExpect(status().isForbidden());
+        api.put(resident, anaRate, catalog(foreign)).andExpect(status().isForbidden());
+        api.put(resident, anaRate, catalog(material)).andExpect(status().isForbidden());
+        api.put(resident, site + "/access/" + UUID.randomUUID() + "/labor-rate", NONE)
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void theCategoryMustBeASimpleActiveLaborResourceOfTheOrganization() throws Exception {
         UUID foreign = resource(api.createOrganization(api.signUp(), "Other " + UUID.randomUUID()),
                 "MO011", "LABOR", "610.00", false, false);

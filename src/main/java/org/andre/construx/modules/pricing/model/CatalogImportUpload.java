@@ -2,6 +2,8 @@ package org.andre.construx.modules.pricing.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
@@ -25,8 +27,6 @@ public class CatalogImportUpload {
     public static final long MAX_BYTES = 52_428_800L;
     public static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     public static final String XLS = "application/vnd.ms-excel";
-    public static final String PRESUPUESTO = "PRESUPUESTO";
-    public static final String FASAR = "FASAR";
 
     @Id
     private UUID id;
@@ -34,8 +34,9 @@ public class CatalogImportUpload {
     @Column(name = "organization_id", nullable = false)
     private UUID organizationId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 12)
-    private String kind;
+    private ImportFileKind kind;
 
     @Column(nullable = false, length = 255)
     private String fileKey;
@@ -61,13 +62,13 @@ public class CatalogImportUpload {
      * A Presupuesto must be an {@code .xlsx}; a FASAR workbook may also be an {@code .xls}
      * ({@code IMPORT_FILE_TYPE}); 1 byte to 50 MB ({@code IMPORT_FILE_TOO_LARGE}).
      */
-    public static CatalogImportUpload open(UUID organizationId, String kind, String fileName, String contentType,
+    public static CatalogImportUpload open(UUID organizationId, ImportFileKind kind, String fileName, String contentType,
                                            long sizeBytes, UUID membershipId, Instant at) {
         String name = fileName == null ? "" : fileName.strip();
         String lower = name.toLowerCase(Locale.ROOT);
         boolean xlsx = XLSX.equals(contentType) && lower.endsWith(".xlsx");
         boolean xls = XLS.equals(contentType) && lower.endsWith(".xls");
-        boolean typeOk = PRESUPUESTO.equals(kind) ? xlsx : FASAR.equals(kind) && (xlsx || xls);
+        boolean typeOk = kind == ImportFileKind.PRESUPUESTO ? xlsx : kind == ImportFileKind.FASAR && (xlsx || xls);
         if (!typeOk || name.length() > 255) {
             throw new RuleViolationException("IMPORT_FILE_TYPE",
                     "The workbook must be an Excel file of the expected kind");

@@ -139,10 +139,10 @@ public class LaborRateService {
     @Transactional
     public UUID set(SiteScope site, UUID accessId, Choice choice) {
         ProjectAccess access = load(site, accessId);
+        site.require(PermissionAction.MANAGE_PROJECT);
         if (choice.kind() == LaborRateKind.CATALOG) {
             requireLaborCategory(catalog.get(site.organizationId(), choice.laborCategoryId()));
         }
-        site.require(PermissionAction.MANAGE_PROJECT);
         UUID membershipId = access.getOrganizationMembership().getId();
         LaborRateAssignment current = rates.history(site.organizationId(), site.siteId(), membershipId).stream()
                 .findFirst().orElse(null);

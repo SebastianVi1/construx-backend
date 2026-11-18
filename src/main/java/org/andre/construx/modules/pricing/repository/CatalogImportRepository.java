@@ -26,6 +26,13 @@ public interface CatalogImportRepository extends JpaRepository<CatalogImport, UU
             + "org.andre.construx.modules.pricing.model.ImportStatus.VALIDATED and i.validatedAt < :cutoff")
     List<UUID> findValidatedBefore(@Param("cutoff") Instant cutoff);
 
+    /** Every organization's jobs a worker was running ({@code PENDING}, {@code VALIDATING}, {@code IMPORTING}). */
+    @Query("select i.id from CatalogImport i where i.status in ("
+            + "org.andre.construx.modules.pricing.model.ImportStatus.PENDING, "
+            + "org.andre.construx.modules.pricing.model.ImportStatus.VALIDATING, "
+            + "org.andre.construx.modules.pricing.model.ImportStatus.IMPORTING)")
+    List<UUID> findRunning();
+
     /** The job locked for a state change, so a cancel and the worker never both win. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from CatalogImport i where i.id = :id")
