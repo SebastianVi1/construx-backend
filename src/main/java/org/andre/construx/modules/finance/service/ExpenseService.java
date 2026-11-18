@@ -58,7 +58,8 @@ public class ExpenseService {
     /**
      * {@code activityId} and {@code createdByMembershipId} are null when the expense has no task or no recorder.
      * {@code resource}, {@code quantity} and {@code unitCost} are null unless the expense is from the Catalog;
-     * {@code quantity} and {@code unitCost} are decimal strings.
+     * {@code quantity} and {@code unitCost} are decimal strings. {@code unitCost} is also null for a caller without
+     * VIEW_PRICES (docs/pricing.md §6.5): the amount, quantity and Resource stay visible, the Catalog cost does not.
      */
     public record ExpenseData(UUID id, UUID projectId, UUID activityId, UUID createdByMembershipId, BigDecimal amount,
                               LocalDate spentOn, String description, ExpenseCategory category,
@@ -95,14 +96,14 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseData> list(SiteScope site) {
         site.require(PermissionAction.VIEW_BUDGET);
-        return data(site.organizationId(), expenses.findByProjectIdOrderBySpentOnDescCreatedAtDesc(site.siteId()));
+        return data(site, expenses.findByProjectIdOrderBySpentOnDescCreatedAtDesc(site.siteId()));
     }
 
     /** Every expense of the site, newest first. No permission check: callers authorize. */
     @Transactional(readOnly = true)
     public List<ExpenseData> ofSite(UUID projectId) {
         List<Expense> rows = expenses.findByProjectIdOrderBySpentOnDescCreatedAtDesc(projectId);
-        return rows.isEmpty() ? List.of() : data(rows.getFirst().getProject().getOrganization().getId(), rows);
+        return rows.isEmpty() ? List.of() : data(rows.getFirst().getProject().getOrganization().getId(), rows, true);
     }
 
     @Transactional
@@ -122,7 +123,7 @@ public class ExpenseService {
                     "A typed expense cannot be turned into an expense from the catalog");
         }
         expense.update(change.amount(), change.spentOn(), change.description(), change.category());
-        return data(site.organizationId(), expense);
+        return data(site, expense);
     }
 
     @Transactional
@@ -133,8 +134,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseData> listForTask(SiteScope site, UUID goalId, UUID activityId) {
         Activity activity = forTask(site, goalId, activityId, PermissionAction.VIEW_BUDGET);
-        return data(site.organizationId(),
-                expenses.findByActivityIdOrderBySpentOnDescCreatedAtDesc(activity.getId()));
+        return data(site, expenses.findByActivityIdOrderBySpentOnDescCreatedAtDesc(activity.getId()));
     }
 
     @Transactional
@@ -209,8 +209,8 @@ public class ExpenseService {
     }
 
     /**
-     * Hand-typed, or from the Catalog with the Resource's current cost frozen as its unit cost (§6.5). Charging the
-     * Catalog also needs VIEW_PRICES on top of the expense permission (or the Lead exception): 403 without it.
+     * Hand-typed, or from the Catalog with the Resource's current cost frozen as its unit cost (§6.5). Whoever may
+     * record the expense may charge the Catalog; only VIEW_PRICES holders see the unit cost in the answer.
      */
     private ExpenseData save(SiteScope site, Project project, Activity activity, OrganizationMembership createdBy,
                              NewExpense body) {
@@ -218,10 +218,9 @@ public class ExpenseService {
             if (body.quantity() != null) {
                 throw new RuleViolationException("CATALOG_EXPENSE_FIELDS", "A quantity needs a catalog resource");
             }
-            return data(site.organizationId(), expenses.save(new Expense(project, activity, createdBy,
+            return data(site, expenses.save(new Expense(project, activity, createdBy,
                     body.amount(), body.spentOn(), body.description(), body.category())));
         }
-        site.require(PermissionAction.VIEW_PRICES);
         if (body.amount() != null || body.category() != null) {
             throw new RuleViolationException("CATALOG_EXPENSE_FIELDS",
                     "An expense from the catalog computes its amount and category");
@@ -241,7 +240,7 @@ public class ExpenseService {
                 ? resource.name() : body.description();
         Expense expense = Expense.fromCatalog(project, activity, createdBy, resource.id(), body.quantity(),
                 resource.currentCost(), body.spentOn(), description, category);
-        return data(site.organizationId(), expenses.save(expense));
+        return data(site, expenses.save(expense));
     }
 
     /** Materials, Equipment rates and Labor categories (or Gangs) can be charged; Work items cannot. */
@@ -255,19 +254,24 @@ public class ExpenseService {
         };
     }
 
-    private ExpenseData data(UUID organizationId, Expense e) {
-        return data(organizationId, List.of(e)).getFirst();
+    private ExpenseData data(SiteScope site, Expense e) {
+        return data(site, List.of(e)).getFirst();
+    }
+
+    private List<ExpenseData> data(SiteScope site, List<Expense> rows) {
+        return data(site.organizationId(), rows, site.can(PermissionAction.VIEW_PRICES));
     }
 
     /** Loads the Catalog Resources of the expenses in one organization-filtered query. */
-    private List<ExpenseData> data(UUID organizationId, List<Expense> rows) {
+    private List<ExpenseData> data(UUID organizationId, List<Expense> rows, boolean showUnitCost) {
         Set<UUID> resourceIds = rows.stream().map(Expense::getResourceId).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         Map<UUID, CatalogResource> resources = catalog.byIds(organizationId, resourceIds);
-        return rows.stream().map(e -> data(e, e.isFromCatalog() ? resources.get(e.getResourceId()) : null)).toList();
+        return rows.stream().map(e -> data(e, e.isFromCatalog() ? resources.get(e.getResourceId()) : null,
+                showUnitCost)).toList();
     }
 
-    private static ExpenseData data(Expense e, CatalogResource resource) {
+    private static ExpenseData data(Expense e, CatalogResource resource, boolean showUnitCost) {
         return new ExpenseData(e.getId(), e.getProject().getId(),
                 e.getActivity() == null ? null : e.getActivity().getId(),
                 e.getCreatedBy() == null ? null : e.getCreatedBy().getId(),
@@ -275,6 +279,6 @@ public class ExpenseService {
                 resource == null ? null : new ResourceRef(resource.id(), resource.code(), resource.name(),
                         resource.type(), resource.unitCode()),
                 e.getQuantity() == null ? null : e.getQuantity().stripTrailingZeros().toPlainString(),
-                e.getUnitCost() == null ? null : e.getUnitCost().setScale(2).toPlainString());
+                e.getUnitCost() == null || !showUnitCost ? null : e.getUnitCost().setScale(2).toPlainString());
     }
 }

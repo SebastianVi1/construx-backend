@@ -243,16 +243,25 @@ class CatalogExpenseFlowTest {
     }
 
     @Test
-    void aLeadWithoutViewPricesCannotChargeTheCatalogButCanTypeAnExpense() throws Exception {
+    void aLeadWithoutViewPricesChargesTheCatalogButNeverSeesTheUnitCost() throws Exception {
         Members members = new Members(txm, organizations, memberships, projects, accesses);
         Session carl = api.signUp();
         String task = taskLedBy(members.grantSite(siteId(), members.add(orgId, carl.user(), "WORKER")));
         UUID cement = resource(orgId, unitId, "MAN-CEM-001", "MATERIAL", "Cemento", "245.50");
 
-        api.post(carl, task + "/expenses", fromCatalog(cement, "4", "")).andExpect(status().isForbidden());
-        api.post(carl, task + "/expenses", "{\"amount\":120,\"spentOn\":\"2027-01-03\","
-                + "\"description\":\"Nails\",\"category\":\"MATERIALS\"}").andExpect(status().isCreated());
-        api.get(owner, task + "/expenses").andExpect(jsonPath("$.length()").value(1));
+        String own = Api.id(api.post(carl, task + "/expenses", fromCatalog(cement, "4", ""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value(982.00))
+                .andExpect(jsonPath("$.quantity").value("4"))
+                .andExpect(jsonPath("$.resource.code").value("MAN-CEM-001"))
+                .andExpect(jsonPath("$.unitCost").isEmpty()));
+        api.get(carl, task + "/expenses").andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].amount").value(982.00))
+                .andExpect(jsonPath("$[0].unitCost").isEmpty());
+        api.patch(carl, site + "/expenses/" + own, "{\"description\":\"Cement for the slab\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.unitCost").isEmpty());
+        api.get(owner, task + "/expenses").andExpect(jsonPath("$[0].unitCost").value("245.50"));
+        api.get(owner, site + "/expenses").andExpect(jsonPath("$[0].unitCost").value("245.50"));
     }
 
     private UUID resource(UUID unit, String code, String type, String name, String cost) {
