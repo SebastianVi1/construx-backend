@@ -48,12 +48,12 @@ public class CatalogImportWorker {
     private final CatalogImportStore store;
     private final DerivedCostService derivedCosts;
     private final ImportedFasarFields fasarFields;
-    private final FasarService fasar;
+    private final LaborCategoryRecomputation fasar;
     private final ObjectMapper json;
 
     public CatalogImportWorker(@Qualifier("catalogImportExecutor") Executor executor, PlatformTransactionManager txm,
                                CatalogImportRepository jobs, ObjectStorage storage, CatalogImportStore store,
-                               DerivedCostService derivedCosts, ImportedFasarFields fasarFields, FasarService fasar,
+                               DerivedCostService derivedCosts, ImportedFasarFields fasarFields, LaborCategoryRecomputation fasar,
                                ObjectMapper json) {
         this.executor = executor;
         this.tx = new TransactionTemplate(txm);
@@ -147,7 +147,7 @@ public class CatalogImportWorker {
                 } else {
                     fasarFields.createPartialIfAbsent(organizationId, plan.generalFields(), at);
                 }
-                fasar.recomputeLaborCategories(organizationId, at, membershipId);
+                fasar.recomputeAll(organizationId, at, membershipId);
                 derivedCosts.recompute(organizationId, at);
                 store.finish(organizationId, importId);
                 locked.refreshSummary(json.writeValueAsString(plan.summary));

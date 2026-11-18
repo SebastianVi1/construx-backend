@@ -2,25 +2,19 @@ package org.andre.construx.modules.pricing.service;
 
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.PermissionAction;
-import org.andre.construx.modules.pricing.model.CostSource;
 import org.andre.construx.modules.pricing.model.FasarCalculator;
 import org.andre.construx.modules.pricing.model.FasarCalculator.Parameters;
 import org.andre.construx.modules.pricing.model.FasarConcept;
 import org.andre.construx.modules.pricing.model.FasarParameterSet;
 import org.andre.construx.modules.pricing.model.FsrSource;
-import org.andre.construx.modules.pricing.model.LaborCategoryDetail;
 import org.andre.construx.modules.pricing.model.PricingRuleException;
-import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ImportStatus;
 import org.andre.construx.modules.pricing.model.PricingConflictException;
 import org.andre.construx.modules.pricing.repository.CatalogImportRepository;
 import org.andre.construx.modules.pricing.repository.FasarParameterSetRepository;
 import org.andre.construx.modules.pricing.repository.LaborCategoryDetailRepository;
-import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
-import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.modules.pricing.service.ResourceService.PersonRef;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -32,8 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * The FASAR parameters of an organization (docs/pricing.md §2.6) and the recomputation of every Labor
@@ -43,21 +35,18 @@ import java.util.stream.Collectors;
 public class FasarService {
     private final FasarParameterSetRepository sets;
     private final LaborCategoryDetailRepository laborDetails;
-    private final ResourceRepository resources;
-    private final ResourceCostHistoryRepository history;
+    private final LaborCategoryRecomputation recomputation;
     private final DerivedCostService derivedCosts;
     private final CatalogService catalog;
     private final ResourceService reads;
     private final CatalogImportRepository imports;
 
     public FasarService(FasarParameterSetRepository sets, LaborCategoryDetailRepository laborDetails,
-                        ResourceRepository resources, ResourceCostHistoryRepository history,
-                        DerivedCostService derivedCosts, CatalogService catalog, ResourceService reads,
-                        CatalogImportRepository imports) {
+                        LaborCategoryRecomputation recomputation, DerivedCostService derivedCosts,
+                        CatalogService catalog, ResourceService reads, CatalogImportRepository imports) {
         this.sets = sets;
         this.laborDetails = laborDetails;
-        this.resources = resources;
-        this.history = history;
+        this.recomputation = recomputation;
         this.derivedCosts = derivedCosts;
         this.catalog = catalog;
         this.reads = reads;
@@ -138,62 +127,17 @@ public class FasarService {
             set.replaceManual(input.year(), input.minimumWage(), parameters, now, membershipId);
         }
         catalog.ensureCatalog(organizationId);
-        int changed = recompute(organizationId, set.calculator(), now, membershipId);
+        int changed = recomputation.recompute(organizationId, set.calculator(), now, membershipId);
         int workItems = derivedCosts.recompute(organizationId, now);
         sets.flush();
         return view(organizationId, set, new Recomputation((int) laborDetails.countByOrganizationId(organizationId),
                 changed, workItems));
     }
 
-    /**
-     * Inside a Catalog import (docs/pricing.md §4.6): replaces the organization's set with the complete one of the
-     * FASAR workbook (source {@code FASAR_FILE}, {@code version} + 1). The caller recomputes afterwards.
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    void replaceFromFile(UUID organizationId, Integer year, BigDecimal minimumWage, Parameters parameters,
-                         Instant at, UUID membershipId) {
-        FasarParameterSet set = sets.findByOrganizationId(organizationId).orElse(null);
-        if (set == null) {
-            sets.save(FasarParameterSet.fromFile(organizationId, year, minimumWage, parameters, at, membershipId));
-        } else {
-            set.replaceFromFile(year, minimumWage, parameters, at, membershipId);
-        }
-    }
-
-    /**
-     * With a complete set, recomputes every simple Labor category of the organization from it (§5.5) and writes a
-     * {@code FASAR} Cost history entry for every changed real wage; returns how many changed. Without one, nothing.
-     * Derived costs are left to the caller.
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    int recomputeLaborCategories(UUID organizationId, Instant at, UUID membershipId) {
-        return sets.findByOrganizationId(organizationId).filter(FasarParameterSet::isComplete)
-                .map(set -> recompute(organizationId, set.calculator(), at, membershipId)).orElse(0);
-    }
-
-    private int recompute(UUID organizationId, FasarCalculator fasar, Instant now, UUID membershipId) {
-        List<LaborCategoryDetail> details = laborDetails.findByOrganizationId(organizationId);
-        Map<UUID, Resource> byId = resources.findAllInOrganization(
-                        details.stream().map(LaborCategoryDetail::getResourceId).toList(), organizationId).stream()
-                .collect(Collectors.toMap(Resource::getId, Function.identity()));
-        int changed = 0;
-        for (LaborCategoryDetail detail : details) {
-            detail.compute(fasar);
-            var entry = byId.get(detail.getResourceId()).recordWage(detail, now, membershipId, CostSource.FASAR);
-            if (entry != null) {
-                history.save(entry);
-                changed++;
-            }
-        }
-        return changed;
-    }
-
     /** The calculator of the organization's complete set, empty without one (a partial set cannot compute). */
     @Transactional(readOnly = true)
     public Optional<FasarCalculator> calculator(UUID organizationId) {
-        return sets.findByOrganizationId(organizationId)
-                .filter(FasarParameterSet::isComplete)
-                .map(FasarParameterSet::calculator);
+        return recomputation.calculator(organizationId);
     }
 
     private static Parameters parameters(FasarInput in) {
