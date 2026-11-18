@@ -490,7 +490,7 @@ When the import has no FASAR file and the organization has no `COMPLETE` set, a 
 
 ### 5.4 Verification
 
-For every simple `LABOR` Resource after an import with a FASAR file, after `PUT /fasar`, and after a wage edit: `fsr_mismatch = |FSR_computed − imported_fsr| > 0.0005` or `|real_wage_computed − imported_real_wage| > 0.05` **(architect's choice: half a unit in the 4th decimal of the factor and 5 centavos on the wage, i.e. one rounding step on each)**. Reported as `FSR_MISMATCH` / `REAL_WAGE_MISMATCH` warnings in the import summary and as `fsrMismatch` on the Resource.
+For every simple `LABOR` Resource after an import with a FASAR file, after `PUT /fasar`, and after a wage edit: `fsr_mismatch = |FSR_computed − imported_fsr| > 0.0005` or `|real_wage_computed − imported_real_wage| > 0.05` **(architect's choice: half a unit in the 4th decimal of the factor and 5 centavos on the wage, i.e. one rounding step on each)**. Reported as `FSR_MISMATCH` / `REAL_WAGE_MISMATCH` warnings in the import summary and as `fsrMismatch` on the Resource. In an import the file values compared (and kept in `imported_fsr` / `imported_real_wage`) are the FASAR workbook's `d)Salarios` FSR and salario real when the category is listed there, else `DetalleManoObra`'s `FasarM0` / `SalarioRealM0`; the nominal wage is always `DetalleManoObra`'s. An import without a FASAR workbook into an organization that already has a `COMPLETE` set also computes its categories from that set.
 
 ### 5.5 Which value is the cost
 

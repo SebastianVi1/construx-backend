@@ -120,6 +120,19 @@ public class CatalogImport {
         return job;
     }
 
+    /** As {@link #start(CatalogImportUpload, String, Instant)}, with the optional FASAR workbook beside it. */
+    public static CatalogImport start(CatalogImportUpload presupuesto, String sha256, CatalogImportUpload fasar,
+                                      String fasarSha256, Instant at) {
+        CatalogImport job = start(presupuesto, sha256, at);
+        if (fasar != null) {
+            job.fasarFileKey = fasar.getFileKey();
+            job.fasarFileName = fasar.getFileName();
+            job.fasarFileSize = fasar.getSizeBytes();
+            job.fasarFileSha256 = fasarSha256;
+        }
+        return job;
+    }
+
     public void startValidating() {
         require(ImportStatus.PENDING);
         moveTo(ImportStatus.VALIDATING);

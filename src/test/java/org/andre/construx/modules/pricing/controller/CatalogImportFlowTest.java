@@ -338,4 +338,122 @@ class CatalogImportFlowTest {
         api.post(stranger, other + "/catalog-imports/" + id + "/cancel", null).andExpect(status().isNotFound());
         api.get(owner, base + "/catalog-imports/" + id).andExpect(jsonPath("$.status").value("VALIDATED"));
     }
+
+    private static final String XLS = "application/vnd.ms-excel";
+
+    /** Uploads both workbooks and starts the job with the FASAR one; returns its id. */
+    private String startWithFasar(byte[] presupuesto, byte[] fasar) throws Exception {
+        Upload p = slot(owner, presupuesto.length);
+        storage.put(p.key(), presupuesto, XLSX);
+        String json = api.post(owner, base + "/catalog-imports/uploads", "{\"kind\":\"FASAR\",\"fileName\":"
+                        + "\"ConstruBASE_FasarEstandar.xls\",\"contentType\":\"" + XLS + "\",\"sizeBytes\":"
+                        + fasar.length + "}").andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String fasarId = JsonPath.read(json, "$.uploadId");
+        String url = JsonPath.read(json, "$.uploadUrl");
+        assertThat(url).endsWith(".xls");
+        storage.put(url.substring("memory://upload/".length()), fasar, XLS);
+        return Api.id(api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + p.id()
+                        + "\",\"fasarUploadId\":\"" + fasarId + "\"}").andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.fasarFile.name").value("ConstruBASE_FasarEstandar.xls"))
+                .andExpect(jsonPath("$.fasarFile.sizeBytes").value(fasar.length))
+                .andExpect(jsonPath("$.fasarFile.sha256").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}"))));
+    }
+
+    private String resourceId(String code) throws Exception {
+        return JsonPath.read(api.get(owner, base + "/resources?query=" + code).andReturn().getResponse()
+                .getContentAsString(), "$.content[0].id");
+    }
+
+    /**
+     * The synthetic FASAR parameters give MO011 (Sn 350) FSR 1.723660 and real wage 603.28, MO020 (Sn 500)
+     * 1.706615 and 853.31 (worked out in ImportPlanTest); the gang 1456.59 and the work item 136.14.
+     */
+    @Test
+    void aFasarWorkbookReplacesTheParametersAndRecomputesTheLaborCategories() throws Exception {
+        org.andre.construx.modules.pricing.importing.SyntheticFasar fasar =
+                new org.andre.construx.modules.pricing.importing.SyntheticFasar();
+        fasar.year = 2019;
+        fasar.salaries.get(1)[4] = 1.706615;
+        fasar.salaries.get(1)[5] = 853.31;
+        fasar.salaries.add(new Object[] {"MO999", "SOLDADOR", 600, 1.04, 1.7, 1020.0});
+        String id = startWithFasar(SyntheticPresupuesto.standard().bytes(), fasar.bytes());
+        String validated = await(id, "VALIDATED");
+        assertThat((Boolean) JsonPath.read(validated, "$.summary.fasar.provided")).isTrue();
+        assertThat((Integer) JsonPath.read(validated, "$.summary.fasar.year")).isEqualTo(2019);
+        assertThat((String) JsonPath.read(validated, "$.summary.fasar.uma")).isEqualTo("100.0000");
+        assertThat((String) JsonPath.read(validated, "$.summary.fasar.minimumWage")).isEqualTo("200.00");
+        assertThat((Integer) JsonPath.read(validated, "$.summary.fasar.laborCategories")).isEqualTo(3);
+        assertThat((Integer) JsonPath.read(validated, "$.summary.fasar.fsrMismatches")).isEqualTo(1);
+        assertThat((Integer) JsonPath.read(validated, "$.summary.fasar.realWageMismatches")).isEqualTo(1);
+        assertThat((Integer) JsonPath.read(validated, "$.summary.warnings.byCode.FASAR_YEAR_OLD")).isEqualTo(1);
+        assertThat((Integer) JsonPath.read(validated, "$.summary.warnings.byCode.FASAR_CATEGORY_NOT_IN_CATALOG"))
+                .isEqualTo(1);
+        // nothing is written by the dry run
+        api.get(owner, base + "/fasar").andExpect(jsonPath("$.status").value("NONE"));
+
+        api.post(owner, base + "/catalog-imports/" + id + "/confirm", CONFIRM).andExpect(status().isAccepted());
+        await(id, "DONE");
+        api.get(owner, base + "/fasar").andExpect(jsonPath("$.status").value("COMPLETE"))
+                .andExpect(jsonPath("$.source").value("FASAR_FILE")).andExpect(jsonPath("$.year").value(2019))
+                .andExpect(jsonPath("$.uma").value("100.0000")).andExpect(jsonPath("$.minimumWage").value("200.00"))
+                .andExpect(jsonPath("$.days.workedSundays").value("4"))
+                .andExpect(jsonPath("$.laborCategories.computed").value(2))
+                .andExpect(jsonPath("$.laborCategories.mismatches").value(1))
+                .andExpect(jsonPath("$.updatedBy.membershipId", notNullValue()));
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.fasar.status").value("COMPLETE"));
+        api.get(owner, base + "/resources/" + resourceId("MO011")).andExpect(jsonPath("$.currentCost").value("603.28"))
+                .andExpect(jsonPath("$.laborDetail.fsrSource").value("COMPUTED"))
+                .andExpect(jsonPath("$.laborDetail.fsr").value("1.72366"))
+                .andExpect(jsonPath("$.laborDetail.fsrMismatch").value(true))
+                .andExpect(jsonPath("$.history.length()").value(1))
+                .andExpect(jsonPath("$.history[0].importId").value(id));
+        api.get(owner, base + "/resources/" + resourceId("MO020")).andExpect(jsonPath("$.currentCost").value("853.31"))
+                .andExpect(jsonPath("$.laborDetail.fsrMismatch").value(false));
+        api.get(owner, base + "/resources?query=1A").andExpect(jsonPath("$.content[0].currentCost").value("1456.59"));
+        api.get(owner, base + "/resources?type=WORK_ITEM").andExpect(jsonPath("$.content[0].currentCost").value("136.14"));
+
+        // a later import without the FASAR workbook keeps the complete set and computes again
+        String again = importAll(SyntheticPresupuesto.standard());
+        assertThat((Boolean) JsonPath.read(api.get(owner, base + "/catalog-imports/" + again).andReturn()
+                .getResponse().getContentAsString(), "$.summary.fasar.provided")).isFalse();
+        api.get(owner, base + "/fasar").andExpect(jsonPath("$.source").value("FASAR_FILE"))
+                .andExpect(jsonPath("$.version").value(1));
+        api.get(owner, base + "/resources/" + resourceId("MO011")).andExpect(jsonPath("$.currentCost").value("603.28"))
+                .andExpect(jsonPath("$.laborDetail.fsrSource").value("COMPUTED"));
+    }
+
+    @Test
+    void aBrokenFasarWorkbookFailsTheImport() throws Exception {
+        org.andre.construx.modules.pricing.importing.SyntheticFasar fasar =
+                new org.andre.construx.modules.pricing.importing.SyntheticFasar();
+        fasar.withoutSheets.add("d)Salarios");
+        String id = startWithFasar(SyntheticPresupuesto.standard().bytes(), fasar.bytes());
+        String failed = await(id, "FAILED");
+        assertThat((String) JsonPath.read(failed, "$.failure.code")).isEqualTo("FASAR_MISSING_SHEET");
+        assertThat((String) JsonPath.read(failed, "$.failure.sheet")).isEqualTo("d)Salarios");
+        api.get(owner, base + "/catalog").andExpect(jsonPath("$.exists").value(false));
+    }
+
+    @Test
+    void theFasarUploadMustBeAFasarSlotOfTheOrganization() throws Exception {
+        byte[] workbook = SyntheticPresupuesto.standard().bytes();
+        Upload p = slot(owner, workbook.length);
+        storage.put(p.key(), workbook, XLSX);
+        Upload other = slot(owner, workbook.length);
+        storage.put(other.key(), workbook, XLSX);
+        api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + p.id() + "\",\"fasarUploadId\":\""
+                + other.id() + "\"}").andExpect(status().isNotFound());
+        api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + p.id() + "\",\"fasarUploadId\":\""
+                + UUID.randomUUID() + "\"}").andExpect(status().isNotFound());
+        String json = api.post(owner, base + "/catalog-imports/uploads", "{\"kind\":\"FASAR\",\"fileName\":"
+                + "\"f.xls\",\"contentType\":\"" + XLS + "\",\"sizeBytes\":10}").andReturn().getResponse()
+                .getContentAsString();
+        api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + p.id() + "\",\"fasarUploadId\":\""
+                + JsonPath.read(json, "$.uploadId") + "\"}").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("IMPORT_UPLOAD_MISSING"));
+        // nothing was consumed: the Presupuesto alone still starts
+        api.post(owner, base + "/catalog-imports", "{\"presupuestoUploadId\":\"" + p.id() + "\"}")
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.fasarFile", nullValue()));
+    }
 }

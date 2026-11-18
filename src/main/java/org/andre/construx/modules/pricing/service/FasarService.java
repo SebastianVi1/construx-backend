@@ -20,6 +20,7 @@ import org.andre.construx.modules.pricing.repository.ResourceCostHistoryReposito
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.modules.pricing.service.ResourceService.PersonRef;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -137,8 +138,40 @@ public class FasarService {
             set.replaceManual(input.year(), input.minimumWage(), parameters, now, membershipId);
         }
         catalog.ensureCatalog(organizationId);
-        FasarCalculator fasar = set.calculator();
+        int changed = recompute(organizationId, set.calculator(), now, membershipId);
+        int workItems = derivedCosts.recompute(organizationId, now);
+        sets.flush();
+        return view(organizationId, set, new Recomputation((int) laborDetails.countByOrganizationId(organizationId),
+                changed, workItems));
+    }
 
+    /**
+     * Inside a Catalog import (docs/pricing.md §4.6): replaces the organization's set with the complete one of the
+     * FASAR workbook (source {@code FASAR_FILE}, {@code version} + 1). The caller recomputes afterwards.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    void replaceFromFile(UUID organizationId, Integer year, BigDecimal minimumWage, Parameters parameters,
+                         Instant at, UUID membershipId) {
+        FasarParameterSet set = sets.findByOrganizationId(organizationId).orElse(null);
+        if (set == null) {
+            sets.save(FasarParameterSet.fromFile(organizationId, year, minimumWage, parameters, at, membershipId));
+        } else {
+            set.replaceFromFile(year, minimumWage, parameters, at, membershipId);
+        }
+    }
+
+    /**
+     * With a complete set, recomputes every simple Labor category of the organization from it (§5.5) and writes a
+     * {@code FASAR} Cost history entry for every changed real wage; returns how many changed. Without one, nothing.
+     * Derived costs are left to the caller.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    int recomputeLaborCategories(UUID organizationId, Instant at, UUID membershipId) {
+        return sets.findByOrganizationId(organizationId).filter(FasarParameterSet::isComplete)
+                .map(set -> recompute(organizationId, set.calculator(), at, membershipId)).orElse(0);
+    }
+
+    private int recompute(UUID organizationId, FasarCalculator fasar, Instant now, UUID membershipId) {
         List<LaborCategoryDetail> details = laborDetails.findByOrganizationId(organizationId);
         Map<UUID, Resource> byId = resources.findAllInOrganization(
                         details.stream().map(LaborCategoryDetail::getResourceId).toList(), organizationId).stream()
@@ -152,9 +185,7 @@ public class FasarService {
                 changed++;
             }
         }
-        int workItems = derivedCosts.recompute(organizationId, now);
-        sets.flush();
-        return view(organizationId, set, new Recomputation(details.size(), changed, workItems));
+        return changed;
     }
 
     /** The calculator of the organization's complete set, empty without one (a partial set cannot compute). */

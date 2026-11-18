@@ -15,6 +15,7 @@ import org.andre.construx.modules.pricing.importing.PresupuestoFile.FileStandby;
 import org.andre.construx.modules.pricing.importing.PresupuestoFile.FileSupplier;
 import org.andre.construx.modules.pricing.importing.PresupuestoFile.FileUnit;
 import org.andre.construx.modules.pricing.model.CatalogSource;
+import org.andre.construx.modules.pricing.model.FasarCalculator;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.andre.construx.modules.pricing.model.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -211,6 +213,7 @@ class CatalogImportStore {
             UUID id = plan.resourceIds.get(r.code());
             boolean composite = plan.composites.contains(r.code());
             ExistingResource existing = plan.snapshot.resources().get(r.code());
+            BigDecimal cost = composite ? null : plan.cost(r.code());
             Object[] fields = {r.type().name(), r.name(), r.description(), plan.unitIds.get(r.unitCode()),
                     plan.resourceFamily.get(r.code()), plan.resourceSupplier.get(r.code()), r.percentage(),
                     r.percentageBase(), composite, r.hourlyCost(), r.discontinued(), r.reference(), r.sapCode(),
@@ -222,12 +225,12 @@ class CatalogImportStore {
                 row[1] = organizationId;
                 row[2] = r.code();
                 System.arraycopy(fields, 0, row, 3, fields.length);
-                row[fields.length + 3] = composite ? null : r.cost();
+                row[fields.length + 3] = cost;
                 row[fields.length + 4] = composite ? null : at;
                 row[fields.length + 5] = at;
                 inserts.add(row);
                 if (!composite) {
-                    history.add(new Object[] {UUID.randomUUID(), organizationId, id, r.cost(), at, importId});
+                    history.add(new Object[] {UUID.randomUUID(), organizationId, id, cost, at, importId});
                 }
                 continue;
             }
@@ -236,12 +239,12 @@ class CatalogImportStore {
             row[fields.length] = id;
             updates.add(row);
             BigDecimal current = existing.currentCost();
-            if (!composite && (current == null || current.compareTo(r.cost()) != 0)) {
+            if (!composite && (current == null || current.compareTo(cost) != 0)) {
                 Instant effective = existing.costUpdatedAt() != null && !now.isAfter(existing.costUpdatedAt())
                         ? existing.costUpdatedAt().plusNanos(1000) : now;
                 Timestamp when = Timestamp.from(effective);
-                history.add(new Object[] {UUID.randomUUID(), organizationId, id, r.cost(), when, importId});
-                costs.add(new Object[] {r.cost(), when, id});
+                history.add(new Object[] {UUID.randomUUID(), organizationId, id, cost, when, importId});
+                costs.add(new Object[] {cost, when, id});
             }
         }
         String columns = "type, name, description, unit_id, family_id, supplier_id, is_percentage, percentage_base, "
@@ -260,22 +263,32 @@ class CatalogImportStore {
                 + "source, import_id) values (?, ?, ?, ?, ?, '" + SOURCE + "', ?)", history);
     }
 
-    /** Labor categories keep the file's FSR ({@code IMPORTED}); their cost is the file's {@code Costo0}. */
+    /**
+     * Without a complete FASAR set Labor categories keep the file's FSR ({@code IMPORTED}) and their cost is the
+     * file's {@code Costo0}; with one they are {@code COMPUTED} (§5.5) and keep the verified file values.
+     */
     private void writeLabor(UUID organizationId, ImportPlan plan) {
         List<Object[]> deletes = new ArrayList<>();
         List<Object[]> inserts = new ArrayList<>();
         for (FileLabor l : plan.labor) {
             UUID id = plan.resourceIds.get(l.code());
             deletes.add(new Object[] {id});
-            inserts.add(new Object[] {id, organizationId, l.nominalWage(), l.fsr(), l.fsbc(), l.sbc(), l.fsr(),
-                    l.realWage(), l.fsbc(), l.sbc(), l.perDiem(), l.mealsLodging(), l.funeralExpenses(),
-                    l.otherBenefits(), l.fasarType()});
+            FasarCalculator.Wage wage = plan.laborWages.get(l.code());
+            ImportPlan.Verified verified = plan.laborImported.get(l.code());
+            inserts.add(wage == null
+                    ? new Object[] {id, organizationId, l.nominalWage(), l.fsr(), "IMPORTED", l.fsbc(), l.sbc(),
+                            l.fsr(), l.realWage(), l.fsbc(), l.sbc(), l.perDiem(), l.mealsLodging(),
+                            l.funeralExpenses(), l.otherBenefits(), l.fasarType(), false}
+                    : new Object[] {id, organizationId, l.nominalWage(), wage.fsr().setScale(8, RoundingMode.HALF_UP),
+                            "COMPUTED", wage.fsbc(), wage.sbc(), verified.fsr(), verified.realWage(), l.fsbc(),
+                            l.sbc(), l.perDiem(), l.mealsLodging(), l.funeralExpenses(), l.otherBenefits(),
+                            l.fasarType(), verified.fsrMismatch() || verified.realWageMismatch()});
         }
         jdbc.batchUpdate("delete from labor_category_detail where resource_id = ?", deletes);
         jdbc.batchUpdate("insert into labor_category_detail (resource_id, organization_id, nominal_wage, fsr, "
                 + "fsr_source, fsbc, sbc, imported_fsr, imported_real_wage, imported_fsbc, imported_sbc, per_diem, "
                 + "meals_lodging, funeral_expenses, other_benefits, fasar_type, fsr_mismatch) "
-                + "values (?, ?, ?, ?, 'IMPORTED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)", inserts);
+                + "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", inserts);
     }
 
     private void writeEquipment(UUID organizationId, ImportPlan plan) {

@@ -1,5 +1,6 @@
 package org.andre.construx.modules.pricing.service;
 
+import org.andre.construx.modules.pricing.importing.FasarFile;
 import org.andre.construx.modules.pricing.importing.ImportFailedException;
 import org.andre.construx.modules.pricing.importing.ImportPlan;
 import org.andre.construx.modules.pricing.importing.PresupuestoFile;
@@ -47,11 +48,13 @@ public class CatalogImportWorker {
     private final CatalogImportStore store;
     private final DerivedCostService derivedCosts;
     private final ImportedFasarFields fasarFields;
+    private final FasarService fasar;
     private final ObjectMapper json;
 
     public CatalogImportWorker(@Qualifier("catalogImportExecutor") Executor executor, PlatformTransactionManager txm,
                                CatalogImportRepository jobs, ObjectStorage storage, CatalogImportStore store,
-                               DerivedCostService derivedCosts, ImportedFasarFields fasarFields, ObjectMapper json) {
+                               DerivedCostService derivedCosts, ImportedFasarFields fasarFields, FasarService fasar,
+                               ObjectMapper json) {
         this.executor = executor;
         this.tx = new TransactionTemplate(txm);
         this.jobs = jobs;
@@ -59,6 +62,7 @@ public class CatalogImportWorker {
         this.store = store;
         this.derivedCosts = derivedCosts;
         this.fasarFields = fasarFields;
+        this.fasar = fasar;
         this.json = json;
     }
 
@@ -96,13 +100,14 @@ public class CatalogImportWorker {
             return;
         }
         Path file = null;
+        Path fasarPath = null;
         try {
             file = download(job.getFileKey(), null);
             PresupuestoFile workbook = PresupuestoFile.read(file.toFile());
-            String summary = tx.execute(s -> {
-                ImportPlan plan = ImportPlan.of(workbook, store.snapshot(job.getOrganizationId()));
-                return json.writeValueAsString(plan.summary);
-            });
+            fasarPath = job.getFasarFileKey() == null ? null : download(job.getFasarFileKey(), null);
+            FasarFile fasarFile = fasarPath == null ? null : FasarFile.read(fasarPath.toFile());
+            String summary = tx.execute(s -> json.writeValueAsString(plan(job.getOrganizationId(), workbook,
+                    fasarFile).summary));
             transition(importId, j -> j.validated(summary, now()));
         } catch (ImportFailedException ex) {
             failed(importId, ex.getCode(), ex.getMessage(), ex.getSheet(), ex.getRow(), ex.getColumn());
@@ -111,6 +116,7 @@ public class CatalogImportWorker {
             failed(importId, "WORKBOOK_UNREADABLE", "No se pudo leer el libro de Excel.", null, null, null);
         } finally {
             delete(file);
+            delete(fasarPath);
         }
     }
 
@@ -121,16 +127,27 @@ public class CatalogImportWorker {
             return;
         }
         Path file = null;
+        Path fasarPath = null;
         try {
             file = download(job.getFileKey(), job.getFileSha256());
             PresupuestoFile workbook = PresupuestoFile.read(file.toFile());
+            fasarPath = job.getFasarFileKey() == null ? null
+                    : download(job.getFasarFileKey(), job.getFasarFileSha256());
+            FasarFile fasarFile = fasarPath == null ? null : FasarFile.read(fasarPath.toFile());
             tx.executeWithoutResult(s -> {
                 CatalogImport locked = jobs.lock(importId).orElseThrow();
                 UUID organizationId = locked.getOrganizationId();
-                ImportPlan plan = ImportPlan.of(workbook, store.snapshot(organizationId));
+                UUID membershipId = locked.getLicenceAcceptedByMembershipId();
+                ImportPlan plan = plan(organizationId, workbook, fasarFile);
                 Instant at = now();
                 store.write(organizationId, importId, plan, at);
-                fasarFields.createPartialIfAbsent(organizationId, plan.generalFields(), at);
+                if (fasarFile != null) {
+                    fasar.replaceFromFile(organizationId, fasarFile.year(), fasarFile.minimumWage(),
+                            fasarFile.parameters(), at, membershipId);
+                } else {
+                    fasarFields.createPartialIfAbsent(organizationId, plan.generalFields(), at);
+                }
+                fasar.recomputeLaborCategories(organizationId, at, membershipId);
                 derivedCosts.recompute(organizationId, at);
                 store.finish(organizationId, importId);
                 locked.refreshSummary(json.writeValueAsString(plan.summary));
@@ -144,7 +161,17 @@ public class CatalogImportWorker {
                     "No se pudo escribir el catálogo; no se guardó ningún cambio.", null, null, null);
         } finally {
             delete(file);
+            delete(fasarPath);
         }
+    }
+
+    /**
+     * The plan against the Catalog as it is now, with the FASAR workbook or, without one, the organization's
+     * complete FASAR set if it has one (§5.5).
+     */
+    private ImportPlan plan(UUID organizationId, PresupuestoFile workbook, FasarFile fasarFile) {
+        return ImportPlan.of(workbook, store.snapshot(organizationId), fasarFile,
+                fasarFile != null ? null : fasar.calculator(organizationId).orElse(null));
     }
 
     /**

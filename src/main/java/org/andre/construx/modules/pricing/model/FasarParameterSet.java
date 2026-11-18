@@ -216,7 +216,30 @@ public class FasarParameterSet {
      */
     public void replaceManual(Integer year, BigDecimal minimumWage, Parameters parameters, Instant at,
                               UUID membershipId) {
-        Short checkedYear = year(year);
+        replace(year(year), minimumWage, parameters, Source.MANUAL, at, membershipId);
+    }
+
+    /**
+     * A complete set read from the FASAR workbook of an import (source {@code FASAR_FILE}); the year may be
+     * missing from the file.
+     */
+    public static FasarParameterSet fromFile(UUID organizationId, Integer year, BigDecimal minimumWage,
+                                             Parameters parameters, Instant at, UUID membershipId) {
+        FasarParameterSet set = new FasarParameterSet();
+        set.id = UUID.randomUUID();
+        set.organizationId = organizationId;
+        set.replaceFromFile(year, minimumWage, parameters, at, membershipId);
+        return set;
+    }
+
+    /** Replaces every value with the complete set of a FASAR workbook, {@code version} + 1. */
+    public void replaceFromFile(Integer year, BigDecimal minimumWage, Parameters parameters, Instant at,
+                                UUID membershipId) {
+        replace(year == null ? null : year(year), minimumWage, parameters, Source.FASAR_FILE, at, membershipId);
+    }
+
+    private void replace(Short checkedYear, BigDecimal minimumWage, Parameters parameters, Source source,
+                         Instant at, UUID membershipId) {
         BigDecimal wage = decimal(minimumWage, "minimumWage", 2, BigDecimal.ZERO, WAGE_LIMIT);
         Parameters p = check(parameters);
         new FasarCalculator(p);
@@ -246,7 +269,7 @@ public class FasarParameterSet {
         p.contributions().forEach((concept, rate) ->
                 this.contributions.put(concept, new Contribution(rate.employer(), rate.worker())));
         this.complete = true;
-        this.source = Source.MANUAL;
+        this.source = source;
         this.version++;
         this.updatedAt = at;
         this.updatedByMembershipId = membershipId;

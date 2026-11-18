@@ -83,29 +83,30 @@ public class CatalogImportService {
     }
 
     /**
-     * Checks the upload (§4.2), hashes the stored workbook and starts a PENDING job; validation runs after commit.
-     * The FASAR workbook belongs to a later slice and is refused for now.
+     * Checks the uploads (§4.2), hashes the stored workbooks and starts a PENDING job; validation runs after
+     * commit. The FASAR workbook is optional.
      */
     @Transactional
     public ImportData create(OrgScope org, UUID presupuestoUploadId, UUID fasarUploadId) {
         CatalogImportUpload upload = uploads.findByIdAndOrganizationId(presupuestoUploadId, org.organizationId())
                 .filter(u -> !u.isConsumed() && CatalogImportUpload.PRESUPUESTO.equals(u.getKind()))
                 .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));
+        CatalogImportUpload fasar = fasarUploadId == null ? null
+                : uploads.findByIdAndOrganizationId(fasarUploadId, org.organizationId())
+                .filter(u -> !u.isConsumed() && CatalogImportUpload.FASAR.equals(u.getKind()))
+                .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));
         org.require(PermissionAction.MANAGE_PRICES);
-        if (fasarUploadId != null) {
-            throw new RuleViolationException("VALIDATION_FAILED",
-                    "Importing a FASAR workbook is not available yet");
-        }
-        ObjectStorage.StoredObject stored = storage.head(upload.getFileKey())
-                .orElseThrow(() -> new RuleViolationException("IMPORT_UPLOAD_MISSING",
-                        "The workbook was not uploaded"));
-        if (stored.sizeBytes() != upload.getSizeBytes()) {
-            throw new RuleViolationException("IMPORT_UPLOAD_MISMATCH",
-                    "The uploaded workbook does not match the announced size");
+        requireStored(upload);
+        if (fasar != null) {
+            requireStored(fasar);
         }
         requireNoActiveImport(org.organizationId());
-        CatalogImport job = CatalogImport.start(upload, worker.sha256(upload.getFileKey()), now());
+        CatalogImport job = CatalogImport.start(upload, worker.sha256(upload.getFileKey()), fasar,
+                fasar == null ? null : worker.sha256(fasar.getFileKey()), now());
         upload.consume(now());
+        if (fasar != null) {
+            fasar.consume(now());
+        }
         try {
             jobs.saveAndFlush(job);
         } catch (DataIntegrityViolationException ex) {
@@ -140,6 +141,17 @@ public class CatalogImportService {
         CatalogImport job = jobs.lock(importId).orElseThrow();
         job.cancel(now());
         return data(job);
+    }
+
+    /** The object is in storage with the announced size. */
+    private void requireStored(CatalogImportUpload upload) {
+        ObjectStorage.StoredObject stored = storage.head(upload.getFileKey())
+                .orElseThrow(() -> new RuleViolationException("IMPORT_UPLOAD_MISSING",
+                        "The workbook was not uploaded"));
+        if (stored.sizeBytes() != upload.getSizeBytes()) {
+            throw new RuleViolationException("IMPORT_UPLOAD_MISMATCH",
+                    "The uploaded workbook does not match the announced size");
+        }
     }
 
     private void requireNoActiveImport(UUID organizationId) {

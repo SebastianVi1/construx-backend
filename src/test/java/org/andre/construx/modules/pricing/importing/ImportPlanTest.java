@@ -2,6 +2,7 @@ package org.andre.construx.modules.pricing.importing;
 
 import org.andre.construx.modules.pricing.importing.CatalogSnapshot.ExistingResource;
 import org.andre.construx.modules.pricing.model.CatalogSource;
+import org.andre.construx.modules.pricing.model.FasarCalculator;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -236,5 +237,106 @@ class ImportPlanTest {
                                              CatalogSource source) {
         return new ExistingResource(UUID.randomUUID(), code, type, code, composite, false, new BigDecimal(cost),
                 Instant.parse("2026-01-01T00:00:00Z"), source);
+    }
+
+    private ImportPlan planWithFasar(SyntheticPresupuesto wb, SyntheticFasar fasar, CatalogSnapshot snapshot) {
+        return ImportPlan.of(PresupuestoFile.read(wb.file(dir).toFile()), snapshot,
+                FasarFile.read(fasar.file(dir).toFile()), null);
+    }
+
+    /**
+     * Worked example of the synthetic FASAR parameters (docs/pricing.md §5.2): Tp = 365 + 15 + 6 x 0.25 + 4 x 0.25
+     * = 382.5, Tl = 365 - 75 = 290, Tp/Tl = 1.31896552, FSBC = 1.04794521. Sn 350: SBC 366.78, Ps 0.30682750,
+     * FSR 1.723660, real wage 603.28. Sn 500: SBC 523.97, Ps 0.29390425, FSR 1.706615, real wage 853.31.
+     */
+    @Test
+    void aFasarWorkbookComputesTheLaborCostsAndVerifiesTheFileValues() {
+        SyntheticFasar fasar = new SyntheticFasar();
+        fasar.salaries.get(1)[4] = 1.706615;
+        fasar.salaries.get(1)[5] = 853.31;
+        ImportPlan plan = planWithFasar(SyntheticPresupuesto.standard(), fasar, CatalogSnapshot.empty());
+
+        assertThat(plan.laborWages.get("MO011").fsr()).isEqualByComparingTo("1.723660");
+        assertThat(plan.cost("MO011")).isEqualByComparingTo("603.28");
+        assertThat(plan.cost("MO020")).isEqualByComparingTo("853.31");
+        // the file's d)Salarios values are the ones verified and kept
+        assertThat(plan.laborImported.get("MO011").fsr()).isEqualByComparingTo("1.7");
+        assertThat(plan.laborImported.get("MO011").realWage()).isEqualByComparingTo("595");
+        // MO011's file FSR 1.7 and real wage 595.00 are off; MO020 agrees
+        assertThat(plan.warnings().count("FSR_MISMATCH")).isEqualTo(1);
+        assertThat(plan.warnings().count("REAL_WAGE_MISMATCH")).isEqualTo(1);
+        assertThat(map(plan.summary.get("fasar"))).containsEntry("provided", true)
+                .containsEntry("year", java.time.Year.now().getValue()).containsEntry("uma", "100.0000")
+                .containsEntry("minimumWage", "200.00").containsEntry("laborCategories", 2)
+                .containsEntry("fsrMismatches", 1).containsEntry("realWageMismatches", 1);
+        assertThat(plan.warnings().count("FASAR_YEAR_OLD")).isZero();
+    }
+
+    @Test
+    void theComputedWagesFlowIntoTheDerivedCosts() {
+        ImportPlan first = plan(SyntheticPresupuesto.standard());
+        CatalogSnapshot snapshot = snapshotOf(first);
+        ImportPlan plan = planWithFasar(SyntheticPresupuesto.standard(), new SyntheticFasar(), snapshot);
+        // gang 603.28 + 853.31 = 1456.59; work item 61.13 + 72.83 (72.8295) + 2.18 (0.03 x 72.83) = 136.14
+        assertThat(counts(plan, "LABOR")).containsEntry("costChanged", 3);
+        assertThat(counts(plan, "WORK_ITEM")).containsEntry("costChanged", 1);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> changes = (List<Map<String, Object>>) map(plan.summary.get("changes")).get("sample");
+        assertThat(changes).anySatisfy(c -> assertThat(c).containsEntry("resourceCode", "1A")
+                .containsEntry("to", "1456.59"));
+        assertThat(changes).anySatisfy(c -> assertThat(c).containsEntry("resourceCode", "10301-001")
+                .containsEntry("to", "136.14"));
+    }
+
+    @Test
+    void anExistingCompleteSetComputesTheLaborCostsWithoutAFasarWorkbook() {
+        FasarCalculator existing = new FasarCalculator(
+                FasarFile.read(new SyntheticFasar().file(dir).toFile()).parameters());
+        ImportPlan plan = ImportPlan.of(PresupuestoFile.read(SyntheticPresupuesto.standard().file(dir).toFile()),
+                CatalogSnapshot.empty(), null, existing);
+        assertThat(plan.cost("MO011")).isEqualByComparingTo("603.28");
+        // verified against DetalleManoObra: FasarM0 1.6934, SalarioRealM0 592.69
+        assertThat(plan.laborImported.get("MO011").fsr()).isEqualByComparingTo("1.6934");
+        assertThat(plan.warnings().count("FSR_MISMATCH")).isEqualTo(2);
+        assertThat(map(plan.summary.get("fasar"))).containsEntry("provided", false)
+                .containsEntry("fsrMismatches", 2);
+    }
+
+    @Test
+    void fasarCategoriesOutsideTheCatalogAndAnOldYearAreWarnings() {
+        SyntheticFasar fasar = new SyntheticFasar();
+        fasar.year = java.time.Year.now().getValue() - 2;
+        fasar.salaries.add(new Object[] {"MO999", "SOLDADOR", 600, 1.04, 1.7, 1020.0});
+        fasar.salaries.add(new Object[] {"1A", "CUADRILLA", 600, 1.04, 1.7, 1020.0});
+        fasar.salaries.add(new Object[] {"301-ARE-0101", "ARENA", 600, 1.04, 1.7, 1020.0});
+        ImportPlan plan = planWithFasar(SyntheticPresupuesto.standard(), fasar, CatalogSnapshot.empty());
+        assertThat(plan.warnings().count("FASAR_CATEGORY_NOT_IN_CATALOG")).isEqualTo(1);
+        assertThat(plan.warnings().count("FASAR_UNKNOWN_CODE")).isEqualTo(2);
+        assertThat(plan.warnings().count("FASAR_YEAR_OLD")).isEqualTo(1);
+        assertThat(map(plan.summary.get("fasar"))).containsEntry("laborCategories", 5);
+    }
+
+    @Test
+    void aFasarCategoryAlreadyInTheCatalogIsNoWarning() {
+        Map<String, ExistingResource> resources = new HashMap<>();
+        resources.put("MO777", new ExistingResource(UUID.randomUUID(), "MO777", ResourceType.LABOR, "TOPOGRAFO",
+                false, false, new BigDecimal("700.00"), Instant.now(), CatalogSource.MANUAL));
+        CatalogSnapshot snapshot = new CatalogSnapshot(Map.of(), Map.of(), Map.of(), resources, List.of());
+        SyntheticFasar fasar = new SyntheticFasar();
+        fasar.salaries.add(new Object[] {"MO777", "TOPOGRAFO", 400, 1.04, 1.7, 680.0});
+        ImportPlan plan = planWithFasar(SyntheticPresupuesto.standard(), fasar, snapshot);
+        assertThat(plan.warnings().count("FASAR_CATEGORY_NOT_IN_CATALOG")).isZero();
+        assertThat(plan.warnings().count("FASAR_UNKNOWN_CODE")).isZero();
+    }
+
+    /** The Catalog as the first plan would leave it. */
+    private static CatalogSnapshot snapshotOf(ImportPlan plan) {
+        Map<String, ExistingResource> resources = new HashMap<>();
+        for (PresupuestoFile.FileResource r : plan.resources()) {
+            resources.put(r.code(), new ExistingResource(plan.resourceIds.get(r.code()), r.code(), r.type(), r.name(),
+                    plan.composites.contains(r.code()), r.percentage(), r.cost(), Instant.now(),
+                    CatalogSource.NEODATA_CONSTRUBASE));
+        }
+        return new CatalogSnapshot(Map.of(), Map.of(), Map.of(), resources, List.of());
     }
 }

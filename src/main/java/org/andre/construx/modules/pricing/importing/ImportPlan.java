@@ -10,9 +10,12 @@ import org.andre.construx.modules.pricing.importing.PresupuestoFile.FileSupplier
 import org.andre.construx.modules.pricing.importing.PresupuestoFile.FileUnit;
 import org.andre.construx.modules.pricing.model.CatalogSource;
 import org.andre.construx.modules.pricing.model.DerivedCost;
+import org.andre.construx.modules.pricing.model.FasarCalculator;
 import org.andre.construx.modules.pricing.model.ResourceType;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,6 +33,7 @@ import java.util.UUID;
  */
 public final class ImportPlan {
     private static final BigDecimal LABOR_TOLERANCE = new BigDecimal("0.05");
+    private static final BigDecimal FSR_TOLERANCE = new BigDecimal("0.0005");
 
     public final PresupuestoFile file;
     public final CatalogSnapshot snapshot;
@@ -54,10 +58,30 @@ public final class ImportPlan {
     /** Detail rows of simple Labor categories. */
     public final List<FileLabor> labor = new ArrayList<>();
     public final Map<String, Object> summary = new LinkedHashMap<>();
+    /** The FASAR workbook of this import, or null. */
+    public final FasarFile fasarFile;
+    /** Factors of each simple Labor category computed from a complete FASAR set (the file's or the existing one). */
+    public final Map<String, FasarCalculator.Wage> laborWages = new HashMap<>();
+    /** The file values each computed category is verified against and keeps ({@code imported_fsr/real_wage}). */
+    public final Map<String, Verified> laborImported = new HashMap<>();
+    /** Computed real wage of each computed Labor category, the cost it gets instead of {@code Costo0} (§5.5). */
+    private final Map<String, BigDecimal> laborCost = new HashMap<>();
+    private final FasarCalculator fasar;
 
-    private ImportPlan(PresupuestoFile file, CatalogSnapshot snapshot) {
+    /** File FSR and real wage of a Labor category: {@code d)Salarios} when listed there, else DetalleManoObra. */
+    public record Verified(BigDecimal fsr, BigDecimal realWage, boolean fsrMismatch, boolean realWageMismatch) {}
+
+    private ImportPlan(PresupuestoFile file, CatalogSnapshot snapshot, FasarFile fasarFile, FasarCalculator fasar) {
         this.file = file;
         this.snapshot = snapshot;
+        this.fasarFile = fasarFile;
+        this.fasar = fasarFile != null ? new FasarCalculator(fasarFile.parameters()) : fasar;
+    }
+
+    /** The cost a simple Resource of the file gets: a computed Labor category's real wage, else the file's. */
+    public BigDecimal cost(String code) {
+        BigDecimal computed = laborCost.get(code);
+        return computed != null ? computed : file.resources.get(code).cost();
     }
 
     public ImportWarnings warnings() {
@@ -102,15 +126,90 @@ public final class ImportPlan {
 
     /** Plans the import; an analysis cycle fails with {@code ANALYSIS_CYCLE}. */
     public static ImportPlan of(PresupuestoFile file, CatalogSnapshot snapshot) {
-        ImportPlan plan = new ImportPlan(file, snapshot);
+        return of(file, snapshot, null, null);
+    }
+
+    /**
+     * Plans the import with the FASAR workbook ({@code fasarFile}, may be null) or, without one, the calculator of
+     * the organization's existing complete set ({@code existing}, may be null): either way the simple Labor
+     * categories of the file are computed and verified (§5.4, §5.5).
+     */
+    public static ImportPlan of(PresupuestoFile file, CatalogSnapshot snapshot, FasarFile fasarFile,
+                                FasarCalculator existing) {
+        ImportPlan plan = new ImportPlan(file, snapshot, fasarFile, existing);
         plan.resolveUnits();
         plan.resolveFamiliesAndSuppliers();
         plan.resolveResources();
         plan.checkCycles();
-        Map<String, BigDecimal> derived = plan.derive();
         plan.checkLabor();
+        plan.computeLabor();
+        plan.checkFasarFile();
+        Map<String, BigDecimal> derived = plan.derive();
         plan.summarize(derived);
         return plan;
+    }
+
+    private void computeLabor() {
+        if (fasar == null) {
+            return;
+        }
+        Map<String, FasarFile.Salary> salaries = new HashMap<>();
+        if (fasarFile != null) {
+            fasarFile.salaries().forEach(s -> salaries.putIfAbsent(s.code(), s));
+        }
+        for (FileLabor row : labor) {
+            FasarCalculator.Wage wage = fasar.wage(row.nominalWage());
+            BigDecimal realWage = row.nominalWage().multiply(wage.fsr()).setScale(2, RoundingMode.HALF_UP)
+                    .add(row.perDiem()).add(row.mealsLodging()).add(row.funeralExpenses()).add(row.otherBenefits());
+            FasarFile.Salary salary = salaries.get(row.code());
+            BigDecimal fileFsr = salary != null ? salary.fsr() : row.fsr();
+            BigDecimal fileRealWage = salary != null ? salary.realWage() : row.realWage();
+            String sheet = salary != null ? FasarFile.SALARIES : PresupuestoFile.LABOR;
+            int at = salary != null ? salary.row() : row.row();
+            boolean fsrMismatch = fileFsr != null && wage.fsr().subtract(fileFsr).abs().compareTo(FSR_TOLERANCE) > 0;
+            boolean wageMismatch = fileRealWage != null
+                    && realWage.subtract(fileRealWage).abs().compareTo(LABOR_TOLERANCE) > 0;
+            if (fsrMismatch) {
+                file.warnings.add("FSR_MISMATCH", sheet, at, row.code(),
+                        Map.of("imported", fileFsr.stripTrailingZeros().toPlainString(),
+                                "computed", wage.fsr().stripTrailingZeros().toPlainString()));
+            }
+            if (wageMismatch) {
+                file.warnings.add("REAL_WAGE_MISMATCH", sheet, at, row.code(),
+                        Map.of("imported", money(fileRealWage), "computed", money(realWage)));
+            }
+            laborWages.put(row.code(), wage);
+            laborCost.put(row.code(), realWage);
+            laborImported.put(row.code(), new Verified(fileFsr, fileRealWage, fsrMismatch, wageMismatch));
+        }
+    }
+
+    /**
+     * {@code FASAR_YEAR_OLD} (older than last year) and the {@code d)Salarios} codes that are no simple Labor
+     * category: of another kind in the file or the Catalog ({@code FASAR_UNKNOWN_CODE}), or nowhere
+     * ({@code FASAR_CATEGORY_NOT_IN_CATALOG}).
+     */
+    private void checkFasarFile() {
+        if (fasarFile == null) {
+            return;
+        }
+        if (fasarFile.year() != null && fasarFile.year() < Year.now().getValue() - 1) {
+            file.warnings.add("FASAR_YEAR_OLD", FasarFile.FACTORS, null, null, Map.of("year", fasarFile.year()));
+        }
+        for (FasarFile.Salary salary : fasarFile.salaries()) {
+            FileResource inFile = file.resources.get(salary.code());
+            ExistingResource inCatalog = snapshot.resources().get(salary.code());
+            boolean simpleLabor = inFile != null
+                    ? inFile.type() == ResourceType.LABOR && !composites.contains(salary.code())
+                    : inCatalog != null && inCatalog.type() == ResourceType.LABOR && !inCatalog.composite();
+            if (simpleLabor) {
+                continue;
+            }
+            String code = inFile == null && inCatalog == null ? "FASAR_CATEGORY_NOT_IN_CATALOG"
+                    : "FASAR_UNKNOWN_CODE";
+            file.warnings.add(code, FasarFile.SALARIES, salary.row(), salary.code(),
+                    salary.name().isEmpty() ? null : Map.of("name", salary.name()));
+        }
     }
 
     private void resolveUnits() {
@@ -259,7 +358,7 @@ public final class ImportPlan {
         for (FileResource r : file.resources.values()) {
             boolean composite = composites.contains(r.code());
             components.put(r.code(), new DerivedCost.Component(resourceIds.get(r.code()), r.type(), composite,
-                    r.percentage(), composite ? null : r.cost()));
+                    r.percentage(), composite ? null : cost(r.code())));
         }
         List<DerivedCost.Line> lines = new ArrayList<>();
         for (int i = 0; i < file.lines.size(); i++) {
@@ -323,7 +422,7 @@ public final class ImportPlan {
                 counts.merge("new", 1, Integer::sum);
                 continue;
             }
-            BigDecimal to = composites.contains(r.code()) ? derived.get(r.code()) : r.cost();
+            BigDecimal to = composites.contains(r.code()) ? derived.get(r.code()) : cost(r.code());
             BigDecimal from = existing.currentCost();
             boolean changed = from == null ? to != null : to == null || from.compareTo(to) != 0;
             if (changed) {
@@ -361,13 +460,16 @@ public final class ImportPlan {
         summary.put("suppliers", newAndUnchanged(file.suppliers.stream().map(FileSupplier::code).toList(),
                 snapshot.suppliersByCode().keySet()));
         Map<String, Object> fasar = new LinkedHashMap<>();
-        fasar.put("provided", false);
-        fasar.put("year", null);
-        fasar.put("uma", null);
-        fasar.put("minimumWage", file.generalFields == null ? null : money(file.generalFields.minimumWage()));
-        fasar.put("laborCategories", labor.size());
-        fasar.put("fsrMismatches", 0);
-        fasar.put("realWageMismatches", 0);
+        fasar.put("provided", fasarFile != null);
+        fasar.put("year", fasarFile == null ? null : fasarFile.year());
+        fasar.put("uma", fasarFile == null ? null
+                : fasarFile.umaCap().setScale(4, RoundingMode.HALF_UP).toPlainString());
+        fasar.put("minimumWage", fasarFile != null ? money(fasarFile.minimumWage())
+                : file.generalFields == null ? null : money(file.generalFields.minimumWage()));
+        fasar.put("laborCategories", fasarFile != null ? fasarFile.salaries().size() : labor.size());
+        fasar.put("fsrMismatches", (int) laborImported.values().stream().filter(Verified::fsrMismatch).count());
+        fasar.put("realWageMismatches",
+                (int) laborImported.values().stream().filter(Verified::realWageMismatch).count());
         summary.put("fasar", fasar);
         summary.put("warnings", file.warnings.toSummary());
         summary.put("changes", Map.of("sample", changes));
