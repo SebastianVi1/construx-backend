@@ -215,6 +215,24 @@ class LaborRateFlowTest {
     }
 
     @Test
+    void aSiteManagerWithoutViewPricesPicksACategoryFromTheLookupAndSetsACatalogRate() throws Exception {
+        labor("MO011", "610.00");
+        Session manager = api.signUp();
+        members.grantSite(siteId, members.add(orgId, manager.user(), "SITE_MANAGER"));
+
+        api.get(manager, "/api/organizations/" + orgId + "/resources").andExpect(status().isForbidden());
+        String categoryId = JsonPath.read(api.get(manager, site + "/catalog-lookup?purpose=LABOR_RATE&query=MO011")
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$.content[0].id");
+
+        api.put(manager, anaRate, catalog(UUID.fromString(categoryId))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.laborRate.kind").value("CATALOG"))
+                .andExpect(jsonPath("$.laborRate.laborCategory.code").value("MO011"))
+                .andExpect(jsonPath("$.laborRate.dailyAmount").value("610.00"));
+        api.get(manager, anaRate).andExpect(status().isOk())
+                .andExpect(jsonPath("$.current.laborCategory.id").value(categoryId));
+    }
+
+    @Test
     void withoutManageProjectTheAnswerIs403BeforeTheCategoryIsLookedUp() throws Exception {
         Session resident = api.signUp();
         members.grantSite(siteId, members.add(orgId, resident.user(), "RESIDENT"));

@@ -31,6 +31,12 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
 
     boolean existsByGoalId(UUID goalId);
 
+    /** Whether the membership is the Lead of any task of the site. */
+    @Query("select count(x) > 0 from ActivityAssignee x where x.activity.goal.project.id = :projectId "
+            + "and x.access.organizationMembership.id = :membershipId "
+            + "and x.taskRole = org.andre.construx.modules.project.model.TaskRole.LEAD")
+    boolean isLeadOnSite(UUID projectId, UUID membershipId);
+
     /** Whether any expense is charged to the task; such a task cannot be deleted. */
     @Query("select count(e) > 0 from Expense e where e.activity.id = :activityId")
     boolean hasExpenses(UUID activityId);

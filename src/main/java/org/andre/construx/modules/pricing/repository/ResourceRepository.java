@@ -73,6 +73,36 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
                           @Param("pattern") String pattern,
                           Pageable pageable);
 
+    /**
+     * Simple, non-archived Resources of these types, by code or name ({@code pattern} as in {@link #search}, null
+     * for no search); {@code withCost} keeps only those whose current cost is above zero.
+     */
+    @Query(value = """
+            select r from Resource r join fetch r.unit
+            where r.organizationId = :organizationId
+              and r.type in :types
+              and r.archivedAt is null
+              and r.composite = false
+              and (:withCost = false or r.currentCost > 0)
+              and (:pattern is null or lower(r.code) like :pattern escape '\\'
+                   or lower(r.name) like :pattern escape '\\')
+            """,
+            countQuery = """
+            select count(r) from Resource r
+            where r.organizationId = :organizationId
+              and r.type in :types
+              and r.archivedAt is null
+              and r.composite = false
+              and (:withCost = false or r.currentCost > 0)
+              and (:pattern is null or lower(r.code) like :pattern escape '\\'
+                   or lower(r.name) like :pattern escape '\\')
+            """)
+    Page<Resource> lookup(@Param("organizationId") UUID organizationId,
+                          @Param("types") Collection<ResourceType> types,
+                          @Param("withCost") boolean withCost,
+                          @Param("pattern") String pattern,
+                          Pageable pageable);
+
     boolean existsByOrganizationIdAndCode(UUID organizationId, String code);
 
     /**

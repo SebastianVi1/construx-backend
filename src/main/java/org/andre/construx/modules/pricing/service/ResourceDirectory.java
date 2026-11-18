@@ -1,10 +1,13 @@
 package org.andre.construx.modules.pricing.service;
 
+import org.andre.construx.modules.pricing.model.PricingValidationException;
 import org.andre.construx.modules.pricing.model.Resource;
 import org.andre.construx.modules.pricing.model.ResourceType;
 import org.andre.construx.modules.pricing.repository.ResourceCostHistoryRepository;
 import org.andre.construx.modules.pricing.repository.ResourceRepository;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +16,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -63,6 +67,27 @@ public class ResourceDirectory {
         }
         return resources.findAllInOrganization(ids, organizationId).stream().map(ResourceDirectory::toRef)
                 .collect(Collectors.toMap(CatalogResource::id, Function.identity()));
+    }
+
+    /** A Resource as the Site's catalog lookup shows it: no cost, wage or supplier (docs/pricing.md §6.7). */
+    public record LookupItem(UUID id, String code, String name, ResourceType type, String unitCode) {}
+
+    /**
+     * One page of the simple, non-archived Resources of these types, by code; {@code withCost} keeps only those
+     * with a cost above zero. {@code query} matches code or name; {@code page}/{@code size} as §0, otherwise an
+     * {@link IllegalArgumentException} (400 INVALID_ARGUMENT outside the pricing controllers).
+     */
+    @Transactional(readOnly = true)
+    public CatalogPage<LookupItem> lookup(UUID organizationId, Collection<ResourceType> types, boolean withCost,
+                                          String query, Integer page, Integer size) {
+        Pageable pageable;
+        try {
+            pageable = CatalogPage.request(page, size, null, Set.of(), Sort.by("code"), "code", "id");
+        } catch (PricingValidationException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
+        return CatalogPage.of(resources.lookup(organizationId, types, withCost, CatalogSearch.containsPattern(query),
+                pageable), r -> new LookupItem(r.getId(), r.getCode(), r.getName(), r.getType(), r.getUnit().getCode()));
     }
 
     private static CatalogResource toRef(Resource r) {
