@@ -47,20 +47,29 @@ public interface CheckInRepository extends JpaRepository<CheckIn, UUID> {
     /** One person on one Site on one day. */
     record PersonDayRow(UUID projectId, UUID membershipId, LocalDate day) {}
 
-    /** Distinct (Site, person, day) with a Check-in that was not removed, on these Sites, over their whole life. */
+    /**
+     * Distinct (Site, person, day) with a Check-in that was not removed, on these Sites of the organization, over
+     * their whole life.
+     */
     @Query("select distinct new org.andre.construx.modules.attendance.repository.CheckInRepository$PersonDayRow("
             + "c.site.id, c.membership.id, c.day) from CheckIn c "
-            + "where c.site.id in :siteIds and c.removedAt is null")
-    List<PersonDayRow> findPersonDays(@Param("siteIds") Collection<UUID> siteIds);
+            + "where c.site.organization.id = :organizationId and c.site.id in :siteIds and c.removedAt is null")
+    List<PersonDayRow> findPersonDays(@Param("organizationId") UUID organizationId,
+                                      @Param("siteIds") Collection<UUID> siteIds);
 
-    /** Distinct (Site, person, day) with a Check-in that was not removed, on a Site, with {@code from <= day <= to}. */
+    /**
+     * Distinct (Site, person, day) with a Check-in that was not removed, on a Site of the organization, with
+     * {@code from <= day <= to}.
+     */
     @Query("select distinct new org.andre.construx.modules.attendance.repository.CheckInRepository$PersonDayRow("
             + "c.site.id, c.membership.id, c.day) from CheckIn c "
-            + "where c.site.id = :siteId and c.removedAt is null and c.day >= :from and c.day <= :to")
-    List<PersonDayRow> findPersonDays(@Param("siteId") UUID siteId, @Param("from") LocalDate from,
-                                      @Param("to") LocalDate to);
+            + "where c.site.organization.id = :organizationId and c.site.id = :siteId and c.removedAt is null "
+            + "and c.day >= :from and c.day <= :to")
+    List<PersonDayRow> findPersonDays(@Param("organizationId") UUID organizationId, @Param("siteId") UUID siteId,
+                                      @Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    /** The first day of a Site with a Check-in that was not removed, or null. */
-    @Query("select min(c.day) from CheckIn c where c.site.id = :siteId and c.removedAt is null")
-    LocalDate findFirstDay(@Param("siteId") UUID siteId);
+    /** The first day of a Site of the organization with a Check-in that was not removed, or null. */
+    @Query("select min(c.day) from CheckIn c "
+            + "where c.site.organization.id = :organizationId and c.site.id = :siteId and c.removedAt is null")
+    LocalDate findFirstDay(@Param("organizationId") UUID organizationId, @Param("siteId") UUID siteId);
 }

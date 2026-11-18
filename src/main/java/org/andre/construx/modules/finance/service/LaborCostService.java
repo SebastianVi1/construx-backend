@@ -93,7 +93,8 @@ public class LaborCostService {
         site.require(PermissionAction.VIEW_BUDGET);
         Range range = range(site, from, to);
         List<AccruedDay> days = accrue(site.organizationId(),
-                attendance.personDays(site.siteId(), range.from(), range.to()), List.of(site.siteId()));
+                attendance.personDays(site.organizationId(), site.siteId(), range.from(), range.to()),
+                List.of(site.siteId()));
         Names names = names(site.organizationId(), days);
         Map<UUID, RateView> current = currentRates(site);
 
@@ -127,7 +128,7 @@ public class LaborCostService {
         }
         Range range = range(site, from, to);
         List<AccruedDay> days = accrue(site.organizationId(),
-                attendance.personDays(site.siteId(), range.from(), range.to()).stream()
+                attendance.personDays(site.organizationId(), site.siteId(), range.from(), range.to()).stream()
                         .filter(d -> membershipId == null || d.membershipId().equals(membershipId)).toList(),
                 List.of(site.siteId()));
         Names names = names(site.organizationId(), days);
@@ -154,7 +155,7 @@ public class LaborCostService {
         if (projectIds.isEmpty()) {
             return List.of();
         }
-        return accrue(organizationId, attendance.personDays(projectIds), projectIds);
+        return accrue(organizationId, attendance.personDays(organizationId, projectIds), projectIds);
     }
 
     /** The Site's accrued labor cost over its whole life, two decimals. No permission check. */
@@ -239,7 +240,7 @@ public class LaborCostService {
         LocalDate start = from;
         if (start == null) {
             LocalDate earliest = end.minusDays(MAX_RANGE_DAYS - 1);
-            start = attendance.firstDay(site.siteId())
+            start = attendance.firstDay(site.organizationId(), site.siteId())
                     .map(first -> first.isBefore(earliest) ? earliest : first)
                     .filter(first -> !first.isAfter(end))
                     .orElse(end);

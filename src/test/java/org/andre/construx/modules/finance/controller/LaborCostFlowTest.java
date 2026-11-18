@@ -2,6 +2,7 @@ package org.andre.construx.modules.finance.controller;
 
 import com.jayway.jsonpath.JsonPath;
 import org.andre.construx.modules.attendance.AttendanceTestBase;
+import org.andre.construx.modules.attendance.service.AttendanceService;
 import org.andre.construx.modules.identity.model.UserProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,9 +12,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,6 +29,7 @@ class LaborCostFlowTest extends AttendanceTestBase {
     private static final String NEXT_MORNING = "2026-03-11T15:00:00Z";
 
     @Autowired JdbcTemplate jdbc;
+    @Autowired AttendanceService attendance;
 
     private UUID peon;
     private String laborCost;
@@ -256,5 +260,21 @@ class LaborCostFlowTest extends AttendanceTestBase {
                 .andExpect(jsonPath("$.months[0].spent").value(0))
                 .andExpect(jsonPath("$.months[1].month").value("2026-03"))
                 .andExpect(jsonPath("$.months[1].spent").value(1250));
+    }
+
+    @Test
+    void personDaysAreScopedToTheOrganizationOfTheSite() throws Exception {
+        twoDaysOfWork();
+        UUID foreign = UUID.randomUUID();
+        LocalDate from = LocalDate.parse("2026-03-10");
+        LocalDate to = LocalDate.parse("2026-03-11");
+
+        assertThat(attendance.personDays(orgId, siteId, from, to)).hasSize(3);
+        assertThat(attendance.personDays(orgId, List.of(siteId))).hasSize(3);
+        assertThat(attendance.firstDay(orgId, siteId)).contains(from);
+
+        assertThat(attendance.personDays(foreign, siteId, from, to)).isEmpty();
+        assertThat(attendance.personDays(foreign, List.of(siteId))).isEmpty();
+        assertThat(attendance.firstDay(foreign, siteId)).isEmpty();
     }
 }
