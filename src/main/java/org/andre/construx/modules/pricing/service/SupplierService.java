@@ -18,9 +18,11 @@ import java.util.UUID;
 @Service
 public class SupplierService {
     private final SupplierRepository suppliers;
+    private final CatalogService catalogs;
 
-    public SupplierService(SupplierRepository suppliers) {
+    public SupplierService(SupplierRepository suppliers, CatalogService catalogs) {
         this.suppliers = suppliers;
+        this.catalogs = catalogs;
     }
 
     public record SupplierData(UUID id, String name, String branch, String website, Instant archivedAt) {}
@@ -31,6 +33,7 @@ public class SupplierService {
         org.require(PermissionAction.MANAGE_PRICES);
         Supplier supplier = new Supplier(member.getOrganization(), name, branch, website);
         rejectDuplicate(org.organizationId(), null, supplier.getNormalizedKey());
+        catalogs.ensure(member.getOrganization());
         return toData(suppliers.saveAndFlush(supplier));
     }
 
