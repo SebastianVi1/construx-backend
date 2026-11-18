@@ -1,0 +1,13 @@
+services:
+  backend:
+    build: .
+    image: construx-backend:local
+    ports:
+      - "8080:8080"
+    # Secrets and settings are read from .env at runtime; the file is never copied into the image
+    env_file: .env
+    environment:
+      # Inside the container localhost is the container itself, so default to the host's PostgreSQL
+      SPRING_DATASOURCE_URL: ${DOCKER_DATASOURCE_URL:-jdbc:postgresql://host.docker.internal:5432/construx}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
