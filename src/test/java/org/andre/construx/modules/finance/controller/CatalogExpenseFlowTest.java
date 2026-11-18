@@ -206,19 +206,27 @@ class CatalogExpenseFlowTest {
         api.patch(owner, typed, "{\"amount\":60}").andExpect(status().isOk());
     }
 
+    /** A task on the site with {@code leadAccess} as its Lead. */
+    private String taskLedBy(UUID leadAccess) throws Exception {
+        String goal = site + "/goals/" + Api.id(api.post(owner, site + "/goals",
+                "{\"name\":\"Structure\",\"startAt\":\"2027-01-01T00:00:00Z\",\"dueAt\":\"2027-03-01T00:00:00Z\"}"));
+        return goal + "/activities/" + Api.id(api.post(owner, goal + "/activities", "{\"name\":\"Pour slab\","
+                + "\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\",\"assignees\":[{\"accessId\":\""
+                + leadAccess + "\",\"taskRole\":\"LEAD\"}]}").andExpect(status().isCreated()));
+    }
+
+    private UUID siteId() {
+        return UUID.fromString(site.substring(site.lastIndexOf('/') + 1));
+    }
+
     @Test
     void theTaskLeadChargesTheCatalogToTheirTaskAndOthersFollowTheExpenseRules() throws Exception {
         Members members = new Members(txm, organizations, memberships, projects, accesses);
-        UUID siteId = UUID.fromString(site.substring(site.lastIndexOf('/') + 1));
         Session ana = api.signUp();
-        UUID anaAccess = members.grantSite(siteId, members.add(orgId, ana.user(), "WORKER"));
+        UUID anaAccess = members.grantSite(siteId(), members.add(orgId, ana.user(), "MEMBER"));
         Session bob = api.signUp();
-        members.grantSite(siteId, members.add(orgId, bob.user(), "WORKER"));
-        String goal = site + "/goals/" + Api.id(api.post(owner, site + "/goals",
-                "{\"name\":\"Structure\",\"startAt\":\"2027-01-01T00:00:00Z\",\"dueAt\":\"2027-03-01T00:00:00Z\"}"));
-        String task = goal + "/activities/" + Api.id(api.post(owner, goal + "/activities", "{\"name\":\"Pour slab\","
-                + "\"startAt\":\"2027-01-02T00:00:00Z\",\"dueAt\":\"2027-01-10T00:00:00Z\",\"assignees\":[{\"accessId\":\""
-                + anaAccess + "\",\"taskRole\":\"LEAD\"}]}").andExpect(status().isCreated()));
+        members.grantSite(siteId(), members.add(orgId, bob.user(), "WORKER"));
+        String task = taskLedBy(anaAccess);
         UUID cement = resource(orgId, unitId, "MAN-CEM-001", "MATERIAL", "Cemento", "245.50");
 
         String own = Api.id(api.post(ana, task + "/expenses", fromCatalog(cement, "4", ""))
@@ -232,6 +240,19 @@ class CatalogExpenseFlowTest {
         api.post(ana, site + "/expenses", fromCatalog(cement, "1", "")).andExpect(status().isForbidden());
         api.post(bob, task + "/expenses", fromCatalog(cement, "1", "")).andExpect(status().isForbidden());
         api.post(bob, site + "/expenses", fromCatalog(cement, "1", "")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aLeadWithoutViewPricesCannotChargeTheCatalogButCanTypeAnExpense() throws Exception {
+        Members members = new Members(txm, organizations, memberships, projects, accesses);
+        Session carl = api.signUp();
+        String task = taskLedBy(members.grantSite(siteId(), members.add(orgId, carl.user(), "WORKER")));
+        UUID cement = resource(orgId, unitId, "MAN-CEM-001", "MATERIAL", "Cemento", "245.50");
+
+        api.post(carl, task + "/expenses", fromCatalog(cement, "4", "")).andExpect(status().isForbidden());
+        api.post(carl, task + "/expenses", "{\"amount\":120,\"spentOn\":\"2027-01-03\","
+                + "\"description\":\"Nails\",\"category\":\"MATERIALS\"}").andExpect(status().isCreated());
+        api.get(owner, task + "/expenses").andExpect(jsonPath("$.length()").value(1));
     }
 
     private UUID resource(UUID unit, String code, String type, String name, String cost) {

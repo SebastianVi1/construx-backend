@@ -42,10 +42,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if ("ZONE_CONFLICT".equals(ex.getCode()) || "PIN_CONFLICT".equals(ex.getCode())) {
             return respond(HttpStatus.CONFLICT, "Concurrent modification", ex.getMessage(), ex.getCode(), request);
         }
-        if ("ARCHIVED_RESOURCE".equals(ex.getCode())) {
-            return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
-        }
         return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ProblemDetail> handleCodedConflict(ConflictException ex, HttpServletRequest request) {
+        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

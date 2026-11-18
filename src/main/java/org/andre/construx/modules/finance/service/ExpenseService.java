@@ -14,6 +14,7 @@ import org.andre.construx.modules.project.model.BudgetAllocation;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ProjectService;
+import org.andre.construx.shared.exception.ConflictException;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
 import org.springframework.security.access.AccessDeniedException;
@@ -207,7 +208,10 @@ public class ExpenseService {
                 .orElseThrow(() -> new ResourceNotFoundException("Expense not found"));
     }
 
-    /** Hand-typed, or from the Catalog with the Resource's current cost frozen as its unit cost (§6.5). */
+    /**
+     * Hand-typed, or from the Catalog with the Resource's current cost frozen as its unit cost (§6.5). Charging the
+     * Catalog also needs VIEW_PRICES on top of the expense permission (or the Lead exception): 403 without it.
+     */
     private ExpenseData save(SiteScope site, Project project, Activity activity, OrganizationMembership createdBy,
                              NewExpense body) {
         if (body.resourceId() == null) {
@@ -217,6 +221,7 @@ public class ExpenseService {
             return data(site.organizationId(), expenses.save(new Expense(project, activity, createdBy,
                     body.amount(), body.spentOn(), body.description(), body.category())));
         }
+        site.require(PermissionAction.VIEW_PRICES);
         if (body.amount() != null || body.category() != null) {
             throw new RuleViolationException("CATALOG_EXPENSE_FIELDS",
                     "An expense from the catalog computes its amount and category");
@@ -227,7 +232,7 @@ public class ExpenseService {
         CatalogResource resource = catalog.get(site.organizationId(), body.resourceId());
         ExpenseCategory category = categoryOf(resource.type());
         if (resource.archived()) {
-            throw new RuleViolationException("ARCHIVED_RESOURCE", "The resource is archived");
+            throw new ConflictException("ARCHIVED_RESOURCE", "The resource is archived");
         }
         if (resource.currentCost() == null) {
             throw new RuleViolationException("RESOURCE_WITHOUT_COST", "The resource has no cost yet");
