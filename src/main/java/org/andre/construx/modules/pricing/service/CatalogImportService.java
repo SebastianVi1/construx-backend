@@ -16,6 +16,9 @@ import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -28,6 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -71,6 +75,27 @@ public class CatalogImportService {
     public record ImportData(UUID id, ImportStatus status, FileData file, FileData fasarFile, PersonRef uploadedBy,
                              Instant createdAt, Instant validatedAt, Instant confirmedAt, Instant finishedAt,
                              LicenceData licence, JsonNode summary, FailureData failure) {}
+
+    /** The short form of the last finished import shown on the Catalog summary (§2.1). */
+    public record LastImport(UUID id, ImportStatus status, Instant finishedAt, String fileName) {}
+
+    /** {@code importId} as {@link LastImport}, or null; read inside the caller's transaction. */
+    LastImport lastImport(UUID organizationId, UUID importId) {
+        return importId == null ? null : jobs.findByIdAndOrganizationId(importId, organizationId)
+                .map(job -> new LastImport(job.getId(), job.getStatus(), job.getFinishedAt(), job.getFileName()))
+                .orElse(null);
+    }
+
+    /**
+     * The organization's job in PENDING, VALIDATING, VALIDATED or IMPORTING, or null. Jobs carry file names,
+     * hashes and the uploader, so a caller without MANAGE_PRICES never gets one (§4.3).
+     */
+    ImportData activeImport(OrgScope org) {
+        if (!org.can(PermissionAction.MANAGE_PRICES, () -> false, null)) {
+            return null;
+        }
+        return jobs.findByActiveOrganizationId(org.organizationId()).map(this::data).orElse(null);
+    }
 
     @Transactional
     public UploadData requestUpload(OrgScope org, String kind, String fileName, String contentType, long sizeBytes) {
@@ -124,6 +149,17 @@ public class CatalogImportService {
         return data(job);
     }
 
+    /** The organization's jobs newest first (§4.3), paged as §0 with a fixed order. */
+    @Transactional(readOnly = true)
+    public CatalogPage<ImportData> list(OrgScope org, Integer page, Integer size) {
+        org.require(PermissionAction.MANAGE_PRICES);
+        Pageable request = CatalogPage.request(page, size, null, Set.of(),
+                Sort.by(Sort.Direction.DESC, "createdAt"), "id");
+        Page<CatalogImport> found = jobs.findByOrganizationId(org.organizationId(), request);
+        People people = people(org.organizationId(), found.getContent());
+        return CatalogPage.of(found, job -> data(job, people));
+    }
+
     @Transactional
     public ImportData confirm(OrgScope org, UUID importId, boolean licenceAccepted, String statement) {
         load(org, importId);
@@ -167,30 +203,39 @@ public class CatalogImportService {
     }
 
     private ImportData data(CatalogImport job) {
-        List<UUID> ids = Stream.of(job.getUploadedByMembershipId(), job.getLicenceAcceptedByMembershipId())
+        return data(job, people(job.getOrganizationId(), List.of(job)));
+    }
+
+    /** The memberships and names behind the jobs' uploader and licence acceptor, loaded once. */
+    private record People(List<OrganizationMembership> memberships, Map<UUID, PersonDirectory.Person> persons) {}
+
+    private People people(UUID organizationId, List<CatalogImport> list) {
+        List<UUID> ids = list.stream()
+                .flatMap(job -> Stream.of(job.getUploadedByMembershipId(), job.getLicenceAcceptedByMembershipId()))
                 .filter(Objects::nonNull).distinct().toList();
-        List<OrganizationMembership> found = memberships.byIds(job.getOrganizationId(), ids);
-        Map<UUID, PersonDirectory.Person> persons = people.byUserId(found.stream()
-                .map(m -> m.getUserAccount().getId()).toList());
+        List<OrganizationMembership> found = ids.isEmpty() ? List.of() : memberships.byIds(organizationId, ids);
+        return new People(found, people.byUserId(found.stream().map(m -> m.getUserAccount().getId()).toList()));
+    }
+
+    private ImportData data(CatalogImport job, People people) {
         FileData fasar = job.getFasarFileKey() == null ? null
                 : new FileData(job.getFasarFileName(), job.getFasarFileSize(), job.getFasarFileSha256());
         LicenceData licence = job.getLicenceAcceptedAt() == null ? null
                 : new LicenceData(job.getLicenceStatement(), job.getLicenceAcceptedAt(),
-                person(found, persons, job.getLicenceAcceptedByMembershipId()));
+                person(people, job.getLicenceAcceptedByMembershipId()));
         FailureData failure = job.getFailureCode() == null ? null
                 : new FailureData(job.getFailureCode(), job.getFailureMessage(), job.getFailureSheet(),
                 job.getFailureRow(), job.getFailureColumn());
         return new ImportData(job.getId(), job.getStatus(),
                 new FileData(job.getFileName(), job.getFileSize(), job.getFileSha256()), fasar,
-                person(found, persons, job.getUploadedByMembershipId()), job.getCreatedAt(), job.getValidatedAt(),
+                person(people, job.getUploadedByMembershipId()), job.getCreatedAt(), job.getValidatedAt(),
                 job.getConfirmedAt(), job.getFinishedAt(), licence,
                 job.getSummary() == null ? null : json.readTree(job.getSummary()), failure);
     }
 
-    private static PersonRef person(List<OrganizationMembership> found, Map<UUID, PersonDirectory.Person> persons,
-                                    UUID membershipId) {
-        return found.stream().filter(m -> m.getId().equals(membershipId)).findFirst().map(m -> {
-            String fullName = PersonDirectory.of(persons, m.getUserAccount().getId()).fullName();
+    private static PersonRef person(People people, UUID membershipId) {
+        return people.memberships().stream().filter(m -> m.getId().equals(membershipId)).findFirst().map(m -> {
+            String fullName = PersonDirectory.of(people.persons(), m.getUserAccount().getId()).fullName();
             return new PersonRef(m.getId(),
                     fullName == null || fullName.isBlank() ? m.getUserAccount().getEmail() : fullName);
         }).orElse(membershipId == null ? null : new PersonRef(membershipId, null));

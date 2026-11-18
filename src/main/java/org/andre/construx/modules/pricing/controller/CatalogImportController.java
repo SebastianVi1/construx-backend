@@ -8,12 +8,14 @@ import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.pricing.service.CatalogImportService;
 import org.andre.construx.modules.pricing.service.CatalogImportService.ImportData;
 import org.andre.construx.modules.pricing.service.CatalogImportService.UploadData;
+import org.andre.construx.modules.pricing.service.CatalogPage;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,6 +48,12 @@ public class CatalogImportController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ImportData create(OrgScope org, @Valid @RequestBody CreateRequest body) {
         return imports.create(org, body.presupuestoUploadId(), body.fasarUploadId());
+    }
+
+    @GetMapping
+    public CatalogPage<ImportData> list(OrgScope org, @RequestParam(required = false) Integer page,
+                                        @RequestParam(required = false) Integer size) {
+        return imports.list(org, page, size);
     }
 
     @GetMapping("/{importId}")
