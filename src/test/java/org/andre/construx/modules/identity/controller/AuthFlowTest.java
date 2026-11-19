@@ -68,7 +68,7 @@ class AuthFlowTest {
         mvc.perform(post("/api/auth/register").cookie(csrfCookie)
                         .header(headerName, csrf)
                         .contentType("application/json")
-                        .content("{\"email\":\"" + email + "\",\"password\":\"long-password-here\",\"name\":\" Ana López \"}"))
+                        .content("{\"email\":\"" + email + "\",\"password\":\"Long-password-here1\",\"name\":\" Ana López \"}"))
                 .andExpect(status().isAccepted());
         UserAccount user = users.findByEmail(email).orElseThrow();
         var profile = profiles.findById(user.getId()).orElseThrow();
@@ -89,7 +89,7 @@ class AuthFlowTest {
         mvc.perform(post("/api/auth/register").cookie(csrfCookie)
                         .header(headerName, csrf)
                         .contentType("application/json")
-                        .content("{\"email\":\"" + email + "\",\"password\":\"long-password-here\"}"))
+                        .content("{\"email\":\"" + email + "\",\"password\":\"Long-password-here1\"}"))
                 .andExpect(status().isAccepted());
         UserAccount user = users.findByEmail(email).orElseThrow();
         assertFalse(user.isEmailVerified());
@@ -111,7 +111,7 @@ class AuthFlowTest {
         MvcResult login = mvc.perform(post("/api/auth/login").cookie(csrfCookie)
                         .header(headerName, csrf)
                         .contentType("application/json")
-                        .content("{\"email\":\"" + email + "\",\"password\":\"long-password-here\"}"))
+                        .content("{\"email\":\"" + email + "\",\"password\":\"Long-password-here1\"}"))
                 .andExpect(status().isNoContent()).andReturn();
         Cookie access = login.getResponse().getCookie("access_token");
         Cookie refresh = login.getResponse().getCookie("refresh_token");
@@ -166,7 +166,7 @@ class AuthFlowTest {
         Cookie access = login.getResponse().getCookie("access_token");
         mvc.perform(post("/api/auth/password").cookie(csrfCookie, access).header(header, token)
                         .contentType("application/json")
-                        .content("{\"currentPassword\":\"old-password-123\",\"newPassword\":\"new-password-456\"}"))
+                        .content("{\"currentPassword\":\"old-password-123\",\"newPassword\":\"New-password-456\"}"))
                 .andExpect(status().isNoContent());
         mvc.perform(get("/api/auth/me").cookie(access)).andExpect(status().isUnauthorized());
     }
@@ -219,14 +219,38 @@ class AuthFlowTest {
     }
 
     @Test
+    void passwordCreationRequiresUppercaseAndNumber() throws Exception {
+        Csrf csrf = csrf();
+        String email = "policy-" + UUID.randomUUID() + "@example.test";
+        for (String password : List.of("password1234", "Passwordonly")) {
+            postJson(csrf, "/api/auth/register",
+                    "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}")
+                    .andExpect(status().isBadRequest());
+            postJson(csrf, "/api/auth/password/reset",
+                    "{\"token\":\"unknown\",\"newPassword\":\"" + password + "\"}")
+                    .andExpect(status().isBadRequest());
+        }
+        assertTrue(users.findByEmail(email).isEmpty());
+
+        String existingEmail = verifiedAccount("Old-password1");
+        Cookie access = loginCookie(csrf, existingEmail, "Old-password1");
+        for (String password : List.of("password1234", "Passwordonly")) {
+            postJson(csrf, "/api/auth/password",
+                    "{\"currentPassword\":\"Old-password1\",\"newPassword\":\"" + password + "\"}", access)
+                    .andExpect(status().isBadRequest());
+        }
+        loginCookie(csrf, existingEmail, "Old-password1");
+    }
+
+    @Test
     void forgotAndResetReplaceThePasswordAndRevokeSessions() throws Exception {
         String email = "flow-" + UUID.randomUUID() + "@example.test";
         Csrf csrf = csrf();
-        postJson(csrf, "/api/auth/register", "{\"email\":\"" + email + "\",\"password\":\"long-password-here\"}")
+        postJson(csrf, "/api/auth/register", "{\"email\":\"" + email + "\",\"password\":\"Long-password-here1\"}")
                 .andExpect(status().isAccepted());
         String verification = mailedTokens(1).get(0);
         postJson(csrf, "/api/auth/verify", "{\"token\":\"" + verification + "\"}").andExpect(status().isNoContent());
-        Cookie oldSession = loginCookie(csrf, email, "long-password-here");
+        Cookie oldSession = loginCookie(csrf, email, "Long-password-here1");
         mvc.perform(get("/api/auth/me").cookie(oldSession)).andExpect(status().isOk());
 
         postJson(csrf, "/api/auth/password/forgot", "{\"email\":\"" + email + "\"}")
@@ -234,14 +258,14 @@ class AuthFlowTest {
         String resetToken = mailedTokens(2).get(1);
 
         var reset = postJson(csrf, "/api/auth/password/reset",
-                "{\"token\":\"" + resetToken + "\",\"newPassword\":\"brand-new-password\"}")
+                "{\"token\":\"" + resetToken + "\",\"newPassword\":\"Brand-new-password1\"}")
                 .andExpect(status().isNoContent()).andExpect(content().string("")).andReturn();
         assertEquals(0, reset.getResponse().getCookie("access_token").getMaxAge());
         assertEquals(0, reset.getResponse().getCookie("refresh_token").getMaxAge());
 
-        postJson(csrf, "/api/auth/login", "{\"email\":\"" + email + "\",\"password\":\"long-password-here\"}")
+        postJson(csrf, "/api/auth/login", "{\"email\":\"" + email + "\",\"password\":\"Long-password-here1\"}")
                 .andExpect(status().isUnauthorized());
-        loginCookie(csrf, email, "brand-new-password");
+        loginCookie(csrf, email, "Brand-new-password1");
         mvc.perform(get("/api/auth/me").cookie(oldSession)).andExpect(status().isUnauthorized());
     }
 
@@ -266,7 +290,7 @@ class AuthFlowTest {
         Csrf csrf = csrf();
         postJson(csrf, "/api/auth/password/forgot", "{\"email\":\"" + email + "\"}").andExpect(status().isAccepted());
         String token = mailedTokens(1).get(0);
-        String body = "{\"token\":\"" + token + "\",\"newPassword\":\"brand-new-password\"}";
+        String body = "{\"token\":\"" + token + "\",\"newPassword\":\"Brand-new-password1\"}";
         postJson(csrf, "/api/auth/password/reset", body).andExpect(status().isNoContent());
         postJson(csrf, "/api/auth/password/reset", body).andExpect(status().isUnauthorized());
     }
@@ -278,9 +302,9 @@ class AuthFlowTest {
                 .andExpect(status().isBadRequest());
         postJson(csrf, "/api/auth/password/reset", "{\"token\":\"t\",\"newPassword\":\"" + "a".repeat(73) + "\"}")
                 .andExpect(status().isBadRequest());
-        postJson(csrf, "/api/auth/password/reset", "{\"token\":\" \",\"newPassword\":\"brand-new-password\"}")
+        postJson(csrf, "/api/auth/password/reset", "{\"token\":\" \",\"newPassword\":\"Brand-new-password1\"}")
                 .andExpect(status().isBadRequest());
-        postJson(csrf, "/api/auth/password/reset", "{\"token\":\"unknown\",\"newPassword\":\"brand-new-password\"}")
+        postJson(csrf, "/api/auth/password/reset", "{\"token\":\"unknown\",\"newPassword\":\"Brand-new-password1\"}")
                 .andExpect(status().isUnauthorized());
     }
 
@@ -293,10 +317,10 @@ class AuthFlowTest {
         postJson(csrf, "/api/auth/password/forgot", "{\"email\":\"" + email + "\"}").andExpect(status().isAccepted());
         List<String> tokens = mailedTokens(2);
         postJson(csrf, "/api/auth/password/reset",
-                "{\"token\":\"" + tokens.get(0) + "\",\"newPassword\":\"brand-new-password\"}")
+                "{\"token\":\"" + tokens.get(0) + "\",\"newPassword\":\"Brand-new-password1\"}")
                 .andExpect(status().isUnauthorized());
         postJson(csrf, "/api/auth/password/reset",
-                "{\"token\":\"" + tokens.get(1) + "\",\"newPassword\":\"brand-new-password\"}")
+                "{\"token\":\"" + tokens.get(1) + "\",\"newPassword\":\"Brand-new-password1\"}")
                 .andExpect(status().isNoContent());
     }
 }

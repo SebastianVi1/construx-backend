@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
@@ -31,6 +32,8 @@ import java.util.UUID;
 public class AuthController {
     /** A pending Google link must be completed quickly; an abandoned one expires with its session. */
     private static final int LINK_SESSION_SECONDS = 600;
+    private static final String PASSWORD_PATTERN = "(?s)^(?=.*[A-Z])(?=.*[0-9]).*$";
+    private static final String PASSWORD_MESSAGE = "must contain an uppercase letter and a number";
 
     private final AccountService accounts;
     private final PasswordResetService passwordResets;
@@ -50,12 +53,15 @@ public class AuthController {
     }
 
     public record Credentials(@Email @NotBlank String email, @NotBlank String password) {}
-    public record Registration(@Email @NotBlank String email, @NotBlank @Size(min = 12, max = 72) String password,
+    public record Registration(@Email @NotBlank String email,
+            @NotBlank @Size(min = 12, max = 72) @Pattern(regexp = PASSWORD_PATTERN, message = PASSWORD_MESSAGE) String password,
             @Size(max = 160) String name) {}
     public record EmailInput(@Email @NotBlank String email) {}
     public record VerificationInput(@NotBlank String token) {}
-    public record ResetRequest(@NotBlank String token, @NotBlank @Size(min = 12, max = 72) String newPassword) {}
-    public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min = 12, max = 72) String newPassword) {}
+    public record ResetRequest(@NotBlank String token,
+            @NotBlank @Size(min = 12, max = 72) @Pattern(regexp = PASSWORD_PATTERN, message = PASSWORD_MESSAGE) String newPassword) {}
+    public record PasswordChange(@NotBlank String currentPassword,
+            @NotBlank @Size(min = 12, max = 72) @Pattern(regexp = PASSWORD_PATTERN, message = PASSWORD_MESSAGE) String newPassword) {}
 
     @PostMapping("/register")
     public ResponseEntity<Void> register(@Valid @RequestBody Registration body) {
