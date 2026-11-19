@@ -3,15 +3,15 @@ package org.andre.construx.shared.storage;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Optional;
 
 /** Keeps files in a map and hands out {@code memory://} links, for tests that need storage without S3. */
 public class InMemoryObjectStorage implements ObjectStorage {
     private record Stored(byte[] bytes, String contentType) {}
 
-    private final Map<String, Stored> objects = new ConcurrentHashMap<>();
+    private final Map<String, Stored> objects = new HashMap<>();
 
     @Override
     public PresignedUpload presignUpload(String key, String contentType, long sizeBytes, Duration ttl) {

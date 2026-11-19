@@ -1,7 +1,6 @@
 package org.andre.construx.modules.finance.service;
 
 import org.andre.construx.modules.finance.model.ExpenseCategory;
-import org.andre.construx.modules.finance.model.LaborAccrual.AccruedDay;
 import org.andre.construx.modules.finance.model.SiteBudgetStatus;
 import org.andre.construx.modules.finance.repository.ExpenseRepository;
 import org.andre.construx.modules.organization.model.PermissionAction;
@@ -26,8 +25,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Organization-wide finance summary and monthly expense series. Spending is recorded expenses plus the Accrued
- * labor cost of each site (docs/pricing.md §6.4).
+ * Organization-wide finance summary and monthly expense series.
  * <p>
  * Check order on every call:
  * <ol>
@@ -41,12 +39,10 @@ public class OrgFinanceService {
 
     private final ExpenseRepository expenses;
     private final ProjectService projects;
-    private final LaborCostService laborCost;
 
-    public OrgFinanceService(ExpenseRepository expenses, ProjectService projects, LaborCostService laborCost) {
+    public OrgFinanceService(ExpenseRepository expenses, ProjectService projects) {
         this.expenses = expenses;
         this.projects = projects;
-        this.laborCost = laborCost;
     }
 
     // ── Response records ──────────────────────────────────────────────────────
@@ -80,22 +76,11 @@ public class OrgFinanceService {
             spentByProject.put((UUID) row[0], (BigDecimal) row[1]);
         }
 
-        // Accrued labor cost to date of every listed (non-archived) site counts in its spent (docs/pricing.md §6.4)
-        Map<UUID, BigDecimal> accruedByProject = new HashMap<>();
-        for (AccruedDay day : laborCost.accrued(organizationId, allSites.stream().map(SiteSummary::id).toList())) {
-            accruedByProject.merge(day.projectId(), day.amount(), BigDecimal::add);
-        }
-        accruedByProject.forEach((id, amount) -> spentByProject.merge(id, amount, BigDecimal::add));
-
         // Build by-category map (budgeted + non-archived only)
         Map<ExpenseCategory, BigDecimal> categoryTotals = new EnumMap<>(ExpenseCategory.class);
         for (Object[] row : expenses.sumByCategoryForBudgetedSites(organizationId)) {
             categoryTotals.put((ExpenseCategory) row[0], (BigDecimal) row[1]);
         }
-        BigDecimal budgetedAccrual = allSites.stream().filter(s -> s.allocatedBudget() != null)
-                .map(s -> accruedByProject.getOrDefault(s.id(), BigDecimal.ZERO))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        categoryTotals.merge(ExpenseCategory.LABOR, budgetedAccrual, BigDecimal::add);
 
         // Company-level totals (budgeted sites only)
         BigDecimal totalBudget = BigDecimal.ZERO;
@@ -159,8 +144,7 @@ public class OrgFinanceService {
         }
 
         // Company-level totalBudget (same calculation as summary)
-        List<SiteSummary> sites = projects.inOrganization(organizationId);
-        BigDecimal totalBudget = sites.stream()
+        BigDecimal totalBudget = projects.inOrganization(organizationId).stream()
                 .map(SiteSummary::allocatedBudget)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
@@ -173,14 +157,6 @@ public class OrgFinanceService {
             int month = ((Number) row[1]).intValue();
             BigDecimal amount = (BigDecimal) row[2];
             monthMap.put(YearMonth.of(year, month), amount);
-        }
-
-        // Accrued labor cost of budgeted sites, in the month of each person-day (docs/pricing.md §6.4)
-        List<UUID> budgeted = sites.stream().filter(s -> s.allocatedBudget() != null).map(SiteSummary::id).toList();
-        for (AccruedDay day : laborCost.accrued(organizationId, budgeted)) {
-            if (!day.day().isBefore(effectiveFrom) && !day.day().isAfter(effectiveTo)) {
-                monthMap.merge(YearMonth.from(day.day()), day.amount(), BigDecimal::add);
-            }
         }
 
         // Fill all calendar months in range, including gaps as 0.00

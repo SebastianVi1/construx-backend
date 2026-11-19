@@ -24,36 +24,19 @@ public class EquipmentController {
 
     public record CreateEquipmentRequest(@NotBlank @Size(max = 80) String type,
                                          @NotBlank @Size(max = 80) String identifier,
-                                         @Min(0) Long dailyCostCents,
-                                         UUID equipmentRateResourceId) {}
+                                         @Min(0) Long dailyCostCents) {}
 
-    /** {@code equipmentRateResourceId}: absent keeps the link, {@code ""} removes it, an id links that rate. */
     public record UpdateEquipmentRequest(@Size(max = 80) String type,
                                          @Size(max = 80) String identifier,
                                          @Min(0) Long dailyCostCents,
-                                         Boolean active,
-                                         String equipmentRateResourceId) {
-        EquipmentService.RateLink rateLink() {
-            if (equipmentRateResourceId == null) {
-                return EquipmentService.RateLink.KEEP;
-            }
-            if (equipmentRateResourceId.isBlank()) {
-                return EquipmentService.RateLink.CLEAR;
-            }
-            try {
-                return EquipmentService.RateLink.set(UUID.fromString(equipmentRateResourceId.strip()));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("equipmentRateResourceId is not a valid id");
-            }
-        }
-    }
+                                         Boolean active) {}
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public EquipmentService.EquipmentData create(OrgScope org,
                                                   @Valid @RequestBody CreateEquipmentRequest body) {
-        return equipmentService.createEquipment(org, body.type(), body.identifier(), body.dailyCostCents(),
-                EquipmentService.RateLink.set(body.equipmentRateResourceId()));
+        return equipmentService.createEquipment(org,
+                body.type(), body.identifier(), body.dailyCostCents());
     }
 
     @GetMapping
@@ -67,7 +50,7 @@ public class EquipmentController {
                                                   @PathVariable UUID equipmentId,
                                                   @Valid @RequestBody UpdateEquipmentRequest body) {
         return equipmentService.updateEquipment(org, equipmentId,
-                body.type(), body.identifier(), body.dailyCostCents(), body.active(), body.rateLink());
+                body.type(), body.identifier(), body.dailyCostCents(), body.active());
     }
 
     @DeleteMapping("/{equipmentId}")

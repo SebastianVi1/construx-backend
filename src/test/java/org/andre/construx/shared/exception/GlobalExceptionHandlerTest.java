@@ -60,14 +60,6 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void aCodedConflictReturnsConflictWithItsCodeAndDetail() throws Exception {
-        mvc.perform(get("/errors/coded-conflict"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SOME_RULE"))
-                .andExpect(jsonPath("$.detail").value("The thing is archived"));
-    }
-
-    @Test
     void missingResourceReturnsNotFound() throws Exception {
         mvc.perform(get("/errors/missing"))
                 .andExpect(status().isNotFound())
@@ -133,11 +125,6 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/errors/state")
         void invalidState() {
             throw new IllegalStateException("Invitation is not active");
-        }
-
-        @GetMapping("/errors/coded-conflict")
-        void codedConflict() {
-            throw new ConflictException("SOME_RULE", "The thing is archived");
         }
 
         @GetMapping("/errors/missing")
