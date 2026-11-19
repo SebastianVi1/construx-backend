@@ -77,8 +77,9 @@ public class SiteReportService {
         site.require(PermissionAction.MANAGE_PROJECT);
         OrganizationMembership membership = site.membership();
 
-        SiteReport report = new SiteReport(site.site(), membership, title);
-        reports.save(report);
+        // The id is assigned up front, so save() merges into a new managed copy: keep that copy, or
+        // markReady() below changes a detached object and the row stays PENDING.
+        SiteReport report = reports.save(new SiteReport(site.site(), membership, title));
 
         PdfGenerationService.SiteReportData data = collectData(site.site(), membership,
                 attendanceService.summary(site));
