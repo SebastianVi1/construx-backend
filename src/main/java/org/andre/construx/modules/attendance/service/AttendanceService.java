@@ -27,11 +27,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -345,6 +347,37 @@ public class AttendanceService {
         long personDays = people.stream().mapToLong(PersonSummary::daysPresent).sum();
         BigDecimal average = BigDecimal.valueOf(personDays).divide(BigDecimal.valueOf(days), 1, RoundingMode.HALF_UP);
         return new AttendanceSummary(days, average, people);
+    }
+
+    /** One person on one Site on one day with at least one Check-in that was not removed. */
+    public record PersonDay(UUID projectId, UUID membershipId, LocalDate day) {}
+
+    /**
+     * The person-days of a Site of the organization with {@code from <= day <= to}: one per person and day however
+     * many Check-ins, removed Check-ins ignored. No permission check: callers authorize (the labor accrual,
+     * docs/pricing.md §6.2).
+     */
+    @Transactional(readOnly = true)
+    public List<PersonDay> personDays(UUID organizationId, UUID projectId, LocalDate from, LocalDate to) {
+        return checkIns.findPersonDays(organizationId, projectId, from, to).stream()
+                .map(AttendanceService::personDay).toList();
+    }
+
+    /** The person-days of these Sites of the organization over their whole life. No permission check. */
+    @Transactional(readOnly = true)
+    public List<PersonDay> personDays(UUID organizationId, Collection<UUID> projectIds) {
+        if (projectIds.isEmpty()) return List.of();
+        return checkIns.findPersonDays(organizationId, projectIds).stream().map(AttendanceService::personDay).toList();
+    }
+
+    /** The first day of a Site of the organization with a Check-in that was not removed. No permission check. */
+    @Transactional(readOnly = true)
+    public Optional<LocalDate> firstDay(UUID organizationId, UUID projectId) {
+        return Optional.ofNullable(checkIns.findFirstDay(organizationId, projectId));
+    }
+
+    private static PersonDay personDay(CheckInRepository.PersonDayRow row) {
+        return new PersonDay(row.projectId(), row.membershipId(), row.day());
     }
 
     /**

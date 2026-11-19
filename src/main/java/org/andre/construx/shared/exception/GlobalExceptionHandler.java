@@ -45,6 +45,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ProblemDetail> handleCodedConflict(ConflictException ex, HttpServletRequest request) {
+        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetail> handleInvalidArgument(IllegalArgumentException ex, HttpServletRequest request) {
         return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), "INVALID_ARGUMENT", request);
