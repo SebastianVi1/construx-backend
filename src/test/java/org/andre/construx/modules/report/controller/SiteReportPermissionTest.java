@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -109,6 +110,19 @@ class SiteReportPermissionTest {
     @Test
     void generateRejectsBlankTitle() throws Exception {
         api.post(owner, base, "{\"title\":\"  \"}").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void generatedReportStaysReadyAndDownloadable() throws Exception {
+        String reportId = Api.id(api.post(owner, base, "{\"title\":\"Test report\"}")
+                .andExpect(status().isCreated()));
+
+        api.get(owner, base)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(reportId))
+                .andExpect(jsonPath("$[0].status").value("READY"))
+                .andExpect(jsonPath("$[0].sizeBytes").isNumber());
+        api.get(viewer, base + "/" + reportId + "/download").andExpect(status().isOk());
     }
 
     // ── list (GET) ──────────────────────────────────────────────────────────
