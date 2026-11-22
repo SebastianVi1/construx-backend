@@ -44,6 +44,8 @@ Accept body: `{ "token" }`. The signed-in account's email must equal the invited
 
 Every organization response includes `myRole: { code, name }`, the caller's role there.
 
+The member's getting-started guide progress API is documented in [guide.md](guide.md).
+
 | Method | Path | Permission | Result |
 |---|---|---|---|
 | GET | `/api/organizations/{organizationId}/me` | active membership | `{ membershipId, role, permissions: [{ action, scope }] }` for gating the UI; the server still checks every request |

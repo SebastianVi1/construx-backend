@@ -98,7 +98,7 @@ class PriceSchemaRemovalTest {
                 .map(table -> jdbc.queryForList("select * from " + table + " order by id"))
                 .toList();
 
-        flyway(null).migrate();
+        flyway("39").migrate();
 
         assertEquals(unrelatedTables, tables());
         assertEquals(preservedRows, PRESERVED_TABLES.stream()
@@ -109,7 +109,7 @@ class PriceSchemaRemovalTest {
 
     @Test
     void freshDatabaseMigratesThroughRemovalWithoutPricingTables() {
-        flyway(null).migrate();
+        flyway("39").migrate();
 
         assertTrue(tables().stream().noneMatch(PRICING_TABLES::contains));
         assertTrue(tables().containsAll(Set.of("organization", "project", "role_permission", "document_folder", "document_entry")));
