@@ -67,7 +67,7 @@ public class GuideProgress {
 
     public GuideProgress(OrganizationMembership membership) {
         this.membership = membership;
-        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        this.updatedAt = now();
     }
 
     /** Records a step's status, replacing any earlier one, so a skipped step can be completed later. */
@@ -88,13 +88,17 @@ public class GuideProgress {
         if (!dismissed) {
             dismissedAt = null;
         } else if (dismissedAt == null) {
-            dismissedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            dismissedAt = now();
         }
         touch();
     }
 
     private void touch() {
-        updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        updatedAt = now();
+    }
+
+    private static Instant now() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     public Map<String, GuideStepStatus> getSteps() {
