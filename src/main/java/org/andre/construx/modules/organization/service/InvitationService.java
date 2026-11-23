@@ -4,6 +4,7 @@ import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.RoleAuthority;
 import org.andre.construx.modules.organization.model.InvitationStatus;
 import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.OrganizationInvitation;
@@ -98,6 +99,7 @@ public class InvitationService {
         org.require(PermissionAction.MANAGE_MEMBERS);
         OrganizationRole role = roles.findByOrganizationIdAndCode(org.organizationId(), roleCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+        RoleAuthority.checkInvite(org, role);
         Project project = null;
         if (projectId != null) {
             SiteScope site = sites.site(org, projectId);

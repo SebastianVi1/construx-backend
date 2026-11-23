@@ -55,8 +55,9 @@ public class MemberController {
 
     @GetMapping("/members")
     public List<MemberResponse> list(OrgScope org,
-                                     @RequestParam(defaultValue = "ACTIVE") MembershipStatus status) {
-        return members.members(org, status).stream()
+                                     @RequestParam(defaultValue = "ACTIVE") MembershipStatus status,
+                                     @RequestParam(required = false) String role) {
+        return members.members(org, status, role == null || role.isBlank() ? null : role).stream()
                 .map(MemberController::toResponse)
                 .toList();
     }
