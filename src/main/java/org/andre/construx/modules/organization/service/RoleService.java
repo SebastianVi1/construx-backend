@@ -82,8 +82,13 @@ public class RoleService {
                            LocalizedText description, boolean system, boolean customized, long memberCount,
                            long pendingInvitationCount, boolean editable, boolean assignable, long version) {}
 
-    /** A role with its permissions in catalog order and, for a Built-in role, the file's defaults. */
-    public record RoleDetailData(RoleData role, List<GrantData> permissions, List<GrantData> defaults) {}
+    /**
+     * A role with its permissions in catalog order and, for a Built-in role, the file's defaults. It also counts what
+     * a delete would move (§5.6): {@code formerMemberCount} (memberships that left) and {@code invitationCount}
+     * (invitations in any status), so a delete dialog can show them before the first DELETE.
+     */
+    public record RoleDetailData(RoleData role, List<GrantData> permissions, List<GrantData> defaults,
+                                 long formerMemberCount, long invitationCount) {}
 
     /** Owner, then Built-in roles in file order, then custom roles by name. */
     @Transactional(readOnly = true)
@@ -209,13 +214,16 @@ public class RoleService {
         Map<String, Object> counts = new LinkedHashMap<>();
         counts.put("memberCount", memberships.countByRoleIdAndStatusIn(role.getId(),
                 EnumSet.of(MembershipStatus.ACTIVE, MembershipStatus.SUSPENDED)));
-        counts.put("formerMemberCount", memberships.countByRoleIdAndStatusIn(role.getId(),
-                EnumSet.of(MembershipStatus.LEFT)));
+        counts.put("formerMemberCount", formerMembers(role));
         counts.put("pendingInvitationCount", invitations.countByRoleIdAndStatus(role.getId(),
                 InvitationStatus.PENDING));
         counts.put("invitationCount", invitationCount);
         return new ConflictException("ROLE_REPLACEMENT_REQUIRED",
                 "Members, former members or invitations still use this role; choose a replacement", counts);
+    }
+
+    private long formerMembers(OrganizationRole role) {
+        return memberships.countByRoleIdAndStatusIn(role.getId(), EnumSet.of(MembershipStatus.LEFT));
     }
 
     private OrganizationRole find(OrgScope org, String code) {
@@ -242,7 +250,8 @@ public class RoleService {
         List<GrantData> defaults = role.kind() == RoleKind.BUILT_IN
                 ? BuiltInRoles.find(role.getCode()).map(d -> grants(d.grants())).orElse(null)
                 : null;
-        return new RoleDetailData(toData(org, role, counts(org.organizationId())), grants(role.grants()), defaults);
+        return new RoleDetailData(toData(org, role, counts(org.organizationId())), grants(role.grants()), defaults,
+                formerMembers(role), invitations.countByRoleId(role.getId()));
     }
 
     /**

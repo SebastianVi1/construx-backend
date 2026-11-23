@@ -33,10 +33,14 @@ public class RoleController {
         this.roles = roles;
     }
 
-    /** The list's fields plus {@code permissions} and {@code defaults} (null unless Built-in). */
+    /**
+     * The list's fields plus {@code permissions}, {@code defaults} (null unless Built-in), and the counts a delete
+     * needs: {@code formerMemberCount} and {@code invitationCount} (any status).
+     */
     public record RoleDetailResponse(@JsonUnwrapped RoleService.RoleData role,
                                      List<RoleService.GrantData> permissions,
-                                     List<RoleService.GrantData> defaults) {}
+                                     List<RoleService.GrantData> defaults,
+                                     long formerMemberCount, long invitationCount) {}
 
     /** §5.3: a new Custom role; the server picks its code. */
     public record RoleCreateRequest(String name, String description, @NotNull List<RoleDraft.Grant> permissions) {}
@@ -87,6 +91,7 @@ public class RoleController {
     }
 
     private static RoleDetailResponse response(RoleService.RoleDetailData detail) {
-        return new RoleDetailResponse(detail.role(), detail.permissions(), detail.defaults());
+        return new RoleDetailResponse(detail.role(), detail.permissions(), detail.defaults(),
+                detail.formerMemberCount(), detail.invitationCount());
     }
 }

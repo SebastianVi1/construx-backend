@@ -150,6 +150,26 @@ class RoleFlowTest {
     }
 
     @Test
+    void roleDetailCountsFormerMembersAndEveryInvitationButTheListDoesNot() throws Exception {
+        UUID left = members.add(orgId, api.signUp().user(), "WORKER");
+        jdbc.update("update organization_membership set status = 'LEFT' where id = ?", left);
+        api.post(owner, org + "/invitations", "{\"email\":\"one@acme.test\",\"roleCode\":\"WORKER\"}")
+                .andExpect(status().isCreated());
+        api.post(owner, org + "/invitations", "{\"email\":\"two@acme.test\",\"roleCode\":\"WORKER\"}")
+                .andExpect(status().isCreated());
+        jdbc.update("update organization_invitation set status = 'REVOKED' where email = 'two@acme.test'");
+
+        api.get(admin, org + "/roles/WORKER").andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberCount").value(1))
+                .andExpect(jsonPath("$.formerMemberCount").value(1))
+                .andExpect(jsonPath("$.pendingInvitationCount").value(1))
+                .andExpect(jsonPath("$.invitationCount").value(2));
+        api.get(admin, org + "/roles")
+                .andExpect(jsonPath("$[3].formerMemberCount").doesNotExist())
+                .andExpect(jsonPath("$[3].invitationCount").doesNotExist());
+    }
+
+    @Test
     void customRoleDetailHasNoDefaults() throws Exception {
         UUID role = customRole("CUSTOM_BBBBBBBBBB", "Yard crew", null);
         jdbc.update("insert into role_permission (id, role_id, action, scope) values (?, ?, 'VIEW_PRICES', "
