@@ -90,7 +90,7 @@ public final class RoleAuthority {
     }
 
     private static Optional<RuntimeException> editRefusal(OrgScope caller, OrganizationRole role) {
-        if (!caller.can(PermissionAction.MANAGE_ROLES, () -> false, null)) {
+        if (!caller.can(PermissionAction.MANAGE_ROLES)) {
             return Optional.of(new AccessDeniedException("Permission required"));
         }
         if (role.isSystemRole()) {
@@ -106,7 +106,7 @@ public final class RoleAuthority {
     }
 
     private static Optional<RuntimeException> assignRefusal(OrgScope caller, OrganizationRole role) {
-        if (!caller.can(PermissionAction.MANAGE_MEMBERS, () -> false, null)) {
+        if (!caller.can(PermissionAction.MANAGE_MEMBERS)) {
             return Optional.of(new AccessDeniedException("Permission required"));
         }
         if (role.isSystemRole()) {
