@@ -1,10 +1,14 @@
 package org.andre.construx.modules.organization.model;
 
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.error.YAMLException;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -89,6 +93,17 @@ public final class PermissionCatalog {
         return (Map<String, Object>) m;
     }
 
+    /** Reads YAML text with duplicate keys refused; a syntax error becomes an {@link IllegalStateException}. */
+    static Map<String, Object> readYaml(String text, String file) {
+        LoaderOptions options = new LoaderOptions();
+        options.setAllowDuplicateKeys(false);
+        try {
+            return new Yaml(new SafeConstructor(options)).load(text);
+        } catch (YAMLException | ClassCastException e) {
+            throw new IllegalStateException(file + " is not valid: " + e.getMessage(), e);
+        }
+    }
+
     private static Map<String, Object> section(Map<String, Object> yaml, String key) {
         return map(yaml.get(key), "`" + key + "` in permission-catalog.yml");
     }
@@ -108,7 +123,7 @@ public final class PermissionCatalog {
             if (in == null) {
                 throw new IllegalStateException(RESOURCE + " not found");
             }
-            return parse(new Yaml().load(in));
+            return parse(readYaml(new String(in.readAllBytes(), StandardCharsets.UTF_8), "permission-catalog.yml"));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -11,7 +11,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.HashSet;
 import java.util.Collections;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,7 +49,8 @@ public class OrganizationRole {
 
     public OrganizationRole(Organization organization, String code, String name) {
         this.organization = DomainValidation.required(organization, "Organization is required");
-        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || "OWNER".equals(code) || SeededRoles.isSeededCode(code)) {
+        if (code == null || !code.matches("[A-Z][A-Z0-9_]{0,63}") || BuiltInRoles.OWNER_CODE.equals(code)
+                || BuiltInRoles.isBuiltInCode(code)) {
             throw new IllegalArgumentException("Invalid or reserved role code");
         }
         this.code = code;
@@ -60,8 +60,8 @@ public class OrganizationRole {
     public static OrganizationRole owner(Organization organization) {
         OrganizationRole role = new OrganizationRole();
         role.organization = DomainValidation.required(organization, "Organization is required");
-        role.code = "OWNER";
-        role.name = "Propietario";
+        role.code = BuiltInRoles.OWNER_CODE;
+        role.name = BuiltInRoles.owner().name().es();
         role.systemRole = true;
         for (PermissionAction action : PermissionAction.values()) {
             role.permissions.add(new Permission(role, action, PermissionScope.ORGANIZATION));
@@ -69,18 +69,17 @@ public class OrganizationRole {
         return role;
     }
 
-    /** Built-in role created with every organization; like the owner role it cannot be edited. */
-    public static OrganizationRole seeded(Organization organization, String code, String name,
-                                          Map<PermissionAction, PermissionScope> grants) {
+    /**
+     * Built-in role created with every organization from its definition; like the owner role it cannot be edited.
+     * The stored name is the ES name, for database readability; the API takes display names from the definition.
+     */
+    public static OrganizationRole seeded(Organization organization, BuiltInRoles.Definition definition) {
         OrganizationRole role = new OrganizationRole();
         role.organization = DomainValidation.required(organization, "Organization is required");
-        if (code == null || !SeededRoles.isSeededCode(code)) {
-            throw new IllegalArgumentException("Invalid seeded role code");
-        }
-        role.code = code;
-        role.name = name;
+        role.code = definition.code();
+        role.name = definition.name().es();
         role.seeded = true;
-        grants.forEach((action, scope) -> role.permissions.add(new Permission(role, action, scope)));
+        definition.grants().forEach((action, scope) -> role.permissions.add(new Permission(role, action, scope)));
         return role;
     }
 
