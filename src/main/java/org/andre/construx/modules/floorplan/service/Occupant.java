@@ -1,5 +1,6 @@
 package org.andre.construx.modules.floorplan.service;
 
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.project.service.ActivityService.OpenTask;
 
 import java.net.URI;
@@ -21,10 +22,11 @@ public record Occupant(Kind kind, UUID id, String label, URI avatarUrl, List<Wor
 
     /**
      * A person on the plan. {@code openTasks}: their unfinished tasks on this Site, only when the viewer may see
-     * them (VIEW_ACTIVITY here, or OWN scope for the viewer's own tasks); otherwise empty.
+     * them (VIEW_ACTIVITY here, or OWN scope for the viewer's own tasks); otherwise empty. {@code roleNames}: the
+     * role's display name per language (contract roles §5.11); {@code roleName} is the stored one.
      */
-    public record Worker(UUID membershipId, String fullName, URI avatarUrl, String roleName, boolean crewLeader,
-                         List<OpenTask> openTasks) {}
+    public record Worker(UUID membershipId, String fullName, URI avatarUrl, String roleName, LocalizedText roleNames,
+                         boolean crewLeader, List<OpenTask> openTasks) {}
 
     public record EquipmentInfo(String type, String identifier) {}
 }

@@ -122,7 +122,9 @@ class FloorPlanOccupantsFlowTest {
                 .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].membershipId")
                         .value(workerMembership.toString()))
                 .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].fullName").value("Ana Perez"))
-                .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].roleName").value("Trabajador"));
+                .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].roleName").value("Trabajador"))
+                .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].roleNames.en").value("Worker"))
+                .andExpect(jsonPath("$[0].activeAssignments[0].occupant.members[0].roleNames.es").value("Trabajador"));
     }
 
     @Test
@@ -210,6 +212,8 @@ class FloorPlanOccupantsFlowTest {
                         .value(containsInAnyOrder("memory://download/avatars/ana.png")))
                 .andExpect(jsonPath("$.people[?(@.membershipId == '" + workerMembership + "')].roleName")
                         .value(containsInAnyOrder("Trabajador")))
+                .andExpect(jsonPath("$.people[?(@.membershipId == '" + workerMembership + "')].roleNames.en")
+                        .value(containsInAnyOrder("Worker")))
                 .andExpect(jsonPath("$.crews[0].id").value(crewId))
                 .andExpect(jsonPath("$.crews[0].name").value("Rebar crew"))
                 .andExpect(jsonPath("$.crews[0].memberCount").value(1))
