@@ -11,4 +11,6 @@ public interface OrganizationRoleRepository extends JpaRepository<OrganizationRo
     Optional<OrganizationRole> findByOrganizationIdAndCode(UUID organizationId, String code);
 
     List<OrganizationRole> findByOrganizationIdOrderByCode(UUID organizationId);
+
+    List<OrganizationRole> findByOrganizationId(UUID organizationId);
 }

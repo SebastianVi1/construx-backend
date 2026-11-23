@@ -219,6 +219,14 @@ public class OrganizationRole {
         return true;
     }
 
+    /** Startup sync: a Built-in role whose file name another role already holds is stored under another name. */
+    public void useStoredName(String name) {
+        if (!seeded) {
+            throw new IllegalStateException("Only a Built-in role takes a stored name from the sync");
+        }
+        this.name = validName(name);
+    }
+
     /** Startup sync: a Custom role whose code is back in the file becomes a customized Built-in role again. */
     public void adoptAsBuiltIn() {
         requireNotOwner();
