@@ -18,6 +18,14 @@ public interface OrganizationRoleRepository extends JpaRepository<OrganizationRo
     @Query("select r from OrganizationRole r where r.organization.id = :organizationId and r.code = :code")
     Optional<OrganizationRole> findForUpdate(UUID organizationId, String code);
 
+    /**
+     * The role with a shared lock until the transaction ends: an assignment or invitation into it waits for a
+     * delete of the role to finish (and then finds no role), and a delete waits for them.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select r from OrganizationRole r where r.organization.id = :organizationId and r.code = :code")
+    Optional<OrganizationRole> findForShare(UUID organizationId, String code);
+
     /** Every role of the company with its permissions, in one query. */
     @Query("select distinct r from OrganizationRole r left join fetch r.permissions "
             + "where r.organization.id = :organizationId")

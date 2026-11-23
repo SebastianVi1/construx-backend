@@ -13,6 +13,7 @@ import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.model.RoleKind;
 import org.andre.construx.modules.organization.repository.OrganizationInvitationRepository;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
 import org.andre.construx.modules.organization.repository.RoleCount;
 import org.andre.construx.shared.audit.AuditService;
@@ -53,14 +54,17 @@ public class RoleService {
     /** At most this many Custom roles per company (§5.3). */
     public static final int CUSTOM_ROLE_LIMIT = 30;
 
+    private final OrganizationRepository organizations;
     private final OrganizationRoleRepository roles;
     private final OrganizationMembershipRepository memberships;
     private final OrganizationInvitationRepository invitations;
     private final AuditService audit;
     private final RoleVersions versions;
 
-    public RoleService(OrganizationRoleRepository roles, OrganizationMembershipRepository memberships,
-                       OrganizationInvitationRepository invitations, AuditService audit, RoleVersions versions) {
+    public RoleService(OrganizationRepository organizations, OrganizationRoleRepository roles,
+                       OrganizationMembershipRepository memberships, OrganizationInvitationRepository invitations,
+                       AuditService audit, RoleVersions versions) {
+        this.organizations = organizations;
         this.roles = roles;
         this.memberships = memberships;
         this.invitations = invitations;
@@ -106,7 +110,7 @@ public class RoleService {
     @Transactional
     public RoleDetailData create(OrgScope org, RoleDraft draft) {
         RoleAuthority.checkCreate(org, draft.permissions());
-        List<OrganizationRole> existing = roles.findByOrganizationId(org.organizationId());
+        List<OrganizationRole> existing = lockCompanyRoles(org);
         OrganizationRole role = OrganizationRole.custom(org.membership().getOrganization(), draft.name(),
                 draft.description(), draft.permissions());
         if (existing.stream().filter(r -> r.kind() == RoleKind.CUSTOM).count() >= CUSTOM_ROLE_LIMIT) {
@@ -162,6 +166,7 @@ public class RoleService {
      * Deletes a Custom role (§5.6). While any membership (any status) or invitation (any status) references it, a
      * {@code replacementCode} is required ({@code ROLE_REPLACEMENT_REQUIRED} with the counts); they all move to the
      * replacement, each moved membership audited as a role change, then the role is deleted, in one transaction.
+     * The role and the moved memberships are locked, so a parallel assignment into or out of the role waits.
      */
     @Transactional
     public void delete(OrgScope org, String code, String replacementCode) {
@@ -172,7 +177,7 @@ public class RoleService {
         }
         OrganizationRole replacement = replacementCode == null || replacementCode.isBlank()
                 ? null : replacement(org, role, replacementCode.strip());
-        List<OrganizationMembership> held = memberships.findByRoleId(role.getId());
+        List<OrganizationMembership> held = memberships.findForUpdateByRoleId(role.getId());
         long invitationCount = invitations.countByRoleId(role.getId());
         if (replacement == null && (!held.isEmpty() || invitationCount > 0)) {
             throw replacementRequired(role, invitationCount);
@@ -218,6 +223,16 @@ public class RoleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
     }
 
+    /**
+     * Locks the company, then reads its roles: parallel creates and renames run one after the other, so none can
+     * pass the Custom role limit or take a name another one is taking.
+     */
+    private List<OrganizationRole> lockCompanyRoles(OrgScope org) {
+        organizations.findForUpdate(org.organizationId())
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
+        return roles.findByOrganizationId(org.organizationId());
+    }
+
     private OrganizationRole findForUpdate(OrgScope org, String code) {
         return roles.findForUpdate(org.organizationId(), code)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
@@ -257,7 +272,7 @@ public class RoleService {
             return;
         }
         // Read the other roles before renaming, so the query's flush never writes a clashing name.
-        List<OrganizationRole> existing = roles.findByOrganizationId(org.organizationId());
+        List<OrganizationRole> existing = lockCompanyRoles(org);
         if (draft.name() != null) {
             role.renameCustom(draft.name());
             requireFreeName(existing, role);

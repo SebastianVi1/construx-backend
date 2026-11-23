@@ -76,15 +76,17 @@ public class MemberService {
     /**
      * Move another member to a different role, under the "never above your own role" rules (contract roles §3): not
      * yourself, never into or out of the Owner role, and both the member's current role (whatever their status) and
-     * the new one must fit within the caller.
+     * the new one must fit within the caller. The new role, then the membership, are locked before the check (in
+     * the order a role delete takes them), so a parallel change or delete cannot leave the check acting on a stale
+     * role.
      */
     @Transactional
     public MemberData changeRole(OrgScope org, UUID membershipId, String roleCode) {
         org.require(PermissionAction.MANAGE_MEMBERS);
-        OrganizationMembership member = memberships.findByIdAndOrganizationId(membershipId, org.organizationId())
-                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
-        OrganizationRole role = roles.findByOrganizationIdAndCode(org.organizationId(), roleCode)
+        OrganizationRole role = roles.findForShare(org.organizationId(), roleCode)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown role"));
+        OrganizationMembership member = memberships.findForUpdate(membershipId, org.organizationId())
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
         RoleAuthority.checkAssign(org, member, role);
         String before = member.getRole().getCode();
         member.changeRole(role);

@@ -2,7 +2,9 @@ package org.andre.construx.modules.organization.repository;
 
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
@@ -19,8 +21,18 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
 
     List<OrganizationMembership> findByOrganizationIdAndIdIn(UUID organizationId, Collection<UUID> ids);
 
-    /** Every membership holding the role, whatever its status (a role delete moves them all). */
-    List<OrganizationMembership> findByRoleId(UUID roleId);
+    /**
+     * The membership with its row locked until the transaction ends, so a role change acts on the role the member
+     * holds now, not on one read before another change committed.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from OrganizationMembership m where m.id = :id and m.organization.id = :organizationId")
+    Optional<OrganizationMembership> findForUpdate(UUID id, UUID organizationId);
+
+    /** Every membership holding the role, whatever its status, locked (a role delete moves them all). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from OrganizationMembership m where m.role.id = :roleId")
+    List<OrganizationMembership> findForUpdateByRoleId(UUID roleId);
 
     long countByRoleIdAndStatusIn(UUID roleId, Collection<MembershipStatus> statuses);
 

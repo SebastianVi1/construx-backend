@@ -24,8 +24,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.IntFunction;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.matchesPattern;
@@ -164,6 +171,65 @@ class CustomRoleFlowTest {
     }
 
     @Test
+    void parallelCreatesCannotPassTheLimit() throws Exception {
+        for (int i = 1; i <= 29; i++) {
+            create(owner, "Crew " + i, null, "[]").andExpect(status().isCreated());
+        }
+
+        List<String> codes = inParallel(6, i -> "{\"name\":\"Late " + i + "\",\"permissions\":[]}");
+
+        assertEquals(1, codes.stream().filter("201"::equals).count(), codes.toString());
+        assertEquals(5, codes.stream().filter("ROLE_LIMIT_REACHED"::equals).count(), codes.toString());
+        assertEquals(30, jdbc.queryForObject("select count(*) from organization_role where organization_id = ? "
+                + "and seeded = false and system_role = false", Long.class, orgId));
+    }
+
+    @Test
+    void parallelCreatesCannotShareANameInAnyCase() throws Exception {
+        List<String> names = List.of("Yard crew", "yard crew", "YARD CREW", " Yard Crew ", "yard CREW", "Yard CREW");
+
+        List<String> codes = inParallel(names.size(), i -> "{\"name\":\"" + names.get(i) + "\",\"permissions\":[]}");
+
+        assertEquals(1, codes.stream().filter("201"::equals).count(), codes.toString());
+        assertEquals(5, codes.stream().filter("ROLE_NAME_TAKEN"::equals).count(), codes.toString());
+    }
+
+    @Test
+    void anAssignmentNeverActsOnARoleSomeoneElseJustGaveTheMember() throws Exception {
+        for (int round = 0; round < 8; round++) {
+            UUID member = members.add(orgId, api.signUp().user(), "WORKER");
+
+            List<Integer> statuses = atOnce(List.of(
+                    () -> api.patch(owner, org + "/members/" + member, "{\"roleCode\":\"FINANCE\"}")
+                            .andReturn().getResponse().getStatus(),
+                    () -> api.patch(admin, org + "/members/" + member, "{\"roleCode\":\"MEMBER\"}")
+                            .andReturn().getResponse().getStatus()));
+
+            assertEquals(200, statuses.get(0), statuses.toString());
+            assertTrue(List.of(200, 403).contains(statuses.get(1)), statuses.toString());
+            assertEquals("FINANCE", roleOf(member), "the Administrator moved a Finance member: " + statuses);
+        }
+    }
+
+    @Test
+    void anAssignmentIntoARoleBeingDeletedEndsInTheReplacement() throws Exception {
+        for (int round = 0; round < 8; round++) {
+            String code = codeOf(create(owner, "Short lived " + round, null, "[]"));
+            UUID member = members.add(orgId, api.signUp().user(), "WORKER");
+
+            List<Integer> statuses = atOnce(List.of(
+                    () -> api.delete(owner, org + "/roles/" + code + "?replacement=MEMBER")
+                            .andReturn().getResponse().getStatus(),
+                    () -> api.patch(admin, org + "/members/" + member, "{\"roleCode\":\"" + code + "\"}")
+                            .andReturn().getResponse().getStatus()));
+
+            assertEquals(204, statuses.get(0), statuses.toString());
+            assertTrue(List.of(200, 400).contains(statuses.get(1)), statuses.toString());
+            assertEquals(statuses.get(1) == 200 ? "MEMBER" : "WORKER", roleOf(member), statuses.toString());
+        }
+    }
+
+    @Test
     void theThirtyFirstCustomRoleHitsTheLimit() throws Exception {
         for (int i = 1; i <= 30; i++) {
             create(owner, "Crew " + i, null, "[]").andExpect(status().isCreated());
@@ -268,8 +334,7 @@ class CustomRoleFlowTest {
                 .andExpect(jsonPath("$.formerMemberCount").value(1))
                 .andExpect(jsonPath("$.pendingInvitationCount").value(0));
         api.delete(owner, org + "/roles/" + code + "?replacement=WORKER").andExpect(status().isNoContent());
-        assertEquals("WORKER", jdbc.queryForObject("select r.code from organization_membership m "
-                + "join organization_role r on r.id = m.role_id where m.id = ?", String.class, former));
+        assertEquals("WORKER", roleOf(former));
     }
 
     @Test
@@ -339,6 +404,47 @@ class CustomRoleFlowTest {
         assertTrue(roleChanges.get(0).beforeState().contains(code));
         assertTrue(roleChanges.get(0).afterState().contains("WORKER"));
         assertEquals(actor, roleChanges.get(0).actorMembershipId());
+    }
+
+    /** Sends {@code count} role creates at once; returns "201" or the error code of each. */
+    private List<String> inParallel(int count, IntFunction<String> body) throws Exception {
+        List<Callable<String>> calls = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            int n = i;
+            calls.add(() -> {
+                String response = body(api.post(owner, org + "/roles", body.apply(n)));
+                return response.contains("\"code\":\"CUSTOM_") ? "201" : JsonPath.read(response, "$.code");
+            });
+        }
+        return atOnce(calls);
+    }
+
+    /** Runs the calls on their own threads, released together; returns their results in order. */
+    private static <T> List<T> atOnce(List<Callable<T>> calls) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(calls.size());
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<T>> results = new ArrayList<>();
+            for (Callable<T> call : calls) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return call.call();
+                }));
+            }
+            start.countDown();
+            List<T> values = new ArrayList<>();
+            for (Future<T> result : results) {
+                values.add(result.get());
+            }
+            return values;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private String roleOf(UUID membership) {
+        return jdbc.queryForObject("select r.code from organization_membership m "
+                + "join organization_role r on r.id = m.role_id where m.id = ?", String.class, membership);
     }
 
     private ResultActions create(Session session, String name, String description, String permissions)

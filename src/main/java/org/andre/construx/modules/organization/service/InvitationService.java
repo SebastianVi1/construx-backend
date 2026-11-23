@@ -97,7 +97,8 @@ public class InvitationService {
     private Issued issue(OrgScope org, String email, String roleCode, UUID projectId) {
         OrganizationMembership inviter = org.membership();
         org.require(PermissionAction.MANAGE_MEMBERS);
-        OrganizationRole role = roles.findByOrganizationIdAndCode(org.organizationId(), roleCode)
+        // Shared lock: a parallel delete of the role finishes first (and this finds no role) or waits for this.
+        OrganizationRole role = roles.findForShare(org.organizationId(), roleCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
         RoleAuthority.checkInvite(org, role);
         Project project = null;
