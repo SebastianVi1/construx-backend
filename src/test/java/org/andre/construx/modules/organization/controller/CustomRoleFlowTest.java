@@ -23,6 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +33,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
 
 import static org.hamcrest.Matchers.hasItem;
@@ -55,6 +58,9 @@ class CustomRoleFlowTest {
              {"action":"VIEW_PLAN","scope":"PROJECT"},{"action":"VIEW_PRICES","scope":"ORGANIZATION"}]""";
     private static final String BUDGETS = """
             [{"action":"VIEW_BUDGET","scope":"ORGANIZATION"},{"action":"MANAGE_BUDGET","scope":"ORGANIZATION"}]""";
+
+    /** How long a held write stays open while the other request runs, unless that request finishes first. */
+    private static final long HOLD = 500;
 
     @MockitoBean InvitationMailer mailer;
 
@@ -226,6 +232,39 @@ class CustomRoleFlowTest {
             assertEquals(204, statuses.get(0), statuses.toString());
             assertTrue(List.of(200, 400).contains(statuses.get(1)), statuses.toString());
             assertEquals(statuses.get(1) == 200 ? "MEMBER" : "WORKER", roleOf(member), statuses.toString());
+        }
+    }
+
+    @Test
+    void aDeleteIntoAReplacementBeingRaisedAboveTheCallerWaitsAndIsRefused() throws Exception {
+        String yard = codeOf(create(owner, "Yard crew", null, "[]"));
+        String gate = codeOf(create(owner, "Gate crew", null, "[]"));
+        UUID member = members.add(orgId, api.signUp().user(), yard);
+
+        String outcome = whileHeld(() -> raiseToBudgets(gate),
+                () -> outcomeOf(api.delete(admin, org + "/roles/" + yard + "?replacement=" + gate)));
+
+        assertEquals("ROLE_ABOVE_CALLER", outcome);
+        assertEquals(yard, roleOf(member));
+    }
+
+    @Test
+    void crossingDeletesDoNotDeadlock() throws Exception {
+        for (int round = 0; round < 8; round++) {
+            String yard = codeOf(create(owner, "Yard " + round, null, "[]"));
+            String gate = codeOf(create(owner, "Gate " + round, null, "[]"));
+            UUID inYard = members.add(orgId, api.signUp().user(), yard);
+            UUID inGate = members.add(orgId, api.signUp().user(), gate);
+
+            List<String> outcomes = atOnce(List.of(
+                    () -> outcomeOf(api.delete(owner, org + "/roles/" + yard + "?replacement=" + gate)),
+                    () -> outcomeOf(api.delete(owner, org + "/roles/" + gate + "?replacement=" + yard))));
+
+            assertEquals(1, outcomes.stream().filter("204"::equals).count(), outcomes.toString());
+            assertTrue(outcomes.contains("ROLE_REPLACEMENT_INVALID"), outcomes.toString());
+            String survivor = outcomes.get(0).equals("204") ? gate : yard;
+            assertEquals(survivor, roleOf(inYard), outcomes.toString());
+            assertEquals(survivor, roleOf(inGate), outcomes.toString());
         }
     }
 
@@ -440,6 +479,57 @@ class CustomRoleFlowTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /**
+     * Runs {@code write} in a transaction on its own thread and keeps it open (with the row locks it took) while
+     * {@code call} runs on another thread; commits it after {@code call} returns or has waited {@link #HOLD} ms.
+     * Returns {@code call}'s result.
+     */
+    private <T> T whileHeld(Runnable write, Callable<T> call) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch written = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            Future<?> held = pool.submit(() -> new TransactionTemplate(txm).executeWithoutResult(status -> {
+                write.run();
+                written.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            written.await();
+            Future<T> result = pool.submit(call);
+            try {
+                result.get(HOLD, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException waiting) {
+                // still waiting on the held write's locks
+            }
+            release.countDown();
+            held.get();
+            return result.get();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** What the Owner's PUT adding budgets does to the role's rows: lock it, add the grants, raise the version. */
+    private void raiseToBudgets(String code) {
+        UUID roleId = jdbc.queryForObject("select id from organization_role where organization_id = ? and code = ? "
+                + "for update", UUID.class, orgId, code);
+        for (String action : List.of("VIEW_BUDGET", "MANAGE_BUDGET")) {
+            jdbc.update("insert into role_permission (id, role_id, action, scope) values (?, ?, ?, 'ORGANIZATION')",
+                    UUID.randomUUID(), roleId, action);
+        }
+        jdbc.update("update organization_role set version = version + 1 where id = ?", roleId);
+    }
+
+    /** "200"/"204" on success, else the problem's code. */
+    private static String outcomeOf(ResultActions result) throws Exception {
+        int status = result.andReturn().getResponse().getStatus();
+        return status < 300 ? String.valueOf(status) : JsonPath.read(body(result), "$.code");
     }
 
     private String roleOf(UUID membership) {

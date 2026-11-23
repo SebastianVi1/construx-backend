@@ -29,6 +29,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -164,17 +165,20 @@ public class RoleService {
      * Deletes a Custom role (§5.6). While any membership (any status) or invitation (any status) references it, a
      * {@code replacementCode} is required ({@code ROLE_REPLACEMENT_REQUIRED} with the counts); they all move to the
      * replacement, each moved membership audited as a role change, then the role is deleted, in one transaction.
-     * The role and the moved memberships are locked, so a parallel assignment into or out of the role waits.
+     * The role (write) and the replacement (share) are locked in {@link RoleLockOrder}, then the moved memberships:
+     * a parallel edit of the replacement or assignment into or out of the role waits, and crossing deletes (X to Y,
+     * Y to X) run one after the other.
      */
     @Transactional
     public void delete(OrgScope org, String code, String replacementCode) {
-        OrganizationRole role = findForUpdate(org, code);
+        String wanted = replacementCode == null || replacementCode.isBlank() ? null : replacementCode.strip();
+        DeleteLocks locked = lockForDelete(org, code, wanted);
+        OrganizationRole role = locked.role();
         RoleAuthority.checkEdit(org, role, Map.of());
         if (role.kind() != RoleKind.CUSTOM) {
             throw new RuleViolationException("ROLE_BUILT_IN_UNDELETABLE", "A Built-in role cannot be deleted");
         }
-        OrganizationRole replacement = replacementCode == null || replacementCode.isBlank()
-                ? null : replacement(org, role, replacementCode.strip());
+        OrganizationRole replacement = wanted == null ? null : replacement(org, role, locked.replacement());
         List<OrganizationMembership> held = memberships.findForUpdateByRoleId(role.getId());
         long invitationCount = invitations.countByRoleId(role.getId());
         if (replacement == null && (!held.isEmpty() || invitationCount > 0)) {
@@ -193,9 +197,31 @@ public class RoleService {
         roles.flush();
     }
 
+    private record DeleteLocks(OrganizationRole role, Optional<OrganizationRole> replacement) {}
+
+    /**
+     * Locks the role to delete (write) and, when it is another role of the company, the replacement (share), lower id
+     * first. Both are read under their lock, so the replacement's fit is checked on what a parallel edit committed.
+     */
+    private DeleteLocks lockForDelete(OrgScope org, String code, String replacementCode) {
+        UUID roleId = roles.findIdByCode(org.organizationId(), code)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+        Optional<UUID> replacementId = replacementCode == null ? Optional.empty()
+                : roles.findIdByCode(org.organizationId(), replacementCode).filter(id -> !id.equals(roleId));
+        if (replacementId.isEmpty()) {
+            return new DeleteLocks(findForUpdate(org, code), Optional.empty());
+        }
+        if (RoleLockOrder.BY_ID.compare(replacementId.get(), roleId) < 0) {
+            Optional<OrganizationRole> replacement = roles.findForShareById(replacementId.get());
+            return new DeleteLocks(findForUpdate(org, code), replacement);
+        }
+        OrganizationRole role = findForUpdate(org, code);
+        return new DeleteLocks(role, roles.findForShareById(replacementId.get()));
+    }
+
     /** Another role of the company, not the Owner role, that the caller may assign ({@code ROLE_ABOVE_CALLER}). */
-    private OrganizationRole replacement(OrgScope org, OrganizationRole deleted, String code) {
-        OrganizationRole replacement = roles.findByOrganizationIdAndCode(org.organizationId(), code)
+    private OrganizationRole replacement(OrgScope org, OrganizationRole deleted, Optional<OrganizationRole> candidate) {
+        OrganizationRole replacement = candidate
                 .filter(r -> !r.getId().equals(deleted.getId()) && r.kind() != RoleKind.OWNER)
                 .orElseThrow(() -> new RuleViolationException("ROLE_REPLACEMENT_INVALID",
                         "The replacement must be another role of the company, not the Owner role"));
