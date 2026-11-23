@@ -90,11 +90,11 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void seededRolesCannotBeRenamedRegrantedOrRevoked() {
+    void seededRolesStartUncustomizedAndCannotBeRenamed() {
         OrganizationRole worker = role("WORKER");
-        assertThrows(IllegalStateException.class, () -> worker.rename("Crew"));
-        assertThrows(IllegalStateException.class, () -> worker.grant(MANAGE_PROJECT, ORGANIZATION));
-        assertThrows(IllegalStateException.class, () -> worker.revoke(VIEW_PROJECT));
+        assertFalse(worker.isCustomized());
+        assertEquals(RoleKind.BUILT_IN, worker.kind());
+        assertThrows(org.andre.construx.shared.exception.RuleViolationException.class, () -> worker.renameCustom("Crew"));
     }
 
     @Test
@@ -143,11 +143,8 @@ class OrganizationRoleSeedingTest {
     }
 
     @Test
-    void seededCodesAreReservedForCustomRoles() {
-        for (String code : new String[] {"ADMINISTRATOR", "MEMBER", "WORKER", "FINANCE",
-                "RESIDENT", "SITE_MANAGER", "SUPERINTENDENT"}) {
-            assertThrows(IllegalArgumentException.class, () -> new OrganizationRole(organization, code, "Custom"), code);
-        }
+    void customRolesNeverTakeABuiltInCode() {
+        assertTrue(OrganizationRole.custom(organization, "Custom", null, Map.of()).getCode().startsWith("CUSTOM_"));
     }
 
     @Test
