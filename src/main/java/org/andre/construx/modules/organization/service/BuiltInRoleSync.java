@@ -11,8 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,7 +29,9 @@ import java.util.stream.Collectors;
  * Applies {@code built-in-roles.yml} to every company on boot (contract roles §6.2, ADR 0010), in one idempotent
  * transaction. Only real changes are written and audited ({@code SYNC}, {@code ADOPT}, {@code CONVERT_TO_CUSTOM},
  * with a null actor), so a boot with no file change touches nothing. Each changed role's {@code version} moves by
- * one, so an editor holding the version from before the sync gets {@code ROLE_CHANGED}.
+ * one, so an editor holding the version from before the sync gets {@code ROLE_CHANGED}. Each company's roles are
+ * locked while it is synced, so a role write during the boot waits for the sync (or the sync for it); if the sync
+ * still fails on a concurrent write it runs once more, and then the boot goes on without it, with a warning.
  */
 @Service
 public class BuiltInRoleSync {
@@ -43,20 +49,29 @@ public class BuiltInRoleSync {
     private final OrganizationRoleRepository roles;
     private final AuditService audit;
     private final RoleVersions versions;
+    private final TransactionTemplate transactions;
 
     public BuiltInRoleSync(OrganizationRepository organizations, OrganizationRoleRepository roles, AuditService audit,
-                           RoleVersions versions) {
+                           RoleVersions versions, PlatformTransactionManager transactionManager) {
         this.organizations = organizations;
         this.roles = roles;
         this.audit = audit;
         this.versions = versions;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional
     public void onReady() {
-        SyncReport report = sync(BuiltInRoles.definitions());
-        log.info("Built-in role sync: {}", report);
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                SyncReport report = transactions.execute(status -> sync(BuiltInRoles.definitions()));
+                log.info("Built-in role sync: {}", report);
+                return;
+            } catch (ConcurrencyFailureException | DataIntegrityViolationException concurrentWrite) {
+                log.warn("Built-in role sync attempt {} failed on a concurrent write", attempt, concurrentWrite);
+            }
+        }
+        log.warn("Built-in role sync skipped on this boot; it runs again on the next one");
     }
 
     @Transactional
@@ -69,7 +84,10 @@ public class BuiltInRoleSync {
     }
 
     private SyncReport syncCompany(Organization organization, List<BuiltInRoles.Definition> definitions) {
-        List<OrganizationRole> companyRoles = new ArrayList<>(roles.findByOrganizationId(organization.getId()));
+        // Lock the company's roles (in RoleLockOrder), then the company as a create or rename does: a role write that
+        // commits while the sync runs waits or is waited for, never leaves the sync writing over a newer version.
+        List<OrganizationRole> companyRoles = new ArrayList<>(roles.findForUpdateByOrganizationId(organization.getId()));
+        organizations.findForUpdate(organization.getId());
         Map<String, OrganizationRole> byCode = companyRoles.stream()
                 .collect(Collectors.toMap(OrganizationRole::getCode, r -> r));
         // Names as they stand in the database: a rename may not take a name another role still holds there, or the

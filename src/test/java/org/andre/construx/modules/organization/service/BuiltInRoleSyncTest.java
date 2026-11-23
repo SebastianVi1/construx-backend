@@ -29,6 +29,12 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 import static org.andre.construx.modules.organization.model.PermissionAction.*;
@@ -103,6 +109,40 @@ class BuiltInRoleSyncTest {
         assertEquals(EnumSet.allOf(PermissionAction.class), role("WORKER").knownActions());
         assertEquals(EnumSet.allOf(PermissionAction.class), role("MEMBER").knownActions());
         assertTrue(auditActions(roleId("MEMBER")).isEmpty(), "known actions alone are not audited");
+    }
+
+    @Test
+    void aRoleWriteCommittingDuringTheSyncNeitherFailsItNorIsLost() throws Exception {
+        UUID worker = roleId("WORKER");
+        jdbc.update("delete from organization_role_known_action where role_id = ?", worker); // the sync must write it
+        long before = versions().get("WORKER");
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch written = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            // A PUT on Worker: its row locked, its version raised, not yet committed when the sync reaches it.
+            Future<?> put = pool.submit(() -> tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("select id from organization_role where id = ? for update", UUID.class, worker);
+                jdbc.update("update organization_role set version = version + 1 where id = ?", worker);
+                written.countDown();
+                awaitQuietly(release);
+            }));
+            written.await();
+            Future<BuiltInRoleSync.SyncReport> syncing = pool.submit(() -> sync.sync(BuiltInRoles.definitions()));
+            try {
+                syncing.get(500, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException waiting) {
+                // the sync waits for the PUT's lock
+            }
+            release.countDown();
+            put.get();
+
+            assertDoesNotThrow(() -> syncing.get());
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(before + 2, versions().get("WORKER"), "the PUT and the sync each raise the version once");
+        assertEquals(EnumSet.allOf(PermissionAction.class), role("WORKER").knownActions());
     }
 
     @Test
@@ -217,6 +257,14 @@ class BuiltInRoleSyncTest {
         assertEquals(versions, versions());
         for (String code : versions.keySet()) {
             assertTrue(auditActions(roleId(code)).isEmpty(), code);
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
