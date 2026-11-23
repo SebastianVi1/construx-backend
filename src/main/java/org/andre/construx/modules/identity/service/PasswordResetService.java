@@ -4,6 +4,7 @@ import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.shared.mail.BrandedEmail;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -14,6 +15,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 
 /**
  * Password recovery by emailed single-use link.
@@ -23,7 +25,7 @@ import java.util.Base64;
  */
 @Service
 public class PasswordResetService {
-    static final String SUBJECT = "Reset your Construx password / Restablece tu contraseña de Construx";
+    static final String SUBJECT = "Restablece tu contraseña de Construx";
     static final Duration TOKEN_TTL = Duration.ofMinutes(60);
     static final Duration REQUEST_COOLDOWN = Duration.ofSeconds(60);
 
@@ -84,13 +86,16 @@ public class PasswordResetService {
         resets.invalidateOpenFor(user, now);
         resets.save(new PasswordReset(user, TokenService.sha256(token), now.plus(TOKEN_TTL)));
         String link = frontendUrl + "/reset-password?token=" + token;
-        mailer.send(user, SUBJECT,
-                "We received a request to reset the password for this email address. "
-                        + "Open this link within 60 minutes to choose a new password: " + link
-                        + "\n\nIf you did not request this, ignore this email. Your password will not change."
-                        + "\n\nRecibimos una solicitud para restablecer la contraseña de este correo. "
-                        + "Abre este enlace en los próximos 60 minutos para elegir una nueva contraseña: " + link
-                        + "\n\nSi no lo solicitaste, ignora este correo. Tu contraseña no cambiará.");
+        mailer.send(user, new BrandedEmail(SUBJECT,
+                "Usa este enlace para elegir una nueva contraseña. Vence en 60 minutos.",
+                "Restablece tu contraseña",
+                List.of("Hola:",
+                        "Recibimos una solicitud para restablecer la contraseña de tu cuenta de Construx.",
+                        "Haz clic en el botón para elegir una nueva. El enlace vence en 60 minutos y solo "
+                                + "se puede usar una vez."),
+                "Restablecer contraseña",
+                link,
+                "Si no lo solicitaste, ignora este correo: tu contraseña seguirá siendo la misma."));
     }
 
     private static BadCredentialsException invalidLink() {

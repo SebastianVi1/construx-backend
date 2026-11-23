@@ -2,6 +2,7 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.*;
 import org.andre.construx.modules.identity.repository.*;
+import org.andre.construx.shared.mail.BrandedEmail;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -12,6 +13,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -215,7 +217,14 @@ public class AccountService {
         verifications.invalidateOpenFor(user, Instant.now());
         verifications.save(new EmailVerification(user, TokenService.sha256(token),
                 Instant.now().plus(24, ChronoUnit.HOURS)));
-        mailer.send(user, "Verify your Construx email",
-                "Open this link to verify your email: " + frontendUrl + "/verify-email?token=" + token);
+        mailer.send(user, new BrandedEmail("Confirma tu correo en Construx",
+                "Confirma tu dirección de correo para activar tu cuenta.",
+                "Confirma tu correo electrónico",
+                List.of("¡Hola! Gracias por registrarte en Construx.",
+                        "Confirma tu dirección de correo para activar tu cuenta y empezar a organizar tus obras. "
+                                + "El enlace vence en 24 horas."),
+                "Confirmar correo",
+                frontendUrl + "/verify-email?token=" + token,
+                "Si no creaste una cuenta en Construx, puedes ignorar este correo."));
     }
 }

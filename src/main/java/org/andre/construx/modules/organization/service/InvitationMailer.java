@@ -1,13 +1,16 @@
 package org.andre.construx.modules.organization.service;
 
+import jakarta.mail.MessagingException;
+import org.andre.construx.shared.mail.BrandedEmail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * Emails an invitation link. The invitee may not have an account yet, so it takes a plain address.
@@ -34,18 +37,24 @@ public class InvitationMailer {
             log.error("Invitation email not sent: no mail sender configured");
             return;
         }
-        String link = frontendUrl + "/invitations/accept?token=" + rawToken;
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(mailFrom);
-        message.setTo(email);
-        message.setSubject("Invitation to " + organizationName + " / Invitación a " + organizationName);
-        message.setText("You have been invited to join " + organizationName + " on Construx. Open this link: "
-                + link + "\n\n"
-                + "Has sido invitado a unirte a " + organizationName + " en Construx. Abre este enlace: " + link);
         try {
-            sender.send(message);
-        } catch (MailException ex) {
+            sender.send(invitation(organizationName, rawToken).toMimeMessage(sender, mailFrom, email));
+        } catch (MailException | MessagingException ex) {
             log.error("Invitation email could not be sent", ex);
         }
+    }
+
+    BrandedEmail invitation(String organizationName, String rawToken) {
+        return new BrandedEmail(
+                "Te invitaron a unirte a " + organizationName + " en Construx",
+                "Acepta la invitación para empezar a colaborar con " + organizationName + ".",
+                "Te invitaron a " + organizationName,
+                List.of("Hola:",
+                        "Te invitaron a unirte al equipo de " + organizationName + " en Construx, la plataforma "
+                                + "para coordinar obras, equipos y avances en un solo lugar.",
+                        "Acepta la invitación para acceder a las obras y tareas que te asignen."),
+                "Aceptar invitación",
+                frontendUrl + "/invitations/accept?token=" + rawToken,
+                "Si no esperabas esta invitación, puedes ignorar este correo.");
     }
 }

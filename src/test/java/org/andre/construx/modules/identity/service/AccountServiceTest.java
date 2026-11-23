@@ -2,10 +2,11 @@ package org.andre.construx.modules.identity.service;
 
 import org.andre.construx.modules.identity.model.*;
 import org.andre.construx.modules.identity.repository.*;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -33,6 +34,7 @@ class AccountServiceTest {
         google = mock(GoogleIdentityRepository.class);
         profiles = mock(UserProfileRepository.class);
         sender = mock(JavaMailSender.class);
+        when(sender.createMimeMessage()).thenAnswer(invocation -> new MimeMessage((Session) null));
         service = new AccountService(users, proofs, google, profiles,
                 PasswordEncoderFactories.createDelegatingPasswordEncoder(), mock(TokenService.class),
                 mailerWith(sender), "https://app.example.test");
@@ -56,7 +58,7 @@ class AccountServiceTest {
         assertTrue(userCaptor.getValue().getPasswordHash().startsWith("{bcrypt}"));
         assertFalse(userCaptor.getValue().isEmailVerified());
         verify(proofs).save(any(EmailVerification.class));
-        verify(sender).send(any(SimpleMailMessage.class));
+        verify(sender).send(any(MimeMessage.class));
     }
 
     @Test
@@ -82,12 +84,12 @@ class AccountServiceTest {
         var order = inOrder(proofs, sender);
         order.verify(proofs).invalidateOpenFor(eq(pending), any(java.time.Instant.class));
         order.verify(proofs).save(any(EmailVerification.class));
-        order.verify(sender).send(any(SimpleMailMessage.class));
+        order.verify(sender).send(any(MimeMessage.class));
     }
 
     @Test
     void registrationSucceedsWhenTheMailServerFails() {
-        doThrow(new org.springframework.mail.MailSendException("smtp down")).when(sender).send(any(SimpleMailMessage.class));
+        doThrow(new org.springframework.mail.MailSendException("smtp down")).when(sender).send(any(MimeMessage.class));
         assertDoesNotThrow(() -> service.register("person@example.com", "long-password-here"));
         verify(users).save(any(UserAccount.class));
     }
