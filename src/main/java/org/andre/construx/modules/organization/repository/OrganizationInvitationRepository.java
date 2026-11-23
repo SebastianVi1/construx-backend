@@ -16,6 +16,11 @@ public interface OrganizationInvitationRepository extends JpaRepository<Organiza
             + "where i.organization.id = :organizationId and i.status = :status order by i.expiresAt desc")
     List<OrganizationInvitation> findByOrganizationAndStatus(UUID organizationId, InvitationStatus status);
 
+    /** Invitations per role in the given status. */
+    @Query("select i.role.id as roleId, count(i) as count from OrganizationInvitation i "
+            + "where i.organization.id = :organizationId and i.status = :status group by i.role.id")
+    List<RoleCount> countByRole(UUID organizationId, InvitationStatus status);
+
     List<OrganizationInvitation> findByOrganizationIdAndEmailAndStatus(UUID organizationId, String email,
                                                                        InvitationStatus status);
 

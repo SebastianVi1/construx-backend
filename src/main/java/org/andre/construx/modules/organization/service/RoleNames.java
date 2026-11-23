@@ -24,4 +24,20 @@ public final class RoleNames {
         }
         return LocalizedText.same(role.getName());
     }
+
+    /**
+     * The description per language: from the file for Owner and Built-in roles, the stored description in both
+     * languages for a custom role (both null when it has none).
+     */
+    public static LocalizedText descriptionOf(OrganizationRole role) {
+        if (role.isSystemRole()) {
+            return BuiltInRoles.owner().description();
+        }
+        if (role.isSeeded()) {
+            return BuiltInRoles.find(role.getCode())
+                    .map(BuiltInRoles.Definition::description)
+                    .orElseGet(() -> LocalizedText.same(role.getDescription()));
+        }
+        return LocalizedText.same(role.getDescription());
+    }
 }

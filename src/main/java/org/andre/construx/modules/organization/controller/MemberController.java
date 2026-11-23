@@ -53,11 +53,6 @@ public class MemberController {
                 me.permissions().stream().map(p -> new PermissionResponse(p.action(), p.scope())).toList());
     }
 
-    @GetMapping("/roles")
-    public List<MemberService.RoleData> roles(OrgScope org) {
-        return members.roles(org);
-    }
-
     @GetMapping("/members")
     public List<MemberResponse> list(OrgScope org,
                                      @RequestParam(defaultValue = "ACTIVE") MembershipStatus status) {

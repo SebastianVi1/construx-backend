@@ -52,12 +52,15 @@ Accept body: `{ "token" }`. The signed-in account's email must equal the invited
 
 Every organization response includes `myRole: { code, name, names: { en, es } }`, the caller's role there. Every role summary (`myRole`, `/me` `role`, members, invitations, invitation accept and site access `role`) has this shape: `name` is the stored name, `names` the display name per language (from `built-in-roles.yml` for Owner and Built-in roles; the stored name in both languages for a custom role). Code: `RoleNames.of(role)`.
 
+Roles list fields: `kind` is `OWNER`, `BUILT_IN` or `CUSTOM`; `description` is `{ en, es }` (from the file for Owner and Built-in roles, the stored description in both languages for a custom role, both null when it has none); `system` is true for Owner and Built-in roles (the name is fixed); `memberCount` counts `ACTIVE` and `SUSPENDED` memberships; `pendingInvitationCount` counts `PENDING` invitations (expired ones included, as in the invitations list); `version` is the optimistic-lock version. `editable` and `assignable` are the caller's answers from `RoleAuthority` (contract roles §3): a role *fits within* the caller when the caller's role holds each of its actions at the same or a wider scope (`OWN < PROJECT < ORGANIZATION`), and the Owner role fits only within the Owner. `editable` needs `MANAGE_ROLES`, not the Owner role, not the caller's own role, and the role fits; `assignable` needs `MANAGE_MEMBERS`, not the Owner role, and the role fits.
+
 The member's getting-started guide progress API is documented in [guide.md](guide.md).
 
 | Method | Path | Permission | Result |
 |---|---|---|---|
 | GET | `/api/organizations/{organizationId}/me` | active membership | `{ membershipId, role, permissions: [{ action, scope }] }` for gating the UI; the server still checks every request |
-| GET | `/api/organizations/{organizationId}/roles` | `MANAGE_MEMBERS` | `[{ id, code, name, names, system }]`, for the invite form |
+| GET | `/api/organizations/{organizationId}/roles` | `MANAGE_ROLES` or `MANAGE_MEMBERS` | `[{ id, code, kind, name, names, description, system, customized, memberCount, pendingInvitationCount, editable, assignable, version }]`, ordered Owner, Built-in roles in file order, custom roles by name (contract roles §5.1) |
+| GET | `/api/organizations/{organizationId}/roles/{code}` | `MANAGE_ROLES` or `MANAGE_MEMBERS` | the list object plus `permissions: [{ action, scope }]` in catalog order and `defaults` (the file's set for a Built-in role, else null); unknown code `404` (§5.2) |
 | GET | `/api/organizations/{organizationId}/members?status=ACTIVE` | `MANAGE_MEMBERS` | `[{ membershipId, userId, email, fullName, role, status }]`; `fullName` is null without a profile |
 | PATCH | `/api/organizations/{organizationId}/members/{membershipId}` | `MANAGE_MEMBERS` | 200, the member with the new role |
 

@@ -44,8 +44,6 @@ public class MemberService {
     public record MeData(UUID membershipId, String roleCode, String roleName, LocalizedText roleNames,
                          List<PermissionData> permissions) {}
 
-    public record RoleData(UUID id, String code, String name, LocalizedText names, boolean system) {}
-
     public record MemberData(UUID membershipId, UUID userId, String email, String fullName, String roleCode,
                              String roleName, LocalizedText roleNames, MembershipStatus status, URI avatarUrl) {}
 
@@ -58,15 +56,6 @@ public class MemberService {
                 .toList();
         return new MeData(member.getId(), member.getRole().getCode(), member.getRole().getName(),
                 RoleNames.of(member.getRole()), permissions);
-    }
-
-    @Transactional(readOnly = true)
-    public List<RoleData> roles(OrgScope org) {
-        org.require(PermissionAction.MANAGE_MEMBERS);
-        return roles.findByOrganizationIdOrderByCode(org.organizationId()).stream()
-                .map(r -> new RoleData(r.getId(), r.getCode(), r.getName(), RoleNames.of(r),
-                        r.isSystemRole() || r.isSeeded()))
-                .toList();
     }
 
     @Transactional(readOnly = true)
