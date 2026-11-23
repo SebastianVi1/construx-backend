@@ -131,10 +131,10 @@ class RoleEditFlowTest {
     }
 
     @Test
-    void secondSaveWithTheSameVersionGetsRoleChangedAndEveryWriteRaisesTheVersion() throws Exception {
+    void secondSaveWithTheSameVersionGetsRoleChangedAndEveryWriteRaisesTheVersionByOne() throws Exception {
         long read = version(owner, "WORKER");
         long first = versionOf(api.put(owner, org + "/roles/WORKER", edit(WORKER_WITH_PRICES, read)));
-        assertTrue(first > read);
+        assertEquals(read + 1, first, "one write raises the version by exactly one");
         api.put(admin, org + "/roles/WORKER", edit(WORKER_WITH_PRICES, read))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ROLE_CHANGED"));
@@ -146,7 +146,7 @@ class RoleEditFlowTest {
         long second = versionOf(api.put(owner, org + "/roles/WORKER",
                 edit(WORKER_WITH_PRICES.replace("\"MANAGE_ACTIVITY\",\"scope\":\"OWN\"",
                         "\"MANAGE_ACTIVITY\",\"scope\":\"PROJECT\""), first)));
-        assertTrue(second > first);
+        assertEquals(first + 1, second);
         api.get(owner, org + "/roles/WORKER").andExpect(jsonPath("$.version").value(second));
         api.put(owner, org + "/roles/WORKER", edit(WORKER_WITH_PRICES, first))
                 .andExpect(status().isConflict())
@@ -161,7 +161,7 @@ class RoleEditFlowTest {
                 "{\"version\":" + edited + "}")
                 .andExpect(jsonPath("$.customized").value(false))
                 .andExpect(jsonPath("$.permissions[*].action").value(hasItem("MANAGE_PLAN"))));
-        assertTrue(restored > edited);
+        assertEquals(edited + 1, restored);
         api.get(owner, org + "/roles").andExpect(jsonPath("$[?(@.code == 'MEMBER')].customized").value(hasItem(false)));
     }
 

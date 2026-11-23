@@ -177,9 +177,10 @@ class CustomRoleFlowTest {
     void customRoleIsRenamedAndDescribedWithItsPermissions() throws Exception {
         String code = codeOf(create(owner, "Yard crew", "Loads trucks", "[]"));
         create(owner, "Gate crew", null, "[]").andExpect(status().isCreated());
+        long created = version(code);
 
         long renamed = versionOf(api.put(owner, org + "/roles/" + code, text("Site crew", "Keeps the yard", WORKER_WITH_PRICES,
-                        version(code)))
+                        created))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Site crew"))
                 .andExpect(jsonPath("$.names.es").value("Site crew"))
@@ -190,6 +191,8 @@ class CustomRoleFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("SITE crew"))
                 .andExpect(jsonPath("$.description.en").doesNotExist()));
+        assertEquals(created + 1, renamed, "a rename with new permissions is one write");
+        assertEquals(renamed + 1, recased);
 
         for (String taken : List.of("gate CREW", "Trabajador", "propietario")) {
             api.put(owner, org + "/roles/" + code, text(taken, null, "[]", recased))

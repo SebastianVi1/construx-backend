@@ -19,9 +19,6 @@ import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ConflictException;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.andre.construx.shared.exception.RuleViolationException;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
-import jakarta.persistence.OptimisticLockException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,8 +35,8 @@ import java.util.stream.Collectors;
 /**
  * A company's Organization roles as the roles pages see them (contract roles §5.1, §5.2), and the writes on them:
  * create a Custom role (§5.3), edit a role (§5.4), restore a Built-in role (§5.5) and delete a Custom role (§5.6).
- * Every write checks the caller's authority first ({@link RoleAuthority}); edits then check the client's
- * {@code version} and raise it even when only permission rows change. Every write is audited (§7).
+ * Every write locks the role's row and checks the caller's authority first ({@link RoleAuthority}); edits then check
+ * the client's {@code version} and raise it by one ({@link RoleVersions}). Every write is audited (§7).
  */
 @Service
 public class RoleService {
@@ -60,15 +57,15 @@ public class RoleService {
     private final OrganizationMembershipRepository memberships;
     private final OrganizationInvitationRepository invitations;
     private final AuditService audit;
-    private final EntityManager entityManager;
+    private final RoleVersions versions;
 
     public RoleService(OrganizationRoleRepository roles, OrganizationMembershipRepository memberships,
-                       OrganizationInvitationRepository invitations, AuditService audit, EntityManager entityManager) {
+                       OrganizationInvitationRepository invitations, AuditService audit, RoleVersions versions) {
         this.roles = roles;
         this.memberships = memberships;
         this.invitations = invitations;
         this.audit = audit;
-        this.entityManager = entityManager;
+        this.versions = versions;
     }
 
     public record GrantData(PermissionAction action, PermissionScope scope) {}
@@ -130,7 +127,7 @@ public class RoleService {
      */
     @Transactional
     public RoleDetailData update(OrgScope org, String code, RoleDraft draft, long version) {
-        OrganizationRole role = find(org, code);
+        OrganizationRole role = findForUpdate(org, code);
         RoleAuthority.checkEdit(org, role, draft.permissions());
         requireVersion(role, version);
         if (role.kind() == RoleKind.BUILT_IN && (draft.name() != null || draft.description() != null)) {
@@ -141,7 +138,6 @@ public class RoleService {
         if (role.kind() == RoleKind.CUSTOM) {
             applyText(org, role, draft);
         }
-        raiseVersion(role);
         role.replacePermissions(draft.permissions());
         return written(org, role, "UPDATE", before);
     }
@@ -149,7 +145,7 @@ public class RoleService {
     /** Sets a Built-in role back to the definition file's permissions and clears {@code customized} (§5.5). */
     @Transactional
     public RoleDetailData restore(OrgScope org, String code, long version) {
-        OrganizationRole role = find(org, code);
+        OrganizationRole role = findForUpdate(org, code);
         Optional<BuiltInRoles.Definition> definition = role.kind() == RoleKind.BUILT_IN
                 ? BuiltInRoles.find(role.getCode()) : Optional.empty();
         RoleAuthority.checkEdit(org, role, definition.map(BuiltInRoles.Definition::grants).orElse(Map.of()));
@@ -158,7 +154,6 @@ public class RoleService {
         }
         requireVersion(role, version);
         RoleAuditState before = RoleAuditState.of(role);
-        raiseVersion(role);
         role.restoreDefaults(definition.get());
         return written(org, role, "RESTORE", before);
     }
@@ -170,7 +165,7 @@ public class RoleService {
      */
     @Transactional
     public void delete(OrgScope org, String code, String replacementCode) {
-        OrganizationRole role = find(org, code);
+        OrganizationRole role = findForUpdate(org, code);
         RoleAuthority.checkEdit(org, role, Map.of());
         if (role.kind() != RoleKind.CUSTOM) {
             throw new RuleViolationException("ROLE_BUILT_IN_UNDELETABLE", "A Built-in role cannot be deleted");
@@ -223,6 +218,11 @@ public class RoleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
     }
 
+    private OrganizationRole findForUpdate(OrgScope org, String code) {
+        return roles.findForUpdate(org.organizationId(), code)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+    }
+
     private RoleDetailData detail(OrgScope org, OrganizationRole role) {
         List<GrantData> defaults = role.kind() == RoleKind.BUILT_IN
                 ? BuiltInRoles.find(role.getCode()).map(d -> grants(d.grants())).orElse(null)
@@ -230,28 +230,19 @@ public class RoleService {
         return new RoleDetailData(toData(org, role, counts(org.organizationId())), grants(role.grants()), defaults);
     }
 
-    /** The client edited the role as it was at {@code version}; anything else means someone saved in between. */
+    /**
+     * The client edited the role as it was at {@code version}; anything else means someone saved in between. The
+     * role's row is locked, so no other write can commit between this check and this one's.
+     */
     private static void requireVersion(OrganizationRole role, long version) {
         if (role.getVersion() != version) {
             throw roleChanged();
         }
     }
 
-    /**
-     * Raises the role's version now, so every write moves it even when only permission rows change (they are not
-     * part of the role's row). The guarded update also catches a write that committed after this one read the role.
-     */
-    private void raiseVersion(OrganizationRole role) {
-        try {
-            entityManager.lock(role, LockModeType.PESSIMISTIC_FORCE_INCREMENT);
-        } catch (OptimisticLockException e) {
-            throw roleChanged();
-        }
-    }
-
-    /** Flushes so the returned version is the stored one, then audits {@code before} and the result. */
+    /** Writes the change and raises the version by one, then audits {@code before} and the result. */
     private RoleDetailData written(OrgScope org, OrganizationRole role, String action, RoleAuditState before) {
-        roles.flush();
+        versions.raise(role);
         audit.record(AUDIT_ENTITY, role.getId(), action, org.membershipId(), before, RoleAuditState.of(role));
         return detail(org, role);
     }
