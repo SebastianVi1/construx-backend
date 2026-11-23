@@ -5,6 +5,7 @@ import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.model.InvitationStatus;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.OrganizationInvitation;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
@@ -57,11 +58,11 @@ public class InvitationService {
         this.ttl = ttl;
     }
 
-    public record InvitationData(UUID id, String email, String roleCode, String roleName, UUID projectId,
-                                 InvitationStatus status, Instant expiresAt) {
+    public record InvitationData(UUID id, String email, String roleCode, String roleName, LocalizedText roleNames,
+                                 UUID projectId, InvitationStatus status, Instant expiresAt) {
         static InvitationData from(OrganizationInvitation invitation) {
             return new InvitationData(invitation.getId(), invitation.getEmail(), invitation.getRole().getCode(),
-                    invitation.getRole().getName(),
+                    invitation.getRole().getName(), RoleNames.of(invitation.getRole()),
                     invitation.getProject() == null ? null : invitation.getProject().getId(),
                     invitation.getStatus(), invitation.getExpiresAt());
         }
@@ -117,7 +118,7 @@ public class InvitationService {
     }
 
     public record AcceptedData(UUID organizationId, String organizationName, UUID membershipId,
-                               String roleCode, String roleName, UUID projectId) {}
+                               String roleCode, String roleName, LocalizedText roleNames, UUID projectId) {}
 
     /**
      * The token identifies the tenant, so every failure before the state checks is the same 404:
@@ -139,7 +140,7 @@ public class InvitationService {
             accesses.grant(project, membership);
         }
         return new AcceptedData(organizationId, invitation.getOrganization().getName(), membership.getId(),
-                invitation.getRole().getCode(), invitation.getRole().getName(),
+                invitation.getRole().getCode(), invitation.getRole().getName(), RoleNames.of(invitation.getRole()),
                 project == null ? null : project.getId());
     }
 

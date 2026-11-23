@@ -3,6 +3,7 @@ package org.andre.construx.modules.organization.service;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
@@ -40,12 +41,13 @@ public class MemberService {
     public record PermissionData(PermissionAction action, PermissionScope scope) {}
 
     /** Display data for gating the UI; the server still checks every request. */
-    public record MeData(UUID membershipId, String roleCode, String roleName, List<PermissionData> permissions) {}
+    public record MeData(UUID membershipId, String roleCode, String roleName, LocalizedText roleNames,
+                         List<PermissionData> permissions) {}
 
-    public record RoleData(UUID id, String code, String name, boolean system) {}
+    public record RoleData(UUID id, String code, String name, LocalizedText names, boolean system) {}
 
     public record MemberData(UUID membershipId, UUID userId, String email, String fullName, String roleCode,
-                             String roleName, MembershipStatus status, URI avatarUrl) {}
+                             String roleName, LocalizedText roleNames, MembershipStatus status, URI avatarUrl) {}
 
     @Transactional(readOnly = true)
     public MeData me(OrgScope org) {
@@ -54,14 +56,16 @@ public class MemberService {
                 .map(p -> new PermissionData(p.getAction(), p.getScope()))
                 .sorted(Comparator.comparing(PermissionData::action))
                 .toList();
-        return new MeData(member.getId(), member.getRole().getCode(), member.getRole().getName(), permissions);
+        return new MeData(member.getId(), member.getRole().getCode(), member.getRole().getName(),
+                RoleNames.of(member.getRole()), permissions);
     }
 
     @Transactional(readOnly = true)
     public List<RoleData> roles(OrgScope org) {
         org.require(PermissionAction.MANAGE_MEMBERS);
         return roles.findByOrganizationIdOrderByCode(org.organizationId()).stream()
-                .map(r -> new RoleData(r.getId(), r.getCode(), r.getName(), r.isSystemRole() || r.isSeeded()))
+                .map(r -> new RoleData(r.getId(), r.getCode(), r.getName(), RoleNames.of(r),
+                        r.isSystemRole() || r.isSeeded()))
                 .toList();
     }
 
@@ -139,6 +143,7 @@ public class MemberService {
 
     private static MemberData toData(OrganizationMembership m, Person person) {
         return new MemberData(m.getId(), m.getUserAccount().getId(), m.getUserAccount().getEmail(),
-                person.fullName(), m.getRole().getCode(), m.getRole().getName(), m.getStatus(), person.avatarUrl());
+                person.fullName(), m.getRole().getCode(), m.getRole().getName(), RoleNames.of(m.getRole()),
+                m.getStatus(), person.avatarUrl());
     }
 }

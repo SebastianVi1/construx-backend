@@ -19,9 +19,17 @@ Body for POST and PATCH: `{"name": "..."}`, 1 to 160 characters after trimming.
 
 Authorization is evaluated per request through the caller's `OrgScope` / `SiteScope` (`modules/organization/access`, `modules/project/access`), built from the current membership; roles are never read from the JWT.
 
-## Seeded roles
+## Built-in roles and the permission catalog
 
-Every new organization gets `OWNER` plus the roles defined in `src/main/resources/seeded-roles.properties` (default: `ADMINISTRATOR`, `MEMBER`, `WORKER`, `FINANCE`). Edit that file to change names or permissions; invalid action/scope pairs fail at startup. Changes apply only to organizations created afterwards; a new grant for existing organizations needs a Flyway backfill (as `V11__price_permissions.sql` does for `VIEW_PRICES` and `MANAGE_PRICES`, and `V13__project_budget.sql` for `VIEW_BUDGET` and `MANAGE_BUDGET`). Matrix and rationale: `.agents/contracts/v1-api.md` section 8.
+Every company has the Owner role plus the Built-in roles defined in `src/main/resources/built-in-roles.yml` (`ADMINISTRATOR`, `MEMBER`, `WORKER`, `FINANCE`, `RESIDENT`, `SITE_MANAGER`, `SUPERINTENDENT`), each with EN/ES names, EN/ES descriptions and default grants. The file's `owner:` entry holds the Owner role's names; Owner always holds every action at `ORGANIZATION`. The stored role name is the ES name; the API sends both names from the file (see role summaries below). Rules (code format, no `OWNER` or `CUSTOM_` codes, unique codes and names, names 1–100 characters, both languages present, grants valid per contract roles §4) are checked at startup and an invalid file stops the boot. Changes apply to companies created afterwards; existing companies get them from the startup sync (contract roles §6.2, not yet built), and old grants were backfilled by Flyway (`V11`, `V13`, `V20`, `V23`). Code: `BuiltInRoles`.
+
+The permission catalog is the structure in `PermissionAction` (group, allowed scopes, requirements) plus the EN/ES labels in `src/main/resources/permission-catalog.yml`; a missing label also stops the boot. `PermissionRules.checkScope` / `checkSet` enforce contract roles §4: a scope the catalog does not allow is `400 ROLE_SCOPE_INVALID`, a missing requirement is `400 ROLE_DEPENDENCY_MISSING` with `action` and `requires` in the problem body.
+
+| Method | Path | Permission | Result |
+|---|---|---|---|
+| GET | `/api/permissions/catalog` | any authenticated user | `{ groups: [{ key, names }], actions: [{ action, group, names, descriptions, scopes, requires: [{ action, minScope }] }] }` in catalog order; `minScope` is `SAME`, `PROJECT` or `ORGANIZATION` (contract roles §5.10) |
+
+Coded 403s: business rules that refuse an otherwise permitted operation throw `ForbiddenRuleException(code, message)` (`shared/exception`), returned as `403` with that `code` (e.g. `ROLE_ABOVE_CALLER`, `ROLE_OWN`). Plain permission failures stay `403 FORBIDDEN`.
 
 ## Onboarding intent
 
@@ -42,14 +50,14 @@ Accept body: `{ "token" }`. The signed-in account's email must equal the invited
 
 ## My role, roles and members
 
-Every organization response includes `myRole: { code, name }`, the caller's role there.
+Every organization response includes `myRole: { code, name, names: { en, es } }`, the caller's role there. Every role summary (`myRole`, `/me` `role`, members, invitations, invitation accept and site access `role`) has this shape: `name` is the stored name, `names` the display name per language (from `built-in-roles.yml` for Owner and Built-in roles; the stored name in both languages for a custom role). Code: `RoleNames.of(role)`.
 
 The member's getting-started guide progress API is documented in [guide.md](guide.md).
 
 | Method | Path | Permission | Result |
 |---|---|---|---|
 | GET | `/api/organizations/{organizationId}/me` | active membership | `{ membershipId, role, permissions: [{ action, scope }] }` for gating the UI; the server still checks every request |
-| GET | `/api/organizations/{organizationId}/roles` | `MANAGE_MEMBERS` | `[{ id, code, name, system }]`, for the invite form |
+| GET | `/api/organizations/{organizationId}/roles` | `MANAGE_MEMBERS` | `[{ id, code, name, names, system }]`, for the invite form |
 | GET | `/api/organizations/{organizationId}/members?status=ACTIVE` | `MANAGE_MEMBERS` | `[{ membershipId, userId, email, fullName, role, status }]`; `fullName` is null without a profile |
 | PATCH | `/api/organizations/{organizationId}/members/{membershipId}` | `MANAGE_MEMBERS` | 200, the member with the new role |
 

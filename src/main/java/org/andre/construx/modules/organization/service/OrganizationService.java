@@ -3,6 +3,7 @@ package org.andre.construx.modules.organization.service;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.service.AccountService;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
@@ -32,11 +33,12 @@ public class OrganizationService {
 
     /** {@code myRole*} is the caller's role in this organization. */
     public record OrganizationData(UUID id, String name, OrganizationStatus status, String myRoleCode,
-                                   String myRoleName) {
+                                   String myRoleName, LocalizedText myRoleNames) {
         static OrganizationData from(OrganizationMembership membership) {
             Organization organization = membership.getOrganization();
             return new OrganizationData(organization.getId(), organization.getName(), organization.getStatus(),
-                    membership.getRole().getCode(), membership.getRole().getName());
+                    membership.getRole().getCode(), membership.getRole().getName(),
+                    RoleNames.of(membership.getRole()));
         }
     }
 

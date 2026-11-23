@@ -60,6 +60,8 @@ class InvitationFlowTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(email.toLowerCase()))
                 .andExpect(jsonPath("$.role.code").value("WORKER"))
+                .andExpect(jsonPath("$.role.names.en").value("Worker"))
+                .andExpect(jsonPath("$.role.names.es").value("Trabajador"))
                 .andExpect(jsonPath("$.projectId").value(site.getId().toString()))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.expiresAt").isNotEmpty())
@@ -85,7 +87,9 @@ class InvitationFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].email").value("carol@example.com"))
-                .andExpect(jsonPath("$[0].role.code").value("MEMBER"));
+                .andExpect(jsonPath("$[0].role.code").value("MEMBER"))
+                .andExpect(jsonPath("$[0].role.names.en").value("Member"))
+                .andExpect(jsonPath("$[0].role.names.es").value("Miembro"));
         mvc.perform(get("/api/organizations/" + f.orgId + "/invitations?status=ACCEPTED").cookie(f.ownerAccess))
                 .andExpect(jsonPath("$.length()").value(0));
     }

@@ -86,6 +86,44 @@ class OrganizationMembersFlowTest {
     }
 
     @Test
+    void summariesCarryEnglishAndSpanishNames() throws Exception {
+        api.get(worker, org + "/me")
+                .andExpect(jsonPath("$.role.name").value("Trabajador"))
+                .andExpect(jsonPath("$.role.names.en").value("Worker"))
+                .andExpect(jsonPath("$.role.names.es").value("Trabajador"));
+        api.get(worker, "/api/organizations")
+                .andExpect(jsonPath("$[0].myRole.names.en").value("Worker"))
+                .andExpect(jsonPath("$[0].myRole.names.es").value("Trabajador"));
+        api.get(owner, org)
+                .andExpect(jsonPath("$.myRole.names.en").value("Owner"))
+                .andExpect(jsonPath("$.myRole.names.es").value("Propietario"));
+        api.post(owner, "/api/organizations", "{\"name\":\"Second\"}")
+                .andExpect(jsonPath("$.myRole.names.en").value("Owner"));
+        api.get(owner, org + "/members")
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.names.en")
+                        .value(hasItem("Worker")))
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.names.es")
+                        .value(hasItem("Trabajador")));
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"SITE_MANAGER\"}")
+                .andExpect(jsonPath("$.role.names.en").value("Site Manager"))
+                .andExpect(jsonPath("$.role.names.es").value("Jefe de Obra"));
+        api.get(owner, org + "/roles")
+                .andExpect(jsonPath("$[?(@.code == 'FINANCE')].names.en").value(hasItem("Finance")))
+                .andExpect(jsonPath("$[?(@.code == 'OWNER')].names.es").value(hasItem("Propietario")));
+    }
+
+    @Test
+    void customRoleNamesAreTheStoredNameInBothLanguages() throws Exception {
+        jdbc.update("insert into organization_role (id, organization_id, code, name, system_role, seeded) "
+                + "values (?, ?, 'FOREMAN', 'Capataz', false, false)", UUID.randomUUID(), orgId);
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"FOREMAN\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role.name").value("Capataz"))
+                .andExpect(jsonPath("$.role.names.en").value("Capataz"))
+                .andExpect(jsonPath("$.role.names.es").value("Capataz"));
+    }
+
+    @Test
     void meReturnsMembershipRoleAndPermissions() throws Exception {
         api.get(worker, org + "/me").andExpect(status().isOk())
                 .andExpect(jsonPath("$.membershipId").value(workerMembership.toString()))

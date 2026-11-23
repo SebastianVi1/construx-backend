@@ -6,6 +6,7 @@ import static org.andre.construx.shared.security.SecurityUtils.userId;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.OrganizationStatus;
 import org.andre.construx.modules.organization.service.OrganizationService;
 import org.springframework.http.HttpStatus;
@@ -34,12 +35,13 @@ public class OrganizationController {
 
     public record OrganizationInput(@NotBlank @Size(max = 160) String name) {}
 
-    public record RoleSummary(String code, String name) {}
+    /** {@code name} is the stored name; {@code names} is what to show, per language (contract roles §5.11). */
+    public record RoleSummary(String code, String name, LocalizedText names) {}
 
     public record OrganizationResponse(UUID id, String name, OrganizationStatus status, RoleSummary myRole) {
         static OrganizationResponse from(OrganizationService.OrganizationData data) {
             return new OrganizationResponse(data.id(), data.name(), data.status(),
-                    new RoleSummary(data.myRoleCode(), data.myRoleName()));
+                    new RoleSummary(data.myRoleCode(), data.myRoleName(), data.myRoleNames()));
         }
     }
 

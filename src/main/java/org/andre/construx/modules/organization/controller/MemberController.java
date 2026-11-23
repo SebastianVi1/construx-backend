@@ -48,7 +48,8 @@ public class MemberController {
     @GetMapping("/me")
     public MeResponse me(OrgScope org) {
         MemberService.MeData me = members.me(org);
-        return new MeResponse(me.membershipId(), new OrganizationController.RoleSummary(me.roleCode(), me.roleName()),
+        return new MeResponse(me.membershipId(), new OrganizationController.RoleSummary(me.roleCode(), me.roleName(),
+                        me.roleNames()),
                 me.permissions().stream().map(p -> new PermissionResponse(p.action(), p.scope())).toList());
     }
 
@@ -89,7 +90,7 @@ public class MemberController {
 
     private static MemberResponse toResponse(MemberService.MemberData m) {
         return new MemberResponse(m.membershipId(), m.userId(), m.email(), m.fullName(),
-                new OrganizationController.RoleSummary(m.roleCode(), m.roleName()), m.status(),
+                new OrganizationController.RoleSummary(m.roleCode(), m.roleName(), m.roleNames()), m.status(),
                 m.avatarUrl());
     }
 }
