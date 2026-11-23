@@ -1,6 +1,7 @@
 package org.andre.construx.modules.floorplan.service;
 
 import org.andre.construx.modules.crew.service.CrewDirectory;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.project.service.ProjectAccessService;
 import org.andre.construx.modules.project.access.SiteScope;
@@ -25,7 +26,9 @@ public class FloorPlanRosterService {
     /** People are the Site's staff (with Site access), so no company members list is needed. */
     public record Roster(List<RosterPerson> people, List<RosterCrew> crews, List<RosterEquipment> equipment) {}
 
-    public record RosterPerson(UUID membershipId, String fullName, URI avatarUrl, String roleName) {}
+    /** {@code roleNames}: the role's display name per language (contract roles §5.11). */
+    public record RosterPerson(UUID membershipId, String fullName, URI avatarUrl, String roleName,
+                               LocalizedText roleNames) {}
 
     public record RosterCrew(UUID id, String name, int memberCount) {}
 
@@ -37,7 +40,8 @@ public class FloorPlanRosterService {
         UUID organizationId = site.organizationId();
         return new Roster(
                 siteStaff.staff(site.siteId()).stream()
-                        .map(a -> new RosterPerson(a.membershipId(), a.fullName(), a.avatarUrl(), a.roleName()))
+                        .map(a -> new RosterPerson(a.membershipId(), a.fullName(), a.avatarUrl(), a.roleName(),
+                                a.roleNames()))
                         .toList(),
                 crews.crews(organizationId).stream()
                         .map(c -> new RosterCrew(c.id(), c.name(), c.memberCount()))

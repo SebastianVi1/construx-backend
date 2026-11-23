@@ -78,6 +78,11 @@ public final class OrgScope {
         }).orElse(false);
     }
 
+    /** Organization-wide check: no Site and no owner, so only ORGANIZATION scope passes. */
+    public boolean can(PermissionAction action) {
+        return can(action, () -> false, null);
+    }
+
     /** 403 unless {@link #can(PermissionAction, BooleanSupplier, UUID)} holds. */
     public void require(PermissionAction action, BooleanSupplier siteAccess, UUID ownerMembershipId) {
         if (!can(action, siteAccess, ownerMembershipId)) {

@@ -2,7 +2,9 @@ package org.andre.construx.modules.organization.repository;
 
 import org.andre.construx.modules.organization.model.MembershipStatus;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
@@ -19,6 +21,30 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
 
     List<OrganizationMembership> findByOrganizationIdAndIdIn(UUID organizationId, Collection<UUID> ids);
 
+    /**
+     * The membership with its row locked until the transaction ends, so a role change acts on the role the member
+     * holds now, not on one read before another change committed.
+     */
+    /** The membership's role id, without loading the membership: lets a write lock that role first. */
+    @Query("select m.role.id from OrganizationMembership m where m.id = :id and m.organization.id = :organizationId")
+    Optional<UUID> findRoleId(UUID id, UUID organizationId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from OrganizationMembership m where m.id = :id and m.organization.id = :organizationId")
+    Optional<OrganizationMembership> findForUpdate(UUID id, UUID organizationId);
+
+    /** Every membership holding the role, whatever its status, locked (a role delete moves them all). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from OrganizationMembership m where m.role.id = :roleId")
+    List<OrganizationMembership> findForUpdateByRoleId(UUID roleId);
+
+    long countByRoleIdAndStatusIn(UUID roleId, Collection<MembershipStatus> statuses);
+
+    /** Memberships per role in the given statuses. */
+    @Query("select m.role.id as roleId, count(m) as count from OrganizationMembership m "
+            + "where m.organization.id = :organizationId and m.status in :statuses group by m.role.id")
+    List<RoleCount> countByRole(UUID organizationId, Collection<MembershipStatus> statuses);
+
     @Query("select m from OrganizationMembership m join fetch m.organization "
             + "where m.userAccount.id = :userId and m.status = :status order by m.organization.name")
     List<OrganizationMembership> findByUserWithOrganization(UUID userId, MembershipStatus status);
@@ -26,4 +52,10 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     @Query("select m from OrganizationMembership m join fetch m.userAccount join fetch m.role "
             + "where m.organization.id = :organizationId and m.status = :status order by m.userAccount.email")
     List<OrganizationMembership> findByOrganizationWithUserAndRole(UUID organizationId, MembershipStatus status);
+
+    @Query("select m from OrganizationMembership m join fetch m.userAccount join fetch m.role r "
+            + "where m.organization.id = :organizationId and m.status = :status and r.code = :roleCode "
+            + "order by m.userAccount.email")
+    List<OrganizationMembership> findByOrganizationWithUserAndRole(UUID organizationId, MembershipStatus status,
+                                                                   String roleCode);
 }

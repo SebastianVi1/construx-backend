@@ -1,0 +1,100 @@
+# Labels of the permission catalog (contract roles §5.10). The structure (group, allowed scopes, requirements) lives
+# in PermissionAction.java; this file only names things. Every group and every action needs an EN and an ES text, or
+# the backend refuses to start. Action codes are permanent ids: never rename one.
+groups:
+  COMPANY:
+    name: { en: Company, es: Empresa }
+  SITES:
+    name: { en: Sites, es: Obras }
+  PHASES:
+    name: { en: Phases, es: Fases }
+  TASKS:
+    name: { en: Tasks, es: Tareas }
+  PRICES:
+    name: { en: Prices, es: Precios }
+  BUDGETS:
+    name: { en: Budgets, es: Presupuestos }
+  PLANS:
+    name: { en: Plans, es: Planos }
+
+actions:
+  MANAGE_ORGANIZATION:
+    name: { en: Manage company, es: Administrar empresa }
+    description:
+      en: Rename or close the company.
+      es: Cambiar el nombre de la empresa o cerrarla.
+  MANAGE_ROLES:
+    name: { en: Manage roles, es: Administrar roles }
+    description:
+      en: Create, edit and delete roles and choose what each one can do.
+      es: Crear, editar y eliminar roles y elegir qué puede hacer cada uno.
+  MANAGE_MEMBERS:
+    name: { en: Manage members, es: Administrar miembros }
+    description:
+      en: Invite people, change their role, suspend them or remove them from the company.
+      es: Invitar personas, cambiar su rol, suspenderlas o quitarlas de la empresa.
+  VIEW_PROJECT:
+    name: { en: View sites, es: Ver obras }
+    description:
+      en: See sites, their details and who works on them.
+      es: Ver las obras, sus datos y quién trabaja en ellas.
+  MANAGE_PROJECT:
+    name: { en: Edit sites, es: Editar obras }
+    description:
+      en: Create and edit sites and choose who works on them.
+      es: Crear y editar obras y elegir quién trabaja en ellas.
+  VIEW_GOAL:
+    name: { en: View phases, es: Ver fases }
+    description:
+      en: See the phases of a site and their progress.
+      es: Ver las fases de una obra y su avance.
+  MANAGE_GOAL:
+    name: { en: Edit phases, es: Editar fases }
+    description:
+      en: Create, edit, reorder and delete phases.
+      es: Crear, editar, reordenar y eliminar fases.
+  VIEW_ACTIVITY:
+    name: { en: View tasks, es: Ver tareas }
+    description:
+      en: See tasks, their dates, team and progress.
+      es: Ver las tareas, sus fechas, equipo y avance.
+  MANAGE_ACTIVITY:
+    name: { en: Edit tasks, es: Editar tareas }
+    description:
+      en: Create and edit tasks and update their progress.
+      es: Crear y editar tareas y actualizar su avance.
+  ASSIGN_ACTIVITY:
+    name: { en: Assign tasks, es: Asignar tareas }
+    description:
+      en: Choose who works on each task.
+      es: Elegir quién trabaja en cada tarea.
+  VIEW_PRICES:
+    name: { en: View prices, es: Ver precios }
+    description:
+      en: See material prices and price lists.
+      es: Ver los precios de materiales y las listas de precios.
+  MANAGE_PRICES:
+    name: { en: Edit prices, es: Editar precios }
+    description:
+      en: Add materials and update their prices.
+      es: Agregar materiales y actualizar sus precios.
+  VIEW_BUDGET:
+    name: { en: View budgets, es: Ver presupuestos }
+    description:
+      en: See site budgets and expenses.
+      es: Ver los presupuestos y gastos de las obras.
+  MANAGE_BUDGET:
+    name: { en: Edit budgets, es: Editar presupuestos }
+    description:
+      en: Set site budgets and record expenses.
+      es: Definir los presupuestos de las obras y registrar gastos.
+  VIEW_PLAN:
+    name: { en: View plans, es: Ver planos }
+    description:
+      en: See site plans, their zones and pins.
+      es: Ver los planos de las obras, sus zonas y marcas.
+  MANAGE_PLAN:
+    name: { en: Edit plans, es: Editar planos }
+    description:
+      en: Upload, calibrate and draw zones on site plans.
+      es: Subir y calibrar planos y dibujar zonas en ellos.

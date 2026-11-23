@@ -42,35 +42,8 @@ public class Permission {
         validate(action, scope);
     }
 
-    /** Rejects action and scope pairs that make no sense, e.g. a project-scoped role management. */
+    /** Rejects action and scope pairs the catalog does not allow, e.g. a project-scoped role management. */
     static void validate(PermissionAction action, PermissionScope scope) {
-        if ((action == PermissionAction.MANAGE_ORGANIZATION
-                || action == PermissionAction.MANAGE_ROLES
-                || action == PermissionAction.MANAGE_MEMBERS)
-                && scope != PermissionScope.ORGANIZATION) {
-            throw new IllegalArgumentException("Organization administration requires organization scope");
-        }
-        if ((action == PermissionAction.VIEW_PROJECT
-                || action == PermissionAction.MANAGE_PROJECT
-                || action == PermissionAction.VIEW_GOAL
-                || action == PermissionAction.MANAGE_GOAL)
-                && scope == PermissionScope.OWN) {
-            throw new IllegalArgumentException("Projects and goals have no individual owner");
-        }
-        if (action == PermissionAction.ASSIGN_ACTIVITY && scope == PermissionScope.OWN) {
-            throw new IllegalArgumentException("Activity assignment requires project or organization scope");
-        }
-        if ((action == PermissionAction.VIEW_PRICES || action == PermissionAction.MANAGE_PRICES)
-                && scope != PermissionScope.ORGANIZATION) {
-            throw new IllegalArgumentException("Material prices belong to the whole organization");
-        }
-        if ((action == PermissionAction.VIEW_BUDGET || action == PermissionAction.MANAGE_BUDGET)
-                && scope != PermissionScope.ORGANIZATION) {
-            throw new IllegalArgumentException("Site budgets are an organization-wide finance permission");
-        }
-        if ((action == PermissionAction.VIEW_PLAN || action == PermissionAction.MANAGE_PLAN)
-                && scope == PermissionScope.OWN) {
-            throw new IllegalArgumentException("Site plans require project or organization scope");
-        }
+        PermissionRules.checkScope(action, scope);
     }
 }

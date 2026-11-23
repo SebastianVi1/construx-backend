@@ -1,0 +1,127 @@
+# Built-in roles every company has, besides Owner. Edit, restart, done (ADR 0010).
+# Codes are permanent: never rename one; remove it and add a new one instead.
+#
+# Rules (each broken rule stops the backend from starting):
+#  - code: [A-Z][A-Z0-9_], at most 64 characters, not OWNER, not starting with CUSTOM_, no duplicates.
+#  - name and description: EN and ES, names 1 to 100 characters, descriptions 1 to 280. No name, in either
+#    language and ignoring case, may be shared by two roles (Owner included).
+#  - grants: ACTION: SCOPE pairs from the permission catalog (PermissionAction.java, permission-catalog.yml).
+#    Scopes: ORGANIZATION (whole company), PROJECT (assigned sites), OWN (own tasks). Each action allows only some
+#    scopes, and some actions require others (contract roles §4); a grant that breaks those rules is rejected.
+#  - The stored role name in the database is the ES name; the API sends both from this file.
+owner:            # names only: Owner always holds every permission
+  name: { en: Owner, es: Propietario }
+  description:
+    en: Created the company. Can do everything, including closing the company.
+    es: Creó la empresa. Puede hacer todo, incluso cerrar la empresa.
+roles:
+  - code: ADMINISTRATOR
+    name: { en: Administrator, es: Administrador }
+    description:
+      en: Runs the company day to day. Manages people, roles, sites, prices and plans, but cannot change budgets.
+      es: Lleva la empresa en el día a día. Administra personas, roles, obras, precios y planos, pero no cambia presupuestos.
+    grants:
+      MANAGE_ROLES: ORGANIZATION
+      MANAGE_MEMBERS: ORGANIZATION
+      VIEW_PROJECT: ORGANIZATION
+      MANAGE_PROJECT: ORGANIZATION
+      VIEW_GOAL: ORGANIZATION
+      MANAGE_GOAL: ORGANIZATION
+      VIEW_ACTIVITY: ORGANIZATION
+      MANAGE_ACTIVITY: ORGANIZATION
+      ASSIGN_ACTIVITY: ORGANIZATION
+      VIEW_PRICES: ORGANIZATION
+      MANAGE_PRICES: ORGANIZATION
+      VIEW_BUDGET: ORGANIZATION
+      VIEW_PLAN: ORGANIZATION
+      MANAGE_PLAN: ORGANIZATION
+
+  - code: MEMBER
+    name: { en: Member, es: Miembro }
+    description:
+      en: "Office staff: sees every site, plans phases and tasks, and edits plans on their assigned sites."
+      es: "Personal de oficina: ve todas las obras, planea fases y tareas y edita planos en sus obras asignadas."
+    grants:
+      VIEW_PROJECT: ORGANIZATION
+      VIEW_GOAL: ORGANIZATION
+      MANAGE_GOAL: ORGANIZATION
+      VIEW_ACTIVITY: ORGANIZATION
+      MANAGE_ACTIVITY: ORGANIZATION
+      ASSIGN_ACTIVITY: ORGANIZATION
+      VIEW_PRICES: ORGANIZATION
+      VIEW_PLAN: PROJECT
+      MANAGE_PLAN: PROJECT
+
+  - code: WORKER
+    name: { en: Worker, es: Trabajador }
+    description:
+      en: "Field staff: sees their sites and updates their own tasks."
+      es: "Personal de campo: ve sus obras y actualiza sus propias tareas."
+    grants:
+      VIEW_PROJECT: PROJECT
+      VIEW_GOAL: PROJECT
+      VIEW_ACTIVITY: PROJECT
+      MANAGE_ACTIVITY: OWN
+      VIEW_PLAN: PROJECT
+
+  - code: FINANCE
+    name: { en: Finance, es: Finanzas }
+    description:
+      en: Follows the money. Sees every site and manages material prices, budgets and expenses.
+      es: Sigue el dinero. Ve todas las obras y administra precios de materiales, presupuestos y gastos.
+    grants:
+      VIEW_PROJECT: ORGANIZATION
+      VIEW_GOAL: ORGANIZATION
+      VIEW_ACTIVITY: ORGANIZATION
+      VIEW_PRICES: ORGANIZATION
+      MANAGE_PRICES: ORGANIZATION
+      VIEW_BUDGET: ORGANIZATION
+      MANAGE_BUDGET: ORGANIZATION
+
+  - code: RESIDENT
+    name: { en: Resident, es: Residente }
+    description:
+      en: Runs the work on their assigned sites. Plans phases and tasks, assigns people and edits plans.
+      es: Dirige el trabajo en sus obras asignadas. Planea fases y tareas, asigna personas y edita planos.
+    grants:
+      VIEW_PROJECT: PROJECT
+      VIEW_GOAL: PROJECT
+      MANAGE_GOAL: PROJECT
+      VIEW_ACTIVITY: PROJECT
+      MANAGE_ACTIVITY: PROJECT
+      ASSIGN_ACTIVITY: PROJECT
+      VIEW_PLAN: PROJECT
+      MANAGE_PLAN: PROJECT
+
+  - code: SITE_MANAGER
+    name: { en: Site Manager, es: Jefe de Obra }
+    description:
+      en: In charge of their assigned sites. Everything a Resident does, plus editing the site and choosing who works on it.
+      es: A cargo de sus obras asignadas. Todo lo que hace un Residente, además de editar la obra y elegir quién trabaja en ella.
+    grants:
+      VIEW_PROJECT: PROJECT
+      MANAGE_PROJECT: PROJECT
+      VIEW_GOAL: PROJECT
+      MANAGE_GOAL: PROJECT
+      VIEW_ACTIVITY: PROJECT
+      MANAGE_ACTIVITY: PROJECT
+      ASSIGN_ACTIVITY: PROJECT
+      VIEW_PLAN: PROJECT
+      MANAGE_PLAN: PROJECT
+
+  - code: SUPERINTENDENT
+    name: { en: Superintendent, es: Superintendente }
+    description:
+      en: Oversees the work on every site, with prices and budgets visible.
+      es: Supervisa el trabajo en todas las obras, con precios y presupuestos a la vista.
+    grants:
+      VIEW_PROJECT: ORGANIZATION
+      VIEW_GOAL: ORGANIZATION
+      MANAGE_GOAL: ORGANIZATION
+      VIEW_ACTIVITY: ORGANIZATION
+      MANAGE_ACTIVITY: ORGANIZATION
+      ASSIGN_ACTIVITY: ORGANIZATION
+      VIEW_PLAN: ORGANIZATION
+      MANAGE_PLAN: ORGANIZATION
+      VIEW_PRICES: ORGANIZATION
+      VIEW_BUDGET: ORGANIZATION

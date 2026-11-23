@@ -75,9 +75,11 @@ class ProjectAccessFlowTest {
                 .andExpect(jsonPath("$.userId").value(ana.user().getId().toString()))
                 .andExpect(jsonPath("$.fullName").value("Ana Perez"))
                 .andExpect(jsonPath("$.role.code").value("WORKER"))
+                .andExpect(jsonPath("$.role.names.en").value("Worker"))
                 .andExpect(jsonPath("$.email").doesNotExist());
         api.get(owner, access).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].role.names.es").value("Trabajador"))
                 .andExpect(jsonPath("$[0].fullName").value("Ana Perez"));
     }
 

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.organization.model.InvitationStatus;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.service.InvitationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,12 +36,13 @@ public class InvitationController {
     public record InvitationInput(@NotBlank @Email @Size(max = 254) String email,
                                   @NotBlank @Size(max = 64) String roleCode, UUID projectId) {}
 
-    public record RoleSummary(String code, String name) {}
+    /** {@code name} is the stored name; {@code names} is what to show, per language (contract roles §5.11). */
+    public record RoleSummary(String code, String name, LocalizedText names) {}
 
     public record InvitationResponse(UUID id, String email, RoleSummary role, UUID projectId,
                                      InvitationStatus status, Instant expiresAt) {
         static InvitationResponse from(InvitationService.InvitationData data) {
-            return new InvitationResponse(data.id(), data.email(), new RoleSummary(data.roleCode(), data.roleName()),
+            return new InvitationResponse(data.id(), data.email(), new RoleSummary(data.roleCode(), data.roleName(), data.roleNames()),
                     data.projectId(), data.status(), data.expiresAt());
         }
     }

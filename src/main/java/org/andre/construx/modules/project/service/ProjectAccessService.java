@@ -2,9 +2,11 @@ package org.andre.construx.modules.project.service;
 
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
+import org.andre.construx.modules.organization.service.RoleNames;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.Project;
 import org.andre.construx.modules.project.model.ProjectAccess;
@@ -39,7 +41,7 @@ public class ProjectAccessService {
 
     /** No email: workers can read this list. */
     public record AccessData(UUID accessId, UUID membershipId, UUID userId, String fullName,
-                             String roleCode, String roleName, URI avatarUrl) {}
+                             String roleCode, String roleName, LocalizedText roleNames, URI avatarUrl) {}
 
     @Transactional(readOnly = true)
     public List<AccessData> list(SiteScope site) {
@@ -102,6 +104,7 @@ public class ProjectAccessService {
         UUID memberUserId = membership.getUserAccount().getId();
         Person person = PersonDirectory.of(people, memberUserId);
         return new AccessData(access.getId(), membership.getId(), memberUserId, person.fullName(),
-                membership.getRole().getCode(), membership.getRole().getName(), person.avatarUrl());
+                membership.getRole().getCode(), membership.getRole().getName(), RoleNames.of(membership.getRole()),
+                person.avatarUrl());
     }
 }

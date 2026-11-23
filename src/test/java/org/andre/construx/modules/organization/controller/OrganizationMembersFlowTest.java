@@ -8,6 +8,8 @@ import org.andre.construx.modules.organization.repository.OrganizationMembership
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
 import org.andre.construx.modules.project.repository.ProjectRepository;
+import com.jayway.jsonpath.JsonPath;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.support.Api;
 import org.andre.construx.support.Api.Session;
 import org.andre.construx.support.Members;
@@ -26,8 +28,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
@@ -55,6 +59,7 @@ class OrganizationMembersFlowTest {
     @Autowired ProjectAccessRepository accesses;
     @Autowired PlatformTransactionManager txm;
     @Autowired JdbcTemplate jdbc;
+    @Autowired AuditService audit;
 
     private Api api;
     private Members members;
@@ -83,6 +88,44 @@ class OrganizationMembersFlowTest {
         api.get(worker, "/api/organizations").andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].myRole.code").value("WORKER"));
         api.patch(owner, org, "{\"name\":\"Renamed\"}").andExpect(jsonPath("$.myRole.code").value("OWNER"));
+    }
+
+    @Test
+    void summariesCarryEnglishAndSpanishNames() throws Exception {
+        api.get(worker, org + "/me")
+                .andExpect(jsonPath("$.role.name").value("Trabajador"))
+                .andExpect(jsonPath("$.role.names.en").value("Worker"))
+                .andExpect(jsonPath("$.role.names.es").value("Trabajador"));
+        api.get(worker, "/api/organizations")
+                .andExpect(jsonPath("$[0].myRole.names.en").value("Worker"))
+                .andExpect(jsonPath("$[0].myRole.names.es").value("Trabajador"));
+        api.get(owner, org)
+                .andExpect(jsonPath("$.myRole.names.en").value("Owner"))
+                .andExpect(jsonPath("$.myRole.names.es").value("Propietario"));
+        api.post(owner, "/api/organizations", "{\"name\":\"Second\"}")
+                .andExpect(jsonPath("$.myRole.names.en").value("Owner"));
+        api.get(owner, org + "/members")
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.names.en")
+                        .value(hasItem("Worker")))
+                .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.names.es")
+                        .value(hasItem("Trabajador")));
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"SITE_MANAGER\"}")
+                .andExpect(jsonPath("$.role.names.en").value("Site Manager"))
+                .andExpect(jsonPath("$.role.names.es").value("Jefe de Obra"));
+        api.get(owner, org + "/roles")
+                .andExpect(jsonPath("$[?(@.code == 'FINANCE')].names.en").value(hasItem("Finance")))
+                .andExpect(jsonPath("$[?(@.code == 'OWNER')].names.es").value(hasItem("Propietario")));
+    }
+
+    @Test
+    void customRoleNamesAreTheStoredNameInBothLanguages() throws Exception {
+        jdbc.update("insert into organization_role (id, organization_id, code, name, system_role, seeded) "
+                + "values (?, ?, 'FOREMAN', 'Capataz', false, false)", UUID.randomUUID(), orgId);
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"FOREMAN\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role.name").value("Capataz"))
+                .andExpect(jsonPath("$.role.names.en").value("Capataz"))
+                .andExpect(jsonPath("$.role.names.es").value("Capataz"));
     }
 
     @Test
@@ -130,6 +173,26 @@ class OrganizationMembersFlowTest {
     }
 
     @Test
+    void membersFilterByRole() throws Exception {
+        UUID secondWorker = members.add(orgId, api.signUp().user(), "WORKER");
+        UUID suspendedWorker = members.add(orgId, api.signUp().user(), "WORKER");
+        members.add(orgId, api.signUp().user(), "MEMBER");
+        jdbc.update("update organization_membership set status = 'SUSPENDED' where id = ?", suspendedWorker);
+
+        api.get(owner, org + "/members?role=WORKER").andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].membershipId").value(containsInAnyOrder(
+                        workerMembership.toString(), secondWorker.toString())))
+                .andExpect(jsonPath("$[*].role.code").value(containsInAnyOrder("WORKER", "WORKER")));
+        api.get(owner, org + "/members?status=SUSPENDED&role=WORKER")
+                .andExpect(jsonPath("$[*].membershipId").value(containsInAnyOrder(suspendedWorker.toString())));
+        api.get(owner, org + "/members?role=FINANCE").andExpect(jsonPath("$.length()").value(0));
+        api.get(owner, org + "/members?role=NO_SUCH_ROLE").andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        api.get(owner, org + "/members").andExpect(jsonPath("$.length()").value(4));
+        api.get(worker, org + "/members?role=WORKER").andExpect(status().isForbidden());
+    }
+
+    @Test
     void membersAndMemberUpdatesCarryTheProfilePhoto() throws Exception {
         UserProfile profile = profiles.findById(worker.user().getId()).orElseThrow();
         profile.changeAvatarKey("users/" + worker.user().getId() + "/avatar/1");
@@ -167,25 +230,86 @@ class OrganizationMembersFlowTest {
     }
 
     @Test
-    void roleChangeCannotGrantOrReplaceOwnerNorChangeYourOwnRole() throws Exception {
+    void ownRoleChangeIsRoleOwnAndOwnerRoleIsLocked() throws Exception {
         Session admin = api.signUp();
         UUID adminMembership = members.add(orgId, admin.user(), "ADMINISTRATOR");
         UUID ownerMembership = memberships.findByOrganizationIdAndUserAccountId(orgId, owner.user().getId())
                 .orElseThrow().getId();
 
         api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"OWNER\"}")
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_OWNER_LOCKED"));
+        api.patch(owner, org + "/members/" + workerMembership, "{\"roleCode\":\"OWNER\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_OWNER_LOCKED"));
         api.patch(admin, org + "/members/" + ownerMembership, "{\"roleCode\":\"MEMBER\"}")
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_OWNER_LOCKED"));
         api.patch(admin, org + "/members/" + adminMembership, "{\"roleCode\":\"MEMBER\"}")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_OWN"));
         api.patch(owner, org + "/members/" + ownerMembership, "{\"roleCode\":\"MEMBER\"}")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_OWN"));
         api.get(owner, org + "/members")
                 .andExpect(jsonPath("$[?(@.membershipId == '" + workerMembership + "')].role.code").value(hasItem("WORKER")))
                 .andExpect(jsonPath("$[?(@.membershipId == '" + ownerMembership + "')].role.code").value(hasItem("OWNER")))
                 .andExpect(jsonPath("$[?(@.membershipId == '" + adminMembership + "')].role.code")
                         .value(hasItem("ADMINISTRATOR")));
+    }
+
+    @Test
+    void administratorMovesWorkerToResidentButNotIntoFinance() throws Exception {
+        Session admin = api.signUp();
+        members.add(orgId, admin.user(), "ADMINISTRATOR");
+
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"FINANCE\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_ABOVE_CALLER"));
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"RESIDENT\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipId").value(workerMembership.toString()))
+                .andExpect(jsonPath("$.role.code").value("RESIDENT"))
+                .andExpect(jsonPath("$.role.names.en").value("Resident"));
+        api.get(admin, org + "/members?role=RESIDENT")
+                .andExpect(jsonPath("$[*].membershipId").value(containsInAnyOrder(workerMembership.toString())));
+    }
+
+    @Test
+    void cannotReassignMemberWhoseCurrentRoleIsAboveCaller() throws Exception {
+        Session admin = api.signUp();
+        members.add(orgId, admin.user(), "ADMINISTRATOR");
+        UUID finance = members.add(orgId, api.signUp().user(), "FINANCE");
+        jdbc.update("update organization_membership set status = 'SUSPENDED' where id = ?", finance);
+
+        api.patch(admin, org + "/members/" + finance, "{\"roleCode\":\"WORKER\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_ABOVE_CALLER"));
+        api.patch(owner, org + "/members/" + finance, "{\"roleCode\":\"WORKER\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role.code").value("WORKER"))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"));
+    }
+
+    @Test
+    void assignmentsAreAuditedAsRoleChangesWithBeforeAndAfterRole() throws Exception {
+        Session admin = api.signUp();
+        UUID adminMembership = members.add(orgId, admin.user(), "ADMINISTRATOR");
+
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"RESIDENT\"}")
+                .andExpect(status().isOk());
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"FINANCE\"}")
+                .andExpect(status().isForbidden());
+        api.patch(admin, org + "/members/" + workerMembership, "{\"roleCode\":\"RESIDENT\"}")
+                .andExpect(status().isOk());
+
+        List<AuditService.AuditEventData> events = audit.listForEntity("ORGANIZATION_MEMBERSHIP", workerMembership);
+        assertEquals(1, events.size());
+        AuditService.AuditEventData event = events.getFirst();
+        assertEquals("ROLE_CHANGE", event.action());
+        assertEquals(adminMembership, event.actorMembershipId());
+        assertEquals("WORKER", JsonPath.read(event.beforeState(), "$.roleCode"));
+        assertEquals("RESIDENT", JsonPath.read(event.afterState(), "$.roleCode"));
     }
 
     @Test

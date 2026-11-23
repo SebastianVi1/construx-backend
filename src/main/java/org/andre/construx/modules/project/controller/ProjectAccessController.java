@@ -1,6 +1,7 @@
 package org.andre.construx.modules.project.controller;
 
 
+import org.andre.construx.modules.organization.model.LocalizedText;
 import org.andre.construx.modules.project.access.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -30,13 +31,14 @@ public class ProjectAccessController {
 
     public record AccessInput(@NotNull UUID membershipId) {}
 
-    public record RoleSummary(String code, String name) {}
+    /** {@code name} is the stored name; {@code names} is what to show, per language (contract roles §5.11). */
+    public record RoleSummary(String code, String name, LocalizedText names) {}
 
     public record AccessResponse(UUID accessId, UUID membershipId, UUID userId, String fullName, RoleSummary role,
                                  URI avatarUrl) {
         static AccessResponse from(ProjectAccessService.AccessData data) {
             return new AccessResponse(data.accessId(), data.membershipId(), data.userId(), data.fullName(),
-                    new RoleSummary(data.roleCode(), data.roleName()),
+                    new RoleSummary(data.roleCode(), data.roleName(), data.roleNames()),
                     data.avatarUrl());
         }
     }

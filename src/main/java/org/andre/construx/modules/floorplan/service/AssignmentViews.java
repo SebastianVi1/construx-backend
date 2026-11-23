@@ -13,6 +13,7 @@ import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.service.MembershipDirectory;
+import org.andre.construx.modules.organization.service.RoleNames;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.OpenTask;
 import org.andre.construx.modules.project.access.SiteScope;
@@ -62,8 +63,8 @@ public class AssignmentViews {
             OrganizationMembership m = memberships.get(membershipId);
             Person person = m == null ? new Person(null, null) : PersonDirectory.of(persons, m.getUserAccount().getId());
             return new Worker(membershipId, person.fullName(), person.avatarUrl(),
-                    m == null ? null : m.getRole().getName(), crewLeader,
-                    openTasks.getOrDefault(membershipId, List.of()));
+                    m == null ? null : m.getRole().getName(), m == null ? null : RoleNames.of(m.getRole()),
+                    crewLeader, openTasks.getOrDefault(membershipId, List.of()));
         }
     }
 

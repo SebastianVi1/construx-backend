@@ -65,6 +65,8 @@ class InvitationAcceptFlowTest {
                 .andExpect(jsonPath("$.organization.id").value(org.id.toString()))
                 .andExpect(jsonPath("$.organization.name").value(org.name))
                 .andExpect(jsonPath("$.role.code").value("WORKER"))
+                .andExpect(jsonPath("$.role.names.en").value("Worker"))
+                .andExpect(jsonPath("$.role.names.es").value("Trabajador"))
                 .andExpect(jsonPath("$.projectId").value(site.getId().toString()))
                 .andExpect(jsonPath("$.membershipId").isNotEmpty());
 

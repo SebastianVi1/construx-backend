@@ -42,12 +42,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if ("ZONE_CONFLICT".equals(ex.getCode()) || "PIN_CONFLICT".equals(ex.getCode())) {
             return respond(HttpStatus.CONFLICT, "Concurrent modification", ex.getMessage(), ex.getCode(), request);
         }
-        return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
+        return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), ex.getProperties(),
+                request);
+    }
+
+    @ExceptionHandler(ForbiddenRuleException.class)
+    public ResponseEntity<ProblemDetail> handleForbiddenRule(ForbiddenRuleException ex, HttpServletRequest request) {
+        return respond(HttpStatus.FORBIDDEN, "Access denied", ex.getMessage(), ex.getCode(), request);
     }
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetail> handleCodedConflict(ConflictException ex, HttpServletRequest request) {
-        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
+        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), ex.getProperties(),
+                request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -159,6 +166,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private ResponseEntity<ProblemDetail> respond(
             HttpStatus status, String title, String detail, String code, HttpServletRequest request) {
         return ResponseEntity.status(status).body(problem(status, title, detail, code, request));
+    }
+
+    /** Like {@link #respond(HttpStatus, String, String, String, HttpServletRequest)}, plus the exception's extra fields. */
+    private ResponseEntity<ProblemDetail> respond(HttpStatus status, String title, String detail, String code,
+                                                  Map<String, Object> properties, HttpServletRequest request) {
+        ProblemDetail problem = problem(status, title, detail, code, request);
+        properties.forEach(problem::setProperty);
+        return ResponseEntity.status(status).body(problem);
     }
 
     private ProblemDetail problem(

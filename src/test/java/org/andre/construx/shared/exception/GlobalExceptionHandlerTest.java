@@ -82,6 +82,23 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void codedForbiddenRuleReturnsForbiddenWithItsCode() throws Exception {
+        mvc.perform(get("/errors/forbidden-rule"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_ABOVE_CALLER"))
+                .andExpect(jsonPath("$.detail").value("That role holds permissions you do not have"));
+    }
+
+    @Test
+    void ruleViolationPropertiesAreAddedToTheProblem() throws Exception {
+        mvc.perform(get("/errors/rule-with-properties"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_DEPENDENCY_MISSING"))
+                .andExpect(jsonPath("$.action").value("MANAGE_PLAN"))
+                .andExpect(jsonPath("$.requires").value("VIEW_PLAN"));
+    }
+
+    @Test
     void unauthenticatedOperationReturnsUnauthorized() throws Exception {
         mvc.perform(get("/errors/unauthenticated"))
                 .andExpect(status().isUnauthorized())
@@ -140,6 +157,17 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/errors/forbidden")
         void forbidden() {
             throw new AccessDeniedException("Not allowed");
+        }
+
+        @GetMapping("/errors/forbidden-rule")
+        void forbiddenRule() {
+            throw new ForbiddenRuleException("ROLE_ABOVE_CALLER", "That role holds permissions you do not have");
+        }
+
+        @GetMapping("/errors/rule-with-properties")
+        void ruleWithProperties() {
+            throw new RuleViolationException("ROLE_DEPENDENCY_MISSING", "MANAGE_PLAN requires VIEW_PLAN",
+                    java.util.Map.of("action", "MANAGE_PLAN", "requires", "VIEW_PLAN"));
         }
 
         @GetMapping("/errors/unauthenticated")

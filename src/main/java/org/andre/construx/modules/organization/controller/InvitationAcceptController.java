@@ -35,7 +35,8 @@ public class InvitationAcceptController {
     public AcceptResponse accept(@Valid @RequestBody AcceptInput body, Authentication authentication) {
         InvitationService.AcceptedData data = invitations.accept(userId(authentication), body.token());
         return new AcceptResponse(new OrganizationSummary(data.organizationId(), data.organizationName()),
-                data.membershipId(), new InvitationController.RoleSummary(data.roleCode(), data.roleName()),
+                data.membershipId(), new InvitationController.RoleSummary(data.roleCode(), data.roleName(),
+                        data.roleNames()),
                 data.projectId());
     }
 }
