@@ -19,6 +19,11 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
 
     List<OrganizationMembership> findByOrganizationIdAndIdIn(UUID organizationId, Collection<UUID> ids);
 
+    /** Every membership holding the role, whatever its status (a role delete moves them all). */
+    List<OrganizationMembership> findByRoleId(UUID roleId);
+
+    long countByRoleIdAndStatusIn(UUID roleId, Collection<MembershipStatus> statuses);
+
     /** Memberships per role in the given statuses. */
     @Query("select m.role.id as roleId, count(m) as count from OrganizationMembership m "
             + "where m.organization.id = :organizationId and m.status in :statuses group by m.role.id")

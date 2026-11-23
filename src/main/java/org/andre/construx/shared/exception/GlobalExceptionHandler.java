@@ -54,7 +54,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetail> handleCodedConflict(ConflictException ex, HttpServletRequest request) {
-        return respond(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "Conflicting state", ex.getMessage(), ex.getCode(), request);
+        ex.getProperties().forEach(problem::setProperty);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
