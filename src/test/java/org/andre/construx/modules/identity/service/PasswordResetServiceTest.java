@@ -17,6 +17,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -25,12 +27,12 @@ import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.shared.mail.BrandedEmail;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -63,9 +65,9 @@ class PasswordResetServiceTest {
     }
 
     private String sentToken() {
-        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(mailer).send(eq(user), eq("Reset your Construx password / Restablece tu contraseña de Construx"), text.capture());
-        return text.getValue().split("token=")[1].split("\\s")[0];
+        ArgumentCaptor<BrandedEmail> mail = ArgumentCaptor.forClass(BrandedEmail.class);
+        verify(mailer).send(eq(user), mail.capture());
+        return mail.getValue().actionUrl().split("token=")[1];
     }
 
     private PasswordReset openToken(String raw) {
@@ -87,16 +89,14 @@ class PasswordResetServiceTest {
     @Test
     void unverifiedActiveAccountReceivesTheMailWithTheDocumentedWording() {
         service.requestReset(" Person@Example.test ");
-        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(mailer).send(eq(user), eq("Reset your Construx password / Restablece tu contraseña de Construx"), text.capture());
-        assertTrue(text.getValue().startsWith("We received a request to reset the password for this email address. "
-                + "Open this link within 60 minutes to choose a new password: https://app.example.test/reset-password?token="));
-        assertTrue(text.getValue().contains("\n\nIf you did not request this, ignore this email. Your password will not change."
-                + "\n\nRecibimos una solicitud para restablecer la contraseña de este correo. "
-                + "Abre este enlace en los próximos 60 minutos para elegir una nueva contraseña: https://app.example.test/reset-password?token="));
-        assertTrue(text.getValue().endsWith("\n\nSi no lo solicitaste, ignora este correo. Tu contraseña no cambiará."));
-        String raw = text.getValue().split("token=")[1].split("\\s")[0];
-        assertEquals(2, text.getValue().split("token=" + raw, -1).length - 1);
+        ArgumentCaptor<BrandedEmail> mail = ArgumentCaptor.forClass(BrandedEmail.class);
+        verify(mailer).send(eq(user), mail.capture());
+        BrandedEmail sent = mail.getValue();
+        assertEquals("Restablece tu contraseña de Construx", sent.subject());
+        assertTrue(sent.actionUrl().startsWith("https://app.example.test/reset-password?token="));
+        assertTrue(sent.text().contains("vence en 60 minutos"));
+        assertTrue(sent.text().contains("Si no lo solicitaste, ignora este correo"));
+        assertTrue(sent.html().contains("href=\"" + sent.actionUrl() + "\""));
     }
 
     @Test
@@ -123,7 +123,7 @@ class PasswordResetServiceTest {
         var order = inOrder(resets, mailer);
         order.verify(resets).invalidateOpenFor(eq(user), any(Instant.class));
         order.verify(resets).save(any(PasswordReset.class));
-        order.verify(mailer).send(eq(user), anyString(), anyString());
+        order.verify(mailer).send(eq(user), any(BrandedEmail.class));
     }
 
     @Test
@@ -148,7 +148,8 @@ class PasswordResetServiceTest {
     @SuppressWarnings("unchecked")
     void mailFailureDoesNotThrowAndTheTokenIsStillStored() {
         JavaMailSender sender = mock(JavaMailSender.class);
-        doThrow(new MailSendException("smtp down")).when(sender).send(any(SimpleMailMessage.class));
+        when(sender.createMimeMessage()).thenReturn(new MimeMessage((Session) null));
+        doThrow(new MailSendException("smtp down")).when(sender).send(any(MimeMessage.class));
         ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(sender);
         PasswordResetService withRealMailer = new PasswordResetService(users, resets, encoder, tokens,
