@@ -96,6 +96,7 @@ class OrganizationRoleEditingTest {
         OrganizationRole worker = role("WORKER");
         assertCode("ROLE_NAME_FIXED", () -> worker.renameCustom("Crew"));
         assertCode("ROLE_NAME_FIXED", () -> worker.describe("Crew"));
+        assertCode("ROLE_NAME_FIXED", worker::requireTextEditable);
 
         OrganizationRole custom = OrganizationRole.custom(organization, "Foreman", null, Map.of());
         custom.renameCustom(" Crew lead ");
@@ -104,6 +105,13 @@ class OrganizationRoleEditingTest {
         assertEquals("Leads", custom.getDescription());
         assertCode("ROLE_NAME_INVALID", () -> custom.renameCustom(""));
         assertCode("ROLE_NAME_INVALID", () -> custom.describe("x".repeat(281)));
+        assertDoesNotThrow(custom::requireTextEditable);
+    }
+
+    @Test
+    void onlyACustomRoleCanBeDeleted() {
+        assertCode("ROLE_BUILT_IN_UNDELETABLE", role("WORKER")::requireDeletable);
+        assertDoesNotThrow(OrganizationRole.custom(organization, "Foreman", null, Map.of())::requireDeletable);
     }
 
     @Test

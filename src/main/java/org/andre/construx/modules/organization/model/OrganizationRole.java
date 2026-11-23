@@ -185,12 +185,12 @@ public class OrganizationRole {
     }
 
     public void renameCustom(String name) {
-        requireCustomText();
+        requireTextEditable();
         this.name = validName(name);
     }
 
     public void describe(String description) {
-        requireCustomText();
+        requireTextEditable();
         this.description = validDescription(description);
     }
 
@@ -345,13 +345,24 @@ public class OrganizationRole {
         }
     }
 
+    /** Only a Custom role can be deleted ({@code ROLE_BUILT_IN_UNDELETABLE}, contract roles §5.6). */
+    public void requireDeletable() {
+        if (kind() != RoleKind.CUSTOM) {
+            throw new RuleViolationException("ROLE_BUILT_IN_UNDELETABLE", "A Built-in role cannot be deleted");
+        }
+    }
+
     private void requireNotOwner() {
         if (systemRole) {
             throw new RuleViolationException("ROLE_OWNER_LOCKED", "The Owner role cannot be changed");
         }
     }
 
-    private void requireCustomText() {
+    /**
+     * Only a Custom role takes a name or description from a client: the Owner role is locked
+     * ({@code ROLE_OWNER_LOCKED}) and a Built-in role's text comes from the definition file ({@code ROLE_NAME_FIXED}).
+     */
+    public void requireTextEditable() {
         requireNotOwner();
         if (seeded) {
             throw new RuleViolationException("ROLE_NAME_FIXED",

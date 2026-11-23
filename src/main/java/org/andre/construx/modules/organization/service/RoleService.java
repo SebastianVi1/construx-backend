@@ -175,9 +175,7 @@ public class RoleService {
         DeleteLocks locked = lockForDelete(org, code, wanted);
         OrganizationRole role = locked.role();
         RoleAuthority.checkEdit(org, role, Map.of());
-        if (role.kind() != RoleKind.CUSTOM) {
-            throw new RuleViolationException("ROLE_BUILT_IN_UNDELETABLE", "A Built-in role cannot be deleted");
-        }
+        role.requireDeletable();
         OrganizationRole replacement = wanted == null ? null : replacement(org, role, locked.replacement());
         List<OrganizationMembership> held = memberships.findForUpdateByRoleId(role.getId());
         long invitationCount = invitations.countByRoleId(role.getId());
@@ -299,9 +297,7 @@ public class RoleService {
         if (draft.name() == null && draft.description() == null) {
             return;
         }
-        if (role.kind() != RoleKind.CUSTOM) {
-            role.describe(draft.description());
-        }
+        role.requireTextEditable();
         // Read the other roles before renaming, so the query's flush never writes a clashing name.
         List<OrganizationRole> existing = lockCompanyRoles(org);
         if (draft.name() != null) {
