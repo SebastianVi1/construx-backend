@@ -249,6 +249,29 @@ class CustomRoleFlowTest {
     }
 
     @Test
+    void anAssignmentOutOfARoleBeingRaisedAboveTheCallerWaitsAndIsRefused() throws Exception {
+        String yard = codeOf(create(owner, "Yard crew", null, "[]"));
+        UUID member = members.add(orgId, api.signUp().user(), yard);
+
+        String outcome = whileHeld(() -> raiseToBudgets(yard),
+                () -> outcomeOf(api.patch(admin, org + "/members/" + member, "{\"roleCode\":\"MEMBER\"}")));
+
+        assertEquals("ROLE_ABOVE_CALLER", outcome);
+        assertEquals(yard, roleOf(member));
+    }
+
+    @Test
+    void anAssignmentChecksTheRoleSomeoneElseGaveTheMemberWhileItWaited() throws Exception {
+        UUID member = members.add(orgId, api.signUp().user(), "WORKER");
+
+        String outcome = whileHeld(() -> moveTo(member, "FINANCE"),
+                () -> outcomeOf(api.patch(admin, org + "/members/" + member, "{\"roleCode\":\"MEMBER\"}")));
+
+        assertEquals("ROLE_ABOVE_CALLER", outcome);
+        assertEquals("FINANCE", roleOf(member));
+    }
+
+    @Test
     void crossingDeletesDoNotDeadlock() throws Exception {
         for (int round = 0; round < 8; round++) {
             String yard = codeOf(create(owner, "Yard " + round, null, "[]"));
@@ -524,6 +547,13 @@ class CustomRoleFlowTest {
                     UUID.randomUUID(), roleId, action);
         }
         jdbc.update("update organization_role set version = version + 1 where id = ?", roleId);
+    }
+
+    /** What another assignment does to the membership's row: lock it and point it at the role. */
+    private void moveTo(UUID membership, String code) {
+        jdbc.queryForObject("select id from organization_membership where id = ? for update", UUID.class, membership);
+        jdbc.update("update organization_membership set role_id = (select id from organization_role "
+                + "where organization_id = ? and code = ?) where id = ?", orgId, code, membership);
     }
 
     /** "200"/"204" on success, else the problem's code. */

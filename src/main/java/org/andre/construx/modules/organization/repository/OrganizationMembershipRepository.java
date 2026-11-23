@@ -25,6 +25,10 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
      * The membership with its row locked until the transaction ends, so a role change acts on the role the member
      * holds now, not on one read before another change committed.
      */
+    /** The membership's role id, without loading the membership: lets a write lock that role first. */
+    @Query("select m.role.id from OrganizationMembership m where m.id = :id and m.organization.id = :organizationId")
+    Optional<UUID> findRoleId(UUID id, UUID organizationId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from OrganizationMembership m where m.id = :id and m.organization.id = :organizationId")
     Optional<OrganizationMembership> findForUpdate(UUID id, UUID organizationId);

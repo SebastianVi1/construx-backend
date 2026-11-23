@@ -1,5 +1,6 @@
 package org.andre.construx.modules.organization.service;
 
+import jakarta.persistence.EntityManager;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.access.RoleAuthority;
 import org.andre.construx.modules.identity.service.PersonDirectory;
@@ -13,10 +14,13 @@ import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
 import org.andre.construx.shared.audit.AuditService;
+import org.andre.construx.shared.exception.ConflictException;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.util.function.Consumer;
@@ -25,21 +29,30 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /** Who belongs to an organization and what the caller may do there. */
 @Service
 public class MemberService {
+    /** A role change runs again when someone else moved the member meanwhile; it gives up after this many tries. */
+    private static final int CHANGE_ROLE_ATTEMPTS = 3;
+
     private final OrganizationMembershipRepository memberships;
     private final OrganizationRoleRepository roles;
     private final PersonDirectory directory;
     private final AuditService audit;
+    private final TransactionTemplate transactions;
+    private final EntityManager entityManager;
 
     public MemberService(OrganizationMembershipRepository memberships, OrganizationRoleRepository roles,
-                         PersonDirectory directory, AuditService audit) {
+                         PersonDirectory directory, AuditService audit, PlatformTransactionManager transactionManager,
+                         EntityManager entityManager) {
         this.memberships = memberships;
         this.roles = roles;
         this.directory = directory;
         this.audit = audit;
+        this.transactions = new TransactionTemplate(transactionManager);
+        this.entityManager = entityManager;
     }
 
     public record PermissionData(PermissionAction action, PermissionScope scope) {}
@@ -76,17 +89,51 @@ public class MemberService {
     /**
      * Move another member to a different role, under the "never above your own role" rules (contract roles §3): not
      * yourself, never into or out of the Owner role, and both the member's current role (whatever their status) and
-     * the new one must fit within the caller. The new role, then the membership, are locked before the check (in
-     * the order a role delete takes them), so a parallel change or delete cannot leave the check acting on a stale
-     * role.
+     * the new one must fit within the caller. Both roles are share-locked ({@link RoleLockOrder}), then the
+     * membership, before the check (the order a role delete takes them), so a parallel edit, assignment or delete
+     * cannot leave the check acting on a stale role. When someone else moved the member between reading their role
+     * and locking the membership, the attempt is dropped and run again on the role they now hold.
      */
-    @Transactional
     public MemberData changeRole(OrgScope org, UUID membershipId, String roleCode) {
         org.require(PermissionAction.MANAGE_MEMBERS);
-        OrganizationRole role = roles.findForShare(org.organizationId(), roleCode)
+        for (int attempt = 0; attempt < CHANGE_ROLE_ATTEMPTS; attempt++) {
+            MemberData changed = transactions.execute(status -> {
+                MemberData data = changeRoleOnce(org, membershipId, roleCode);
+                if (data == null) {
+                    // Drop what this attempt read, so the next one reads the membership under its lock again.
+                    status.setRollbackOnly();
+                    entityManager.clear();
+                }
+                return data;
+            });
+            if (changed != null) {
+                return changed;
+            }
+        }
+        throw new ConflictException("DATA_CONFLICT", "The member's role keeps changing; reload and try again");
+    }
+
+    /** One locked attempt; null when the member no longer holds the role that was locked as their current one. */
+    private MemberData changeRoleOnce(OrgScope org, UUID membershipId, String roleCode) {
+        UUID targetId = roles.findIdByCode(org.organizationId(), roleCode)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown role"));
+        UUID currentId = memberships.findRoleId(membershipId, org.organizationId())
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        OrganizationRole role = null;
+        for (UUID id : Stream.of(targetId, currentId).distinct().sorted(RoleLockOrder.BY_ID).toList()) {
+            OrganizationRole locked = roles.findForShareById(id).orElse(null);
+            if (id.equals(targetId)) {
+                role = locked;
+            }
+        }
+        if (role == null) {
+            throw new IllegalArgumentException("Unknown role");
+        }
         OrganizationMembership member = memberships.findForUpdate(membershipId, org.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+        if (!member.getRole().getId().equals(currentId)) {
+            return null;
+        }
         RoleAuthority.checkAssign(org, member, role);
         String before = member.getRole().getCode();
         member.changeRole(role);
