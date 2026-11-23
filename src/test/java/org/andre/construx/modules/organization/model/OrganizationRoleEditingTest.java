@@ -54,7 +54,7 @@ class OrganizationRoleEditingTest {
         OrganizationRole owner = role("OWNER");
         assertEquals(RoleKind.OWNER, owner.kind());
         assertCode("ROLE_OWNER_LOCKED", () -> owner.replacePermissions(Map.of()));
-        assertCode("ROLE_OWNER_LOCKED", () -> owner.restoreDefaults(BuiltInRoles.find("WORKER").orElseThrow()));
+        assertCode("ROLE_OWNER_LOCKED", () -> owner.restoreDefaults());
         assertCode("ROLE_OWNER_LOCKED", () -> owner.renameCustom("Boss"));
         assertCode("ROLE_OWNER_LOCKED", () -> owner.describe("Boss"));
         assertCode("ROLE_OWNER_LOCKED", owner::convertToCustom);
@@ -113,12 +113,12 @@ class OrganizationRoleEditingTest {
         worker.replacePermissions(Map.of());
         assertTrue(worker.isCustomized());
 
-        worker.restoreDefaults(definition);
+        worker.restoreDefaults();
         assertFalse(worker.isCustomized());
         assertEquals(definition.grants(), worker.grants());
 
         OrganizationRole custom = OrganizationRole.custom(organization, "Foreman", null, Map.of());
-        assertCode("ROLE_NOT_BUILT_IN", () -> custom.restoreDefaults(definition));
+        assertCode("ROLE_NOT_BUILT_IN", () -> custom.restoreDefaults());
     }
 
     @Test

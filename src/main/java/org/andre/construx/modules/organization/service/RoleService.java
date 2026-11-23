@@ -29,7 +29,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -50,7 +49,6 @@ public class RoleService {
             .thenComparing(OrganizationRole::getName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(OrganizationRole::getCode);
 
-    private static final String AUDIT_ENTITY = "ORGANIZATION_ROLE";
     /** At most this many Custom roles per company (§5.3). */
     public static final int CUSTOM_ROLE_LIMIT = 30;
 
@@ -125,13 +123,13 @@ public class RoleService {
         requireFreeName(existing, role);
         roles.save(role);
         roles.flush();
-        audit.record(AUDIT_ENTITY, role.getId(), "CREATE", org.membershipId(), null, RoleAuditState.of(role));
+        audit.record(RoleAuditState.ENTITY, role.getId(), "CREATE", org.membershipId(), null, RoleAuditState.of(role));
         return detail(org, role);
     }
 
     /**
-     * Replaces a role's whole permission set (§5.4). A Built-in role takes no name or description
-     * ({@code ROLE_NAME_FIXED}) and becomes customized, or uncustomized again when the set equals its defaults. A
+     * Replaces a role's whole permission set (§5.4). A Built-in role takes no name or description (the model answers
+     * {@code ROLE_NAME_FIXED}) and becomes customized, or uncustomized again when the set equals its defaults. A
      * Custom role is also renamed and described when the request carries them (see {@link #applyText}).
      */
     @Transactional
@@ -139,31 +137,26 @@ public class RoleService {
         OrganizationRole role = findForUpdate(org, code);
         RoleAuthority.checkEdit(org, role, draft.permissions());
         requireVersion(role, version);
-        if (role.kind() == RoleKind.BUILT_IN && (draft.name() != null || draft.description() != null)) {
-            throw new RuleViolationException("ROLE_NAME_FIXED",
-                    "A Built-in role's name and description come from the definition file");
-        }
         RoleAuditState before = RoleAuditState.of(role);
-        if (role.kind() == RoleKind.CUSTOM) {
-            applyText(org, role, draft);
-        }
+        applyText(org, role, draft);
         role.replacePermissions(draft.permissions());
         return written(org, role, "UPDATE", before);
     }
 
-    /** Sets a Built-in role back to the definition file's permissions and clears {@code customized} (§5.5). */
+    /**
+     * Sets a Built-in role back to the definition file's permissions and clears {@code customized} (§5.5); the model
+     * answers {@code ROLE_NOT_BUILT_IN} for any other role.
+     */
     @Transactional
     public RoleDetailData restore(OrgScope org, String code, long version) {
         OrganizationRole role = findForUpdate(org, code);
-        Optional<BuiltInRoles.Definition> definition = role.kind() == RoleKind.BUILT_IN
-                ? BuiltInRoles.find(role.getCode()) : Optional.empty();
-        RoleAuthority.checkEdit(org, role, definition.map(BuiltInRoles.Definition::grants).orElse(Map.of()));
-        if (definition.isEmpty()) {
-            throw new RuleViolationException("ROLE_NOT_BUILT_IN", "Only a Built-in role has defaults to restore");
-        }
+        Map<PermissionAction, PermissionScope> defaults = role.kind() == RoleKind.BUILT_IN
+                ? BuiltInRoles.find(role.getCode()).map(BuiltInRoles.Definition::grants).orElse(Map.of())
+                : Map.of();
+        RoleAuthority.checkEdit(org, role, defaults);
         requireVersion(role, version);
         RoleAuditState before = RoleAuditState.of(role);
-        role.restoreDefaults(definition.get());
+        role.restoreDefaults();
         return written(org, role, "RESTORE", before);
     }
 
@@ -195,7 +188,7 @@ public class RoleService {
         if (invitationCount > 0) {
             invitations.reassignRole(role, replacement);
         }
-        audit.record(AUDIT_ENTITY, role.getId(), "DELETE", org.membershipId(), RoleAuditState.of(role), null);
+        audit.record(RoleAuditState.ENTITY, role.getId(), "DELETE", org.membershipId(), RoleAuditState.of(role), null);
         roles.delete(role);
         roles.flush();
     }
@@ -267,18 +260,21 @@ public class RoleService {
     /** Writes the change and raises the version by one, then audits {@code before} and the result. */
     private RoleDetailData written(OrgScope org, OrganizationRole role, String action, RoleAuditState before) {
         versions.raise(role);
-        audit.record(AUDIT_ENTITY, role.getId(), action, org.membershipId(), before, RoleAuditState.of(role));
+        audit.record(RoleAuditState.ENTITY, role.getId(), action, org.membershipId(), before, RoleAuditState.of(role));
         return detail(org, role);
     }
 
     /**
      * A Custom role's name and description travel together: a request with a {@code name} renames the role and sets
      * the description to what it carries (null or blank clears it); a request with only a {@code description} sets
-     * that; a request with neither leaves both as they are.
+     * that; a request with neither leaves both as they are. Any other role refuses text in the model.
      */
     private void applyText(OrgScope org, OrganizationRole role, RoleDraft draft) {
         if (draft.name() == null && draft.description() == null) {
             return;
+        }
+        if (role.kind() != RoleKind.CUSTOM) {
+            role.describe(draft.description());
         }
         // Read the other roles before renaming, so the query's flush never writes a clashing name.
         List<OrganizationRole> existing = lockCompanyRoles(org);
@@ -294,10 +290,10 @@ public class RoleService {
      * and surrounding spaces ({@code ROLE_NAME_TAKEN}).
      */
     private static void requireFreeName(List<OrganizationRole> existing, OrganizationRole role) {
-        String name = role.getName().strip();
-        boolean taken = BuiltInRoles.isBuiltInName(name) || existing.stream()
+        String key = OrganizationRole.nameKey(role.getName());
+        boolean taken = BuiltInRoles.isBuiltInName(key) || existing.stream()
                 .filter(other -> other != role && !other.getId().equals(role.getId()))
-                .anyMatch(other -> other.getName().strip().equalsIgnoreCase(name));
+                .anyMatch(other -> OrganizationRole.nameKey(other.getName()).equals(key));
         if (taken) {
             throw new ConflictException("ROLE_NAME_TAKEN", "Another role already uses this name");
         }
@@ -308,8 +304,7 @@ public class RoleService {
     }
 
     private static void requireRead(OrgScope org) {
-        if (!org.can(PermissionAction.MANAGE_ROLES, () -> false, null)
-                && !org.can(PermissionAction.MANAGE_MEMBERS, () -> false, null)) {
+        if (!org.can(PermissionAction.MANAGE_ROLES) && !org.can(PermissionAction.MANAGE_MEMBERS)) {
             throw new AccessDeniedException("Permission required");
         }
     }

@@ -10,7 +10,6 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -65,7 +64,7 @@ public final class BuiltInRoles {
         if (name == null) {
             return false;
         }
-        String key = normalize(name);
+        String key = OrganizationRole.nameKey(name);
         return allNames(DEFINITIONS).stream().anyMatch(key::equals);
     }
 
@@ -152,8 +151,8 @@ public final class BuiltInRoles {
         List<Definition> all = new ArrayList<>(definitions.roles());
         all.add(0, definitions.owner());
         for (Definition definition : all) {
-            for (String name : new HashSet<>(List.of(normalize(definition.name().en()),
-                    normalize(definition.name().es())))) {
+            for (String name : new HashSet<>(List.of(OrganizationRole.nameKey(definition.name().en()),
+                    OrganizationRole.nameKey(definition.name().es())))) {
                 String previous = owners.putIfAbsent(name, definition.code());
                 if (previous != null) {
                     throw new IllegalStateException("Built-in roles " + previous + " and " + definition.code()
@@ -165,18 +164,15 @@ public final class BuiltInRoles {
 
     private static Set<String> allNames(Definitions definitions) {
         Set<String> names = new HashSet<>();
-        names.add(normalize(definitions.owner().name().en()));
-        names.add(normalize(definitions.owner().name().es()));
+        names.add(OrganizationRole.nameKey(definitions.owner().name().en()));
+        names.add(OrganizationRole.nameKey(definitions.owner().name().es()));
         definitions.roles().forEach(d -> {
-            names.add(normalize(d.name().en()));
-            names.add(normalize(d.name().es()));
+            names.add(OrganizationRole.nameKey(d.name().en()));
+            names.add(OrganizationRole.nameKey(d.name().es()));
         });
         return names;
     }
 
-    private static String normalize(String name) {
-        return name.strip().toLowerCase(Locale.ROOT);
-    }
 
     private static Definitions load() {
         try (InputStream in = BuiltInRoles.class.getResourceAsStream(RESOURCE)) {

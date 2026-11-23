@@ -6,6 +6,7 @@ import org.andre.construx.modules.organization.access.OrgScopeFixtures;
 import org.andre.construx.modules.organization.model.Organization;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.OrganizationRole;
+import org.andre.construx.modules.organization.model.RoleKind;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
@@ -39,7 +40,9 @@ class OrganizationServiceTest {
         organization = mock(Organization.class);
         membership = mock(OrganizationMembership.class);
         when(membership.getOrganization()).thenReturn(organization);
-        when(membership.getRole()).thenReturn(mock(OrganizationRole.class));
+        OrganizationRole role = mock(OrganizationRole.class);
+        when(role.kind()).thenReturn(RoleKind.CUSTOM);
+        when(membership.getRole()).thenReturn(role);
         when(organizations.findById(orgId)).thenReturn(Optional.of(organization));
     }
 

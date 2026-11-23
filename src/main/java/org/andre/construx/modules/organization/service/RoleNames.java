@@ -14,15 +14,13 @@ public final class RoleNames {
     }
 
     public static LocalizedText of(OrganizationRole role) {
-        if (role.isSystemRole()) {
-            return BuiltInRoles.owner().name();
-        }
-        if (role.isSeeded()) {
-            return BuiltInRoles.find(role.getCode())
+        return switch (role.kind()) {
+            case OWNER -> BuiltInRoles.owner().name();
+            case BUILT_IN -> BuiltInRoles.find(role.getCode())
                     .map(BuiltInRoles.Definition::name)
                     .orElseGet(() -> LocalizedText.same(role.getName()));
-        }
-        return LocalizedText.same(role.getName());
+            case CUSTOM -> LocalizedText.same(role.getName());
+        };
     }
 
     /**
@@ -30,14 +28,12 @@ public final class RoleNames {
      * languages for a custom role (both null when it has none).
      */
     public static LocalizedText descriptionOf(OrganizationRole role) {
-        if (role.isSystemRole()) {
-            return BuiltInRoles.owner().description();
-        }
-        if (role.isSeeded()) {
-            return BuiltInRoles.find(role.getCode())
+        return switch (role.kind()) {
+            case OWNER -> BuiltInRoles.owner().description();
+            case BUILT_IN -> BuiltInRoles.find(role.getCode())
                     .map(BuiltInRoles.Definition::description)
                     .orElseGet(() -> LocalizedText.same(role.getDescription()));
-        }
-        return LocalizedText.same(role.getDescription());
+            case CUSTOM -> LocalizedText.same(role.getDescription());
+        };
     }
 }

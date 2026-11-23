@@ -20,7 +20,9 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -130,6 +132,14 @@ public class OrganizationRole {
         return role;
     }
 
+    /**
+     * The form role names are compared in: no surrounding spaces, any case. Two roles of a company never share it,
+     * and a Custom role never takes a Built-in or Owner name's.
+     */
+    public static String nameKey(String name) {
+        return name.strip().toLowerCase(Locale.ROOT);
+    }
+
     public RoleKind kind() {
         if (systemRole) {
             return RoleKind.OWNER;
@@ -163,11 +173,12 @@ public class OrganizationRole {
         }
     }
 
-    public void restoreDefaults(BuiltInRoles.Definition definition) {
+    /** Sets a Built-in role back to its definition's permissions and clears {@code customized} (§5.5). */
+    public void restoreDefaults() {
         requireNotOwner();
-        if (!seeded) {
-            throw new RuleViolationException("ROLE_NOT_BUILT_IN", "Only a Built-in role has defaults to restore");
-        }
+        BuiltInRoles.Definition definition = (seeded ? BuiltInRoles.find(code) : Optional.<BuiltInRoles.Definition>empty())
+                .orElseThrow(() -> new RuleViolationException("ROLE_NOT_BUILT_IN",
+                        "Only a Built-in role has defaults to restore"));
         setGrants(definition.grants());
         customized = false;
         markEveryActionKnown();

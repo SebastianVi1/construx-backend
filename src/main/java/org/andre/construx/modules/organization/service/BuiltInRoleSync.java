@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,7 +29,6 @@ import java.util.stream.Collectors;
  */
 @Service
 public class BuiltInRoleSync {
-    static final String ENTITY = "ORGANIZATION_ROLE";
     private static final Logger log = LoggerFactory.getLogger(BuiltInRoleSync.class);
 
     /** Roles created, synced (permissions or name changed, Owner included), adopted back and converted to custom. */
@@ -88,7 +86,7 @@ public class BuiltInRoleSync {
             RoleAuditState before = RoleAuditState.of(owner);
             if (owner.holdEveryAction()) {
                 versions.raise(owner);
-                audit.record(ENTITY, owner.getId(), "SYNC", null, before, RoleAuditState.of(owner));
+                audit.record(RoleAuditState.ENTITY, owner.getId(), "SYNC", null, before, RoleAuditState.of(owner));
                 synced++;
             }
         } else {
@@ -105,7 +103,7 @@ public class BuiltInRoleSync {
                 role = roles.save(role);
                 companyRoles.add(role);
                 storedNames.put(role, role.getName());
-                audit.record(ENTITY, role.getId(), "SYNC", null, null, RoleAuditState.of(role));
+                audit.record(RoleAuditState.ENTITY, role.getId(), "SYNC", null, null, RoleAuditState.of(role));
                 created++;
                 continue;
             }
@@ -120,10 +118,10 @@ public class BuiltInRoleSync {
                 versions.raise(role); // a client holding the version from before the sync must reload
             }
             if (adopt) {
-                audit.record(ENTITY, role.getId(), "ADOPT", null, before, RoleAuditState.of(role));
+                audit.record(RoleAuditState.ENTITY, role.getId(), "ADOPT", null, before, RoleAuditState.of(role));
                 adopted++;
             } else if (changed) {
-                audit.record(ENTITY, role.getId(), "SYNC", null, before, RoleAuditState.of(role));
+                audit.record(RoleAuditState.ENTITY, role.getId(), "SYNC", null, before, RoleAuditState.of(role));
                 synced++;
             }
         }
@@ -134,7 +132,7 @@ public class BuiltInRoleSync {
                 RoleAuditState before = RoleAuditState.of(role);
                 role.convertToCustom();
                 versions.raise(role);
-                audit.record(ENTITY, role.getId(), "CONVERT_TO_CUSTOM", null, before, RoleAuditState.of(role));
+                audit.record(RoleAuditState.ENTITY, role.getId(), "CONVERT_TO_CUSTOM", null, before, RoleAuditState.of(role));
                 converted++;
             }
         }
@@ -169,13 +167,9 @@ public class BuiltInRoleSync {
     /** Free when no other role holds it now or held it before this sync, ignoring case and outer spaces. */
     private static boolean nameFree(List<OrganizationRole> companyRoles, Map<OrganizationRole, String> storedNames,
                                     OrganizationRole role, String name) {
-        String key = normalize(name);
+        String key = OrganizationRole.nameKey(name);
         return companyRoles.stream().filter(other -> other != role).noneMatch(other ->
-                normalize(other.getName()).equals(key)
-                        || (storedNames.containsKey(other) && normalize(storedNames.get(other)).equals(key)));
-    }
-
-    private static String normalize(String name) {
-        return name.strip().toLowerCase(Locale.ROOT);
+                OrganizationRole.nameKey(other.getName()).equals(key)
+                        || (storedNames.containsKey(other) && OrganizationRole.nameKey(storedNames.get(other)).equals(key)));
     }
 }
