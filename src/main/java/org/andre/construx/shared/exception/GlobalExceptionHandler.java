@@ -42,7 +42,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if ("ZONE_CONFLICT".equals(ex.getCode()) || "PIN_CONFLICT".equals(ex.getCode())) {
             return respond(HttpStatus.CONFLICT, "Concurrent modification", ex.getMessage(), ex.getCode(), request);
         }
-        return respond(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode(), request);
+        ex.getProperties().forEach(problem::setProperty);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
+    }
+
+    @ExceptionHandler(ForbiddenRuleException.class)
+    public ResponseEntity<ProblemDetail> handleForbiddenRule(ForbiddenRuleException ex, HttpServletRequest request) {
+        return respond(HttpStatus.FORBIDDEN, "Access denied", ex.getMessage(), ex.getCode(), request);
     }
 
     @ExceptionHandler(ConflictException.class)
