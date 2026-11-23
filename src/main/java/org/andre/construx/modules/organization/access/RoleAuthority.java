@@ -16,9 +16,10 @@ import java.util.Optional;
  * "Never above your own role" (contract roles §3). A role or permission set <em>fits within</em> the caller when the
  * caller's role holds each of its actions at the same or a wider scope ({@code OWN < PROJECT < ORGANIZATION}); the
  * Owner role fits within no one but Owner. Each check applies the §3 rules in order: the permission
- * ({@code FORBIDDEN}), then {@code ROLE_OWNER_LOCKED} (400), {@code ROLE_OWN} (403) and {@code ROLE_ABOVE_CALLER}
- * (403). The {@code editable} and {@code assignable} flags of the roles list are the same rules, answered without
- * throwing.
+ * ({@code FORBIDDEN}) first and {@code ROLE_ABOVE_CALLER} (403) last. In between, an assignment checks
+ * {@code ROLE_OWN} (403) before {@code ROLE_OWNER_LOCKED} (400); an edit checks {@code ROLE_OWNER_LOCKED} before
+ * {@code ROLE_OWN}. The {@code editable} and {@code assignable} flags of the roles list are the same rules,
+ * answered without throwing.
  */
 public final class RoleAuthority {
     private RoleAuthority() {
