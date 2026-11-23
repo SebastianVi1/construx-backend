@@ -25,7 +25,8 @@ import java.util.stream.Collectors;
 /**
  * Applies {@code built-in-roles.yml} to every company on boot (contract roles §6.2, ADR 0010), in one idempotent
  * transaction. Only real changes are written and audited ({@code SYNC}, {@code ADOPT}, {@code CONVERT_TO_CUSTOM},
- * with a null actor), so a boot with no file change touches nothing.
+ * with a null actor), so a boot with no file change touches nothing. Each changed role's {@code version} moves by
+ * one, so an editor holding the version from before the sync gets {@code ROLE_CHANGED}.
  */
 @Service
 public class BuiltInRoleSync {
@@ -43,11 +44,14 @@ public class BuiltInRoleSync {
     private final OrganizationRepository organizations;
     private final OrganizationRoleRepository roles;
     private final AuditService audit;
+    private final RoleVersions versions;
 
-    public BuiltInRoleSync(OrganizationRepository organizations, OrganizationRoleRepository roles, AuditService audit) {
+    public BuiltInRoleSync(OrganizationRepository organizations, OrganizationRoleRepository roles, AuditService audit,
+                           RoleVersions versions) {
         this.organizations = organizations;
         this.roles = roles;
         this.audit = audit;
+        this.versions = versions;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -83,6 +87,7 @@ public class BuiltInRoleSync {
         if (owner != null) {
             RoleAuditState before = RoleAuditState.of(owner);
             if (owner.holdEveryAction()) {
+                versions.raise(owner);
                 audit.record(ENTITY, owner.getId(), "SYNC", null, before, RoleAuditState.of(owner));
                 synced++;
             }
@@ -111,6 +116,9 @@ public class BuiltInRoleSync {
             }
             boolean changed = role.syncFromFile(definition);
             changed |= followFileName(organization, companyRoles, storedNames, role, definition);
+            if (adopt || changed) {
+                versions.raise(role); // a client holding the version from before the sync must reload
+            }
             if (adopt) {
                 audit.record(ENTITY, role.getId(), "ADOPT", null, before, RoleAuditState.of(role));
                 adopted++;
@@ -125,6 +133,7 @@ public class BuiltInRoleSync {
             if (role.kind() == RoleKind.BUILT_IN && !fileCodes.contains(role.getCode())) {
                 RoleAuditState before = RoleAuditState.of(role);
                 role.convertToCustom();
+                versions.raise(role);
                 audit.record(ENTITY, role.getId(), "CONVERT_TO_CUSTOM", null, before, RoleAuditState.of(role));
                 converted++;
             }

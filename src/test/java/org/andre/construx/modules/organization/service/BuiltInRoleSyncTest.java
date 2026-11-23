@@ -65,10 +65,12 @@ class BuiltInRoleSyncTest {
     void ownerGainsEveryAction() {
         UUID owner = roleId("OWNER");
         jdbc.update("delete from role_permission where role_id = ? and action = 'VIEW_PLAN'", owner);
+        long before = versions().get("OWNER");
 
         sync.sync(BuiltInRoles.definitions());
 
         assertEquals(16, grants("OWNER").size());
+        assertEquals(before + 1, versions().get("OWNER"), "a sync change raises the version once");
         assertEquals(List.of("SYNC"), auditActions(owner));
     }
 
@@ -77,6 +79,7 @@ class BuiltInRoleSyncTest {
         Map<PermissionAction, PermissionScope> worker = new EnumMap<>(file("WORKER").grants());
         worker.put(VIEW_PRICES, ORGANIZATION);
         worker.remove(VIEW_PLAN);
+        long before = versions().get("WORKER");
 
         BuiltInRoleSync.SyncReport report = sync.sync(withRole("WORKER", worker));
 
@@ -84,6 +87,7 @@ class BuiltInRoleSyncTest {
         assertFalse(role("WORKER").isCustomized());
         assertTrue(report.synced() >= 1);
         assertEquals(List.of("SYNC"), auditActions(roleId("WORKER")));
+        assertEquals(before + 1, versions().get("WORKER"), "a stale save after the sync gets ROLE_CHANGED");
     }
 
     @Test
@@ -118,6 +122,7 @@ class BuiltInRoleSyncTest {
         file.put(VIEW_GOAL, ORGANIZATION); // already known: the company's choice stays
         file.put(VIEW_PROJECT, ORGANIZATION);
 
+        long before = versions().get("WORKER");
         assertDoesNotThrow(() -> sync.sync(withRole("WORKER", file)));
 
         Map<PermissionAction, PermissionScope> expected = new EnumMap<>(chosen);
@@ -125,6 +130,7 @@ class BuiltInRoleSyncTest {
         assertEquals(expected, grants("WORKER"));
         assertTrue(role("WORKER").isCustomized());
         assertEquals(EnumSet.allOf(PermissionAction.class), role("WORKER").knownActions());
+        assertEquals(before + 1, versions().get("WORKER"));
     }
 
     @Test
