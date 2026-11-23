@@ -1,6 +1,7 @@
 package org.andre.construx.modules.organization.service;
 
 import org.andre.construx.modules.organization.access.OrgScope;
+import org.andre.construx.modules.organization.access.RoleAuthority;
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
 import org.andre.construx.modules.organization.model.LocalizedText;
@@ -11,6 +12,7 @@ import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.organization.model.PermissionScope;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRoleRepository;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -30,12 +32,14 @@ public class MemberService {
     private final OrganizationMembershipRepository memberships;
     private final OrganizationRoleRepository roles;
     private final PersonDirectory directory;
+    private final AuditService audit;
 
     public MemberService(OrganizationMembershipRepository memberships, OrganizationRoleRepository roles,
-                         PersonDirectory directory) {
+                         PersonDirectory directory, AuditService audit) {
         this.memberships = memberships;
         this.roles = roles;
         this.directory = directory;
+        this.audit = audit;
     }
 
     public record PermissionData(PermissionAction action, PermissionScope scope) {}
@@ -58,33 +62,35 @@ public class MemberService {
                 RoleNames.of(member.getRole()), permissions);
     }
 
+    /** Members with {@code status}; with a {@code roleCode}, only those holding that role (none for an unknown code). */
     @Transactional(readOnly = true)
-    public List<MemberData> members(OrgScope org, MembershipStatus status) {
+    public List<MemberData> members(OrgScope org, MembershipStatus status, String roleCode) {
         org.require(PermissionAction.MANAGE_MEMBERS);
-        List<OrganizationMembership> list = memberships.findByOrganizationWithUserAndRole(org.organizationId(), status);
+        List<OrganizationMembership> list = roleCode == null
+                ? memberships.findByOrganizationWithUserAndRole(org.organizationId(), status)
+                : memberships.findByOrganizationWithUserAndRole(org.organizationId(), status, roleCode);
         Map<UUID, Person> people = directory.byUserId(list.stream().map(m -> m.getUserAccount().getId()).toList());
         return list.stream().map(m -> toData(m, PersonDirectory.of(people, m.getUserAccount().getId()))).toList();
     }
 
     /**
-     * Give another member a different non-owner role. The owner role cannot be granted or
-     * replaced here, and nobody changes their own role.
+     * Move another member to a different role, under the "never above your own role" rules (contract roles §3): not
+     * yourself, never into or out of the Owner role, and both the member's current role (whatever their status) and
+     * the new one must fit within the caller.
      */
     @Transactional
     public MemberData changeRole(OrgScope org, UUID membershipId, String roleCode) {
-        OrganizationMembership caller = org.membership();
         org.require(PermissionAction.MANAGE_MEMBERS);
         OrganizationMembership member = memberships.findByIdAndOrganizationId(membershipId, org.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
-        if (member.getId().equals(caller.getId())) {
-            throw new AccessDeniedException("You cannot change your own role");
-        }
         OrganizationRole role = roles.findByOrganizationIdAndCode(org.organizationId(), roleCode)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown role"));
-        if (role.isSystemRole()) {
-            throw new IllegalArgumentException("The owner role cannot be granted");
-        }
+        RoleAuthority.checkAssign(org, member, role);
+        String before = member.getRole().getCode();
         member.changeRole(role);
+        if (!before.equals(role.getCode())) {
+            MembershipRoleAudit.record(audit, member.getId(), before, role.getCode(), org.membershipId());
+        }
         return toData(member);
     }
 

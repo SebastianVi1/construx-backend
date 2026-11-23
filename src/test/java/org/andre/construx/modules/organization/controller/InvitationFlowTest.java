@@ -130,7 +130,8 @@ class InvitationFlowTest {
         Fixture f = fixture();
         Fixture other = fixture();
         Project foreign = projects.save(new Project(organizations.findById(other.orgId).orElseThrow(), "Foreign"));
-        invite(f, "frank@example.com", "OWNER", null).andExpect(status().isBadRequest());
+        invite(f, "frank@example.com", "OWNER", null).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_OWNER_LOCKED"));
         invite(f, "not-an-email", "WORKER", null).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         invite(f, f.ownerEmail, "WORKER", null).andExpect(status().isConflict())
@@ -160,6 +161,24 @@ class InvitationFlowTest {
         invite(f.as(other.ownerAccess), "jon@example.com", "WORKER", null).andExpect(status().isNotFound());
         mvc.perform(get("/api/organizations/" + f.orgId + "/invitations").cookie(other.ownerAccess))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void administratorCannotInviteAsFinance() throws Exception {
+        Fixture f = fixture();
+        UserAccount admin = account();
+        addMember(f.orgId, admin, "ADMINISTRATOR");
+        Fixture asAdmin = f.as(access(admin));
+
+        invite(asAdmin, "kim@example.com", "FINANCE", null).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ROLE_ABOVE_CALLER"));
+        invite(asAdmin, "kim@example.com", "OWNER", null).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ROLE_OWNER_LOCKED"));
+        assertEquals(0L, jdbc.queryForObject("select count(*) from organization_invitation where organization_id = ?",
+                Long.class, f.orgId));
+        invite(f, "kim@example.com", "FINANCE", null).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role.code").value("FINANCE"));
+        verify(mailer, times(1)).send(any(), any(), any());
     }
 
     @Test
