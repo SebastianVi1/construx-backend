@@ -54,6 +54,12 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
 
     Optional<Activity> findByIdAndGoalId(UUID id, UUID goalId);
 
+    /** The unfinished tasks of one site, with their phase and team. */
+    @Query("select distinct a from Activity a join fetch a.goal g left join fetch a.team t left join fetch t.access acc "
+            + "left join fetch acc.organizationMembership where g.project.id = :projectId "
+            + "and a.status <> org.andre.construx.modules.project.model.ActivityStatus.DONE")
+    List<Activity> findOpenInProject(UUID projectId);
+
     /** Row lock so two team changes of one task run one after the other and keep exactly one Lead. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Activity a where a.id = :id")

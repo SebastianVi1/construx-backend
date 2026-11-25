@@ -61,12 +61,13 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private final AuditService audit;
     private final WhatsAppProperties properties;
     private final NumberMovedMailer movedMailer;
+    private final ConversationSessions sessions;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
     public WhatsAppLinkService(WhatsAppLinkRepository links, LinkCodeRepository codes, AccountService accounts,
             PersonDirectory people, AuditService audit, WhatsAppProperties properties, NumberMovedMailer movedMailer,
-            Clock clock) {
+            ConversationSessions sessions, Clock clock) {
         this.links = links;
         this.codes = codes;
         this.accounts = accounts;
@@ -74,6 +75,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
         this.audit = audit;
         this.properties = properties;
         this.movedMailer = movedMailer;
+        this.sessions = sessions;
         this.clock = clock;
     }
 
@@ -146,7 +148,8 @@ public class WhatsAppLinkService implements LinkedNumbers {
         }
         Optional<WhatsAppLink> moved = links.findByWaId(waId).filter(other -> !other.getUserId().equals(userId));
         moved.ifPresent(other -> {
-            // #120: the previous owner's menu session on this number (and its pending photos) goes with it.
+            // The previous owner's menu session on this number goes with it.
+            sessions.end(waId);
             links.delete(other);
             links.flush();
         });
@@ -154,6 +157,8 @@ public class WhatsAppLinkService implements LinkedNumbers {
         if (link == null) {
             link = links.save(new WhatsAppLink(userId, waId, used.getLanguage(), now));
         } else {
+            // The number the user had before stops talking to the bot, so its menu session ends.
+            sessions.end(link.getWaId());
             link.relink(waId, used.getLanguage(), now);
         }
         Map<String, Object> linked = auditState(link, Source.WHATSAPP);
@@ -189,7 +194,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
                 previous.getLanguage());
     }
 
+    /** Unlinking ends the number's menu session too. */
     private void remove(WhatsAppLink link, Source source) {
+        sessions.end(link.getWaId());
         links.delete(link);
         audit.record(AUDIT_ENTITY, link.getUserId(), "UNLINK", null, auditState(link, source), null);
     }

@@ -99,6 +99,26 @@ public class ActivityService {
         return byMembership;
     }
 
+    /** An unfinished task the caller may start or finish, and whether the caller is in its team. */
+    public record ChangeableTask(UUID id, UUID goalId, String goalName, String name, ActivityStatus status,
+                                 Instant dueAt, boolean onMyTeam) {}
+
+    /**
+     * The unfinished tasks of the site the caller may start or finish, with the same check as {@link #start}: their
+     * own team's tasks first, then soonest due, then by name.
+     */
+    @Transactional(readOnly = true)
+    public List<ChangeableTask> changeableOpenTasks(SiteScope site) {
+        OrganizationMembership me = site.membership();
+        return activities.findOpenInProject(site.siteId()).stream()
+                .filter(a -> site.can(PermissionAction.MANAGE_ACTIVITY, teamMember(a, me)))
+                .map(a -> new ChangeableTask(a.getId(), a.getGoal().getId(), a.getGoal().getName(), a.getName(),
+                        a.getStatus(), a.getDueAt(), a.isOnTeam(me.getId())))
+                .sorted(Comparator.comparing((ChangeableTask t) -> !t.onMyTeam())
+                        .thenComparing(ChangeableTask::dueAt).thenComparing(ChangeableTask::name))
+                .toList();
+    }
+
     /** A phase with its tasks, for printed summaries. */
     public record PhaseOverview(String name, Instant startAt, Instant dueAt, List<TaskOverview> tasks) {}
 

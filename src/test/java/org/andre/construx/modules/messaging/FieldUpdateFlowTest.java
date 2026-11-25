@@ -1,0 +1,547 @@
+package org.andre.construx.modules.messaging;
+
+import com.jayway.jsonpath.JsonPath;
+import org.andre.construx.modules.identity.repository.UserAccountRepository;
+import org.andre.construx.modules.identity.service.TokenService;
+import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.Button;
+import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.ListRow;
+import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
+import org.andre.construx.modules.organization.repository.OrganizationRepository;
+import org.andre.construx.modules.project.repository.ProjectAccessRepository;
+import org.andre.construx.modules.project.repository.ProjectRepository;
+import org.andre.construx.support.Api;
+import org.andre.construx.support.Api.Session;
+import org.andre.construx.support.Members;
+import org.andre.construx.support.MutableClock;
+import org.andre.construx.shared.audit.AuditService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.UUID;
+
+import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.newSender;
+import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.sign;
+import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.textMessage;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * Starting and finishing a Task from WhatsApp (Field updates contract §5 steps A–C and G, §6): a Linked number talks
+ * to the bot through signed webhook posts, and what the bot sent is read from the {@link InMemoryWhatsAppGateway}.
+ * Rows and buttons are tapped by their visible title, as a person would.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Import(FieldUpdateFlowTest.Fakes.class)
+class FieldUpdateFlowTest {
+    static final Instant NOW = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+    static final String PHASE_START = "2027-01-01T00:00:00Z";
+
+    @TestConfiguration
+    static class Fakes {
+        @Bean @Primary InMemoryWhatsAppGateway inMemoryWhatsAppGateway() {
+            return new InMemoryWhatsAppGateway();
+        }
+
+        @Bean @Primary MutableClock whatsAppClock() {
+            return new MutableClock(NOW);
+        }
+    }
+
+    @Autowired MockMvc mvc;
+    @Autowired UserAccountRepository users;
+    @Autowired TokenService tokens;
+    @Autowired InMemoryWhatsAppGateway gateway;
+    @Autowired MutableClock clock;
+    @Autowired PlatformTransactionManager txm;
+    @Autowired OrganizationRepository organizations;
+    @Autowired OrganizationMembershipRepository memberships;
+    @Autowired ProjectRepository projects;
+    @Autowired ProjectAccessRepository accesses;
+    @Autowired AuditService audit;
+
+    Api api;
+    Members members;
+    Session owner;
+    UUID orgId;
+    String orgName;
+    String org;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        api = new Api(mvc, users, tokens);
+        members = new Members(txm, organizations, memberships, projects, accesses);
+        clock.set(NOW.toString());
+        gateway.clear();
+        owner = api.signUp();
+        orgName = "Acme " + UUID.randomUUID();
+        orgId = api.createOrganization(owner, orgName);
+        org = "/api/organizations/" + orgId;
+    }
+
+    @Test
+    void aWorkerWithOneSiteGetsStraightToTheOpenTasksOfTheirTeamSoonestDueFirst() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String formwork = task(site, phase, "Formwork", "2027-01-20T00:00:00Z", bob.access, ana.access);
+        api.post(ana.session, tasks(site, phase) + "/" + formwork + "/start", null).andExpect(status().isOk());
+        String done = task(site, phase, "Survey", "2027-01-05T00:00:00Z", ana.access);
+        api.post(ana.session, tasks(site, phase) + "/" + done + "/complete", null).andExpect(status().isOk());
+        String waId = link(ana.session, "es");
+
+        say(waId, "hola");
+
+        InMemoryWhatsAppGateway.Sent list = last(waId);
+        assertThat(list.body()).isEqualTo("Tower: ¿qué tarea?");
+        assertThat(list.rows()).extracting(ListRow::title, ListRow::description).containsExactly(
+                tuple("Formwork", "Structure · En curso"),
+                tuple("Pour slab", "Structure · Por hacer"));
+    }
+
+    @Test
+    void aSiteManagerSeesEveryOpenTaskOfTheSiteWithTheirOwnTeamsFirst() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker mia = worker(site, "SITE_MANAGER");
+        Worker bob = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", bob.access);
+        task(site, phase, "Inspect", "2027-03-01T00:00:00Z", mia.access);
+        task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String waId = link(mia.session, "es");
+
+        say(waId, "hola");
+
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Inspect", "Rebar", "Pour slab");
+    }
+
+    @Test
+    void aLongTaskListComesNineAtATimeWithSeeMore() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker mia = worker(site, "SITE_MANAGER");
+        Worker bob = worker(site, "WORKER");
+        for (int day = 10; day < 22; day++) {
+            task(site, phase, "Task " + day, "2027-01-" + day + "T00:00:00Z", bob.access);
+        }
+        String waId = link(mia.session, "en");
+
+        say(waId, "hi");
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Task 10", "Task 11", "Task 12",
+                "Task 13", "Task 14", "Task 15", "Task 16", "Task 17", "Task 18", "See more");
+
+        tap(waId, "See more");
+        assertThat(last(waId).body()).isEqualTo("Tower: which task?");
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Task 19", "Task 20", "Task 21");
+    }
+
+    @Test
+    void withSitesInTwoCompaniesTheListShowsOnlyAccessibleSitesWithTheirCompany() throws Exception {
+        UUID tower = site("Tower");
+        site("Hidden");
+        Worker ana = worker(tower, "WORKER");
+        task(tower, phase(tower, "Structure"), "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        Session other = api.signUp();
+        String otherName = "Zeta " + UUID.randomUUID();
+        UUID otherOrg = api.createOrganization(other, otherName);
+        UUID plaza = UUID.fromString(Api.id(api.post(other, "/api/organizations/" + otherOrg + "/projects",
+                "{\"name\":\"Plaza\"}")));
+        members.grantSite(plaza, members.add(otherOrg, ana.session.user(), "WORKER"));
+        String waId = link(ana.session, "es");
+
+        say(waId, "hola");
+
+        assertThat(last(waId).body()).isEqualTo("¿En qué obra?");
+        assertThat(last(waId).rows()).extracting(ListRow::title, ListRow::description).containsExactly(
+                tuple("Tower", orgName), tuple("Plaza", otherName));
+
+        tap(waId, "Tower");
+        assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Pour slab");
+    }
+
+    @Test
+    void startingATaskSavesItOnlyAfterYesAndOffersAnotherTask() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        assertThat(last(waId).body()).isEqualTo("Pour slab: ¿qué hiciste?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Iniciar", "Terminar");
+
+        tap(waId, "Iniciar");
+        assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Iniciada\n\n¿Lo guardo?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Sí", "No");
+        assertStatus(site, phase, pour, "TODO");
+
+        tap(waId, "Sí");
+        assertThat(last(waId).body()).isEqualTo("✅ Guardado en Construx.");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Otra tarea");
+        assertStatus(site, phase, pour, "IN_PROGRESS");
+        assertThat(audit.listForEntity("ACTIVITY", UUID.fromString(pour))).singleElement().satisfies(event -> {
+            assertThat(event.action()).isEqualTo("START");
+            assertThat(event.afterState()).contains("\"source\":\"WHATSAPP\"");
+        });
+
+        tap(waId, "Otra tarea");
+        assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+        assertThat(last(waId).rows()).extracting(ListRow::description).containsExactly("Structure · En curso");
+    }
+
+    @Test
+    void aTaskInProgressCanOnlyBeFinishedAndTheBotSpeaksTheNumbersLanguage() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        api.post(ana.session, tasks(site, phase) + "/" + pour + "/start", null).andExpect(status().isOk());
+        String waId = link(ana.session, "en");
+
+        say(waId, "hi");
+        assertThat(last(waId).rows()).extracting(ListRow::description).containsExactly("Structure · In progress");
+        tap(waId, "Pour slab");
+        assertThat(last(waId).body()).isEqualTo("Pour slab: what did you do?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Finish");
+        tap(waId, "Finish");
+        assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Finished\n\nSave it?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Yes", "No");
+        tap(waId, "Yes");
+
+        assertThat(last(waId).body()).isEqualTo("✅ Saved to Construx.");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Another task");
+        api.get(ana.session, tasks(site, phase) + "/" + pour)
+                .andExpect(jsonPath("$.status").value("DONE"))
+                .andExpect(jsonPath("$.completedAt").isNotEmpty());
+        assertThat(audit.listForEntity("ACTIVITY", UUID.fromString(pour)).getFirst()).satisfies(event -> {
+            assertThat(event.action()).isEqualTo("COMPLETE");
+            assertThat(event.afterState()).contains("\"source\":\"WHATSAPP\"");
+        });
+    }
+
+    @Test
+    void noCancelsSavesNothingAndTheNextMessageStartsOver() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Terminar");
+        InMemoryWhatsAppGateway.Sent summary = last(waId);
+
+        tap(waId, "No");
+
+        assertThat(last(waId).body()).isEqualTo("Cancelado. Escribe de nuevo cuando quieras.");
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(audit.listForEntity("ACTIVITY", UUID.fromString(pour))).isEmpty();
+        tapId(waId, summary.buttons().getFirst().id(), "button_reply");
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+    }
+
+    @Test
+    void aTeammateFinishingTheTaskBeforeYesGetsChangedAndNothingIsSaved() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", bob.access, ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Terminar");
+
+        api.post(bob.session, tasks(site, phase) + "/" + pour + "/complete", null).andExpect(status().isOk());
+        tap(waId, "Sí");
+
+        assertThat(last(waId).body()).isEqualTo("Esta tarea cambió mientras tanto. Empieza de nuevo.");
+        assertThat(audit.listForEntity("ACTIVITY", UUID.fromString(pour))).singleElement()
+                .satisfies(event -> assertThat(event.afterState()).contains("\"source\":\"APP\""));
+    }
+
+    @Test
+    void aMemberRemovedBeforeYesGetsChangedAndNoLongerSeesTheSite() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+
+        api.delete(owner, org + "/members/" + ana.membership).andExpect(status().isNoContent());
+        tap(waId, "Sí");
+
+        assertThat(last(waId).body()).isEqualTo("Esta tarea cambió mientras tanto. Empieza de nuevo.");
+        assertStatus(site, phase, pour, "TODO");
+        say(waId, "hola");
+        assertThat(last(waId).body()).isEqualTo("No tienes obras asignadas.");
+    }
+
+    @Test
+    void aTaskOutsideTheWorkersTeamCannotBeChosenEvenWithItsId() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String rebar = task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+
+        tapId(waId, "task:" + phase + ":" + rebar, "list_reply");
+
+        assertThat(last(waId).body()).isEqualTo("Esta tarea cambió mientras tanto. Empieza de nuevo.");
+        assertStatus(site, phase, rebar, "TODO");
+    }
+
+    @Test
+    void audioDuringTheTaskListGetsUseButtonsAndTheSameListAgain() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        InMemoryWhatsAppGateway.Sent list = last(waId);
+        gateway.clear();
+
+        sendAudio(waId);
+
+        assertThat(gateway.sentTo(waId)).hasSize(2);
+        assertThat(gateway.sentTo(waId).getFirst().body()).isEqualTo("Por ahora usa los botones.");
+        assertThat(last(waId)).isEqualTo(list);
+    }
+
+    @Test
+    void textWhileTheSummaryWaitsGetsUseButtonsAndTheSummaryAgain() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        InMemoryWhatsAppGateway.Sent summary = last(waId);
+        gateway.clear();
+
+        say(waId, "sí");
+
+        assertThat(bodies(waId)).containsExactly("Por ahora usa los botones.", summary.body());
+        assertStatus(site, phase, pour, "TODO");
+    }
+
+    @Test
+    void withoutSitesOrOpenTasksTheBotSaysSo() throws Exception {
+        Session loner = api.signUp();
+        String lonely = link(loner, "es");
+        say(lonely, "hola");
+        assertThat(bodies(lonely)).containsExactly("No tienes obras asignadas.");
+
+        UUID site = site("Tower");
+        Worker ana = worker(site, "WORKER");
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        assertThat(bodies(waId)).containsExactly("You have no open tasks on Tower.");
+    }
+
+    @Test
+    void stopInTheMiddleEndsTheSessionSoAnOldYesDoesNothing() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        String yes = last(waId).buttons().getFirst().id();
+
+        say(waId, "BAJA");
+        relink(ana.session, waId);
+        tapId(waId, yes, "button_reply");
+
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+    }
+
+    @Test
+    void aNumberMovingToAnotherAccountLeavesThePreviousOwnersSessionBehind() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        String yes = last(waId).buttons().getFirst().id();
+
+        relink(bob.session, waId);
+        tapId(waId, yes, "button_reply");
+
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Rebar");
+    }
+
+    @Test
+    void unlinkingFromTheProfileEndsTheSession() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        String yes = last(waId).buttons().getFirst().id();
+
+        api.delete(ana.session, "/api/profile/whatsapp").andExpect(status().isNoContent());
+        relink(ana.session, waId);
+        tapId(waId, yes, "button_reply");
+
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+    }
+
+    // --- fixture -------------------------------------------------------------------------------------------------
+
+    record Worker(Session session, UUID membership, UUID access) {}
+
+    UUID site(String name) throws Exception {
+        return UUID.fromString(Api.id(api.post(owner, org + "/projects", "{\"name\":\"" + name + "\"}")
+                .andExpect(status().isCreated())));
+    }
+
+    UUID phase(UUID site, String name) throws Exception {
+        return UUID.fromString(Api.id(api.post(owner, org + "/projects/" + site + "/goals", "{\"name\":\"" + name
+                + "\",\"startAt\":\"" + PHASE_START + "\",\"dueAt\":\"2027-06-01T00:00:00Z\"}")
+                .andExpect(status().isCreated())));
+    }
+
+    String tasks(UUID site, UUID phase) {
+        return org + "/projects/" + site + "/goals/" + phase + "/activities";
+    }
+
+    /** A Task whose Lead is the first access and whose crew is the rest; returns its id. */
+    String task(UUID site, UUID phase, String name, String dueAt, UUID lead, UUID... crew) throws Exception {
+        StringBuilder team = new StringBuilder("{\"accessId\":\"" + lead + "\",\"taskRole\":\"LEAD\"}");
+        for (UUID member : crew) {
+            team.append(",{\"accessId\":\"").append(member).append("\",\"taskRole\":\"CREW\"}");
+        }
+        return Api.id(api.post(owner, tasks(site, phase), "{\"name\":\"" + name + "\",\"startAt\":\"" + PHASE_START
+                + "\",\"dueAt\":\"" + dueAt + "\",\"assignees\":[" + team + "]}").andExpect(status().isCreated()));
+    }
+
+    /** A new person in the company with the role and access to the Site. */
+    Worker worker(UUID site, String roleCode) throws Exception {
+        Session session = api.signUp();
+        UUID membership = members.add(orgId, session.user(), roleCode);
+        return new Worker(session, membership, members.grantSite(site, membership));
+    }
+
+    /** Links a new number to the user in the language; what the bot said so far is forgotten. */
+    String link(Session user, String language) throws Exception {
+        String waId = newSender();
+        say(waId, code(user, language));
+        gateway.clear();
+        return waId;
+    }
+
+    /** Links the number to the user again, in Spanish. */
+    void relink(Session user, String waId) throws Exception {
+        say(waId, code(user, "es"));
+    }
+
+    String code(Session user, String language) throws Exception {
+        String body = api.post(user, "/api/profile/whatsapp/link-code", "{\"language\":\"" + language + "\"}")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.code");
+    }
+
+    void assertStatus(UUID site, UUID phase, String task, String expected) throws Exception {
+        api.get(owner, tasks(site, phase) + "/" + task).andExpect(jsonPath("$.status").value(expected));
+    }
+
+    void say(String waId, String text) throws Exception {
+        receive(textMessage(waId, "wamid." + UUID.randomUUID(), text));
+    }
+
+    /** Taps the row or button with this title in the last message the number got. */
+    void tap(String waId, String title) throws Exception {
+        InMemoryWhatsAppGateway.Sent sent = last(waId);
+        String id = sent.rows().stream().filter(row -> row.title().equals(title)).map(ListRow::id).findFirst()
+                .or(() -> sent.buttons().stream().filter(b -> b.title().equals(title)).map(Button::id).findFirst())
+                .orElseThrow(() -> new AssertionError("No row or button " + title + " in " + sent));
+        tapId(waId, id, sent.rows().isEmpty() ? "button_reply" : "list_reply");
+    }
+
+    void tapId(String waId, String id, String type) throws Exception {
+        receive(envelope(waId, """
+                "type": "interactive", "interactive": {"type": "%1$s", "%1$s": {"id": "%2$s", "title": "x"}}
+                """.formatted(type, id)));
+    }
+
+    void sendAudio(String waId) throws Exception {
+        receive(envelope(waId, """
+                "type": "audio", "audio": {"id": "media-1", "mime_type": "audio/ogg"}
+                """));
+    }
+
+    InMemoryWhatsAppGateway.Sent last(String waId) {
+        List<InMemoryWhatsAppGateway.Sent> sent = gateway.sentTo(waId);
+        assertThat(sent).isNotEmpty();
+        return sent.getLast();
+    }
+
+    List<String> bodies(String waId) {
+        return gateway.sentTo(waId).stream().map(InMemoryWhatsAppGateway.Sent::body).toList();
+    }
+
+    private static String envelope(String waId, String message) {
+        return """
+                {"object": "whatsapp_business_account",
+                 "entry": [{"id": "102290129340398", "changes": [{"field": "messages", "value": {
+                   "messaging_product": "whatsapp",
+                   "metadata": {"display_phone_number": "15550000001", "phone_number_id": "1000000001"},
+                   "contacts": [{"profile": {"name": "Juan"}, "wa_id": "%1$s"}],
+                   "messages": [{"from": "%1$s", "id": "wamid.%2$s", "timestamp": "1773154800", %3$s}]
+                 }}]}]}
+                """.formatted(waId, UUID.randomUUID(), message);
+    }
+
+    private void receive(String body) throws Exception {
+        mvc.perform(post("/api/webhooks/whatsapp").contentType("application/json").content(body)
+                        .header("X-Hub-Signature-256", sign(body)))
+                .andExpect(status().isOk());
+    }
+}

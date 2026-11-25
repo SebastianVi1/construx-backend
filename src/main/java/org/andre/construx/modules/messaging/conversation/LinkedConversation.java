@@ -18,16 +18,18 @@ public class LinkedConversation implements LinkedSenderHandler {
 
     private final WhatsAppGateway gateway;
     private final WhatsAppLinkService links;
+    private final FieldUpdateMenu menu;
 
-    public LinkedConversation(WhatsAppGateway gateway, WhatsAppLinkService links) {
+    public LinkedConversation(WhatsAppGateway gateway, WhatsAppLinkService links, FieldUpdateMenu menu) {
         this.gateway = gateway;
         this.links = links;
+        this.menu = menu;
     }
 
     @Override
     public void handle(LinkedNumber sender, InboundMessage message) {
         if (isStop(message)) {
-            // #120: clearing the menu session (and its pending photos) belongs with the unlink.
+            // Unlinking also ends the menu session.
             links.unlinkNumber(sender.waId())
                     .ifPresent(language -> gateway.sendText(sender.waId(), BotText.UNLINKED.in(language)));
             return;
@@ -35,11 +37,9 @@ public class LinkedConversation implements LinkedSenderHandler {
         continueSession(sender, message);
     }
 
-    /**
-     * Seam for #120: the Site → Task → action menu session (contract §5 rules 4–5 and steps A–G). Until it exists a
-     * Linked number's other messages get no reply.
-     */
+    /** The Site → Task → action menu session (contract §5 rules 4–5 and steps A–G). */
     void continueSession(LinkedNumber sender, InboundMessage message) {
+        menu.handle(sender, message);
     }
 
     private static boolean isStop(InboundMessage message) {
