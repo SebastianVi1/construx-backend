@@ -10,16 +10,16 @@ import java.util.Optional;
  * Routes each inbound message (contract §5): a number blocked for too many wrong codes is ignored; a sender without a
  * usable link goes to {@link UnlinkedSenderReply}; a Linked number goes to the {@link LinkedSenderHandler}, once a
  * {@code CX-1234} code it sent has been tried as a link (a recycled number may still be linked to its previous
- * owner). Both seams are optional beans, so linking and the menu flow plug in without touching the webhook.
+ * owner).
  */
 @Component
 public class ConversationRouter {
-    private final Optional<LinkedNumbers> linkedNumbers;
-    private final Optional<LinkedSenderHandler> linkedSenders;
+    private final LinkedNumbers linkedNumbers;
+    private final LinkedSenderHandler linkedSenders;
     private final UnlinkedSenderReply unlinked;
     private final WrongCodeLimit wrongCodes;
 
-    public ConversationRouter(Optional<LinkedNumbers> linkedNumbers, Optional<LinkedSenderHandler> linkedSenders,
+    public ConversationRouter(LinkedNumbers linkedNumbers, LinkedSenderHandler linkedSenders,
             UnlinkedSenderReply unlinked, WrongCodeLimit wrongCodes) {
         this.linkedNumbers = linkedNumbers;
         this.linkedSenders = linkedSenders;
@@ -31,7 +31,7 @@ public class ConversationRouter {
         if (wrongCodes.blocks(message.from())) {
             return;
         }
-        Optional<LinkedNumber> sender = linkedNumbers.flatMap(numbers -> numbers.find(message.from()));
+        Optional<LinkedNumber> sender = linkedNumbers.find(message.from());
         if (sender.isEmpty()) {
             unlinked.handle(message);
             return;
@@ -41,7 +41,7 @@ public class ConversationRouter {
         if (isLinkCode(message) && unlinked.linkIfValid(message)) {
             return;
         }
-        linkedSenders.ifPresent(handler -> handler.handle(sender.get(), message));
+        linkedSenders.handle(sender.get(), message);
     }
 
     private static boolean isLinkCode(InboundMessage message) {

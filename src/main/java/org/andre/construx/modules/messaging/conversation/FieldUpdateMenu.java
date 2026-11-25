@@ -32,7 +32,7 @@ import java.util.function.Function;
  * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–G): Site → Task → action (→ note
  * text) → photos? (→ images, Done) → summary → YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
  * {@code show} (the step's menu, sent on entering it and again after {@code USE_BUTTONS}). A new step is a
- * {@link org.andre.construx.modules.messaging.model.SessionStep} plus one case in {@link #accept} and one in
+ * {@link SessionStep} plus one case in {@link #accept} and one in
  * {@link #show}; a new button is a reply id prefix below.
  *
  * <p>Nothing is trusted from a tapped row or button: every choice is looked up again among what the user may reach
@@ -94,11 +94,6 @@ public class FieldUpdateMenu {
             sessions.end(sender.waId());
             say(sender, BotText.CHANGED);
         }
-    }
-
-    /** Whether the sender's conversation waits for the text of a note. */
-    public boolean awaitsText(LinkedNumber sender) {
-        return sessions.current(sender).filter(session -> session.getStep() == SessionStep.WRITE_NOTE).isPresent();
     }
 
     private boolean accept(LinkedNumber sender, ConversationSession session, InboundMessage message) {
