@@ -4,10 +4,12 @@ import org.andre.construx.modules.project.model.ActivityStatus;
 
 import java.util.Set;
 
-/** What a Field update does to the chosen Task (contract §5 step C). Stored by name (at most 10 characters). */
+/** What a Field update does to the chosen Task (contract §5 step C, D1). Stored by name (at most 10 characters). */
 public enum FieldAction {
     START(Set.of(ActivityStatus.TODO)),
-    FINISH(Set.of(ActivityStatus.TODO, ActivityStatus.IN_PROGRESS));
+    FINISH(Set.of(ActivityStatus.TODO, ActivityStatus.IN_PROGRESS)),
+    /** A Progress note on the Task, which changes nothing else. */
+    NOTE(Set.of(ActivityStatus.TODO, ActivityStatus.IN_PROGRESS));
 
     private final Set<ActivityStatus> from;
 

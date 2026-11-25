@@ -55,16 +55,36 @@ public class UnlinkedSenderReply {
         }
     }
 
-    /** A linked number that is unlinked later hears NOT_LINKED again at once, so its quiet period is cleared. */
+    /**
+     * For a code typed where free text is expected (a note): a valid code links the number as usual and answers
+     * {@code LINKED}; a wrong one is counted by {@link WrongCodeLimit} but not answered, and false lets the caller
+     * take the text as typed. A valid code always wins, so a number that changed hands still moves.
+     */
+    @Transactional
+    public boolean linkIfValid(InboundMessage message) {
+        if (tryLink(message)) {
+            return true;
+        }
+        wrongCodes.countWrongCode(message.from());
+        return false;
+    }
+
     private void link(InboundMessage message) {
-        Optional<WhatsAppLinkService.Linked> linked = links.linkByCode(message.from(), message.text());
-        if (linked.isEmpty()) {
+        if (!tryLink(message)) {
             wrongCodes.countWrongCode(message.from());
             gateway.sendText(message.from(), BotText.CODE_INVALID.bilingual());
-            return;
+        }
+    }
+
+    /** A linked number that is unlinked later hears NOT_LINKED again at once, so its quiet period is cleared. */
+    private boolean tryLink(InboundMessage message) {
+        Optional<WhatsAppLinkService.Linked> linked = links.linkByCode(message.from(), message.text());
+        if (linked.isEmpty()) {
+            return false;
         }
         replies.findById(message.from()).ifPresent(replies::delete);
         gateway.sendText(message.from(),
                 BotText.LINKED.in(linked.get().language(), Map.of("name", linked.get().name())));
+        return true;
     }
 }

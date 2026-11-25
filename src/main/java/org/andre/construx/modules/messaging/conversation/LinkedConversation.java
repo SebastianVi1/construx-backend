@@ -37,6 +37,11 @@ public class LinkedConversation implements LinkedSenderHandler {
         continueSession(sender, message);
     }
 
+    @Override
+    public boolean awaitsText(LinkedNumber sender) {
+        return menu.awaitsText(sender);
+    }
+
     /** The Site → Task → action menu session (contract §5 rules 4–5 and steps A–G). */
     void continueSession(LinkedNumber sender, InboundMessage message) {
         menu.handle(sender, message);

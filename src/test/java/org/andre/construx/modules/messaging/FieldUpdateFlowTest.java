@@ -191,7 +191,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         assertThat(last(waId).body()).isEqualTo("Pour slab: ¿qué hiciste?");
-        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Iniciar", "Terminar");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Iniciar", "Terminar", "Nota");
 
         tap(waId, "Iniciar");
         assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Iniciada\n\n¿Lo guardo?");
@@ -225,7 +225,7 @@ class FieldUpdateFlowTest {
         assertThat(last(waId).rows()).extracting(ListRow::description).containsExactly("Structure · In progress");
         tap(waId, "Pour slab");
         assertThat(last(waId).body()).isEqualTo("Pour slab: what did you do?");
-        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Finish");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Finish", "Note");
         tap(waId, "Finish");
         assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Finished\n\nSave it?");
         assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Yes", "No");
@@ -240,6 +240,175 @@ class FieldUpdateFlowTest {
             assertThat(event.action()).isEqualTo("COMPLETE");
             assertThat(event.afterState()).contains("\"source\":\"WHATSAPP\"");
         });
+    }
+
+    @Test
+    void noteAsksForTheTextAndTheSummaryShowsIt() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+
+        tap(waId, "Nota");
+        assertThat(last(waId).body()).isEqualTo("Escribe la nota (máx. 1000 caracteres).");
+        say(waId, "  Slab poured on the east side  ");
+
+        assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Nota\n"
+                + "Nota: \"Slab poured on the east side\"\n\n¿Lo guardo?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Sí", "No");
+    }
+
+    @Test
+    void yesSavesTheNoteFromWhatsAppByTheAuthorAndLeavesTheTaskAsItWas() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        api.post(ana.session, tasks(site, phase) + "/" + pour + "/start", null).andExpect(status().isOk());
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Note");
+        say(waId, "Slab poured on the east side");
+
+        tap(waId, "Yes");
+
+        assertThat(last(waId).body()).isEqualTo("✅ Saved to Construx.");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Another task");
+        api.get(owner, tasks(site, phase) + "/" + pour + "/progress-notes")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].text").value("Slab poured on the east side"))
+                .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
+                .andExpect(jsonPath("$[0].author.membershipId").value(ana.membership.toString()))
+                .andExpect(jsonPath("$[0].photos.length()").value(0));
+        assertStatus(site, phase, pour, "IN_PROGRESS");
+    }
+
+    @Test
+    void aNoteOverAThousandCharactersIsAskedForAgainAndAFullOneIsShortenedOnlyInTheSummary() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Note");
+
+        say(waId, "x".repeat(1001));
+        assertThat(last(waId).body()).isEqualTo("The note is too long. Keep it to 1000 characters.");
+        assertThat(last(waId).buttons()).isEmpty();
+
+        say(waId, "y".repeat(1000));
+        // WhatsApp takes at most 1,024 characters in the text above buttons.
+        assertThat(last(waId).body()).hasSize(1024)
+                .startsWith("📋 Field update · Tower\nPour slab → Note\nNote: \"yyyy")
+                .endsWith("yyy…\"\n\nSave it?");
+
+        tap(waId, "Yes");
+        api.get(owner, tasks(site, phase) + "/" + pour + "/progress-notes")
+                .andExpect(jsonPath("$[0].text").value("y".repeat(1000)));
+    }
+
+    @Test
+    void aTapWhileTheNoteIsAwaitedGetsUseButtonsAndTheQuestionAgain() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        InMemoryWhatsAppGateway.Sent actions = last(waId);
+        tap(waId, "Nota");
+        gateway.clear();
+
+        tapId(waId, actions.buttons().getFirst().id(), "button_reply");
+        sendAudio(waId);
+
+        assertThat(bodies(waId)).containsExactly("Por ahora usa los botones.",
+                "Escribe la nota (máx. 1000 caracteres).", "Por ahora usa los botones.",
+                "Escribe la nota (máx. 1000 caracteres).");
+    }
+
+    @Test
+    void aNoteShapedLikeALinkCodeThatIsNoValidCodeIsTakenAsTheNote() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+
+        say(waId, "CX-0000");
+
+        assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Nota\n"
+                + "Nota: \"CX-0000\"\n\n¿Lo guardo?");
+    }
+
+    @Test
+    void aValidCodeWhileTheNoteIsAwaitedStillMovesTheNumber() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+
+        relink(bob.session, waId);
+        assertThat(last(waId).body()).startsWith("¡Listo, ");
+        say(waId, "hola");
+
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Rebar");
+        assertNoNotes(site, phase, pour);
+    }
+
+    @Test
+    void noAfterANoteSavesNothing() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+        say(waId, "Falta cemento");
+
+        tap(waId, "No");
+
+        assertThat(last(waId).body()).isEqualTo("Cancelado. Escribe de nuevo cuando quieras.");
+        assertNoNotes(site, phase, pour);
+    }
+
+    @Test
+    void aNoteOnATaskFinishedBeforeYesGetsChangedAndIsNotSaved() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", bob.access, ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+        say(waId, "Falta cemento");
+
+        api.post(bob.session, tasks(site, phase) + "/" + pour + "/complete", null).andExpect(status().isOk());
+        tap(waId, "Sí");
+
+        assertThat(last(waId).body()).isEqualTo("Esta tarea cambió mientras tanto. Empieza de nuevo.");
+        assertNoNotes(site, phase, pour);
     }
 
     @Test
@@ -490,6 +659,11 @@ class FieldUpdateFlowTest {
 
     void assertStatus(UUID site, UUID phase, String task, String expected) throws Exception {
         api.get(owner, tasks(site, phase) + "/" + task).andExpect(jsonPath("$.status").value(expected));
+    }
+
+    void assertNoNotes(UUID site, UUID phase, String task) throws Exception {
+        api.get(owner, tasks(site, phase) + "/" + task + "/progress-notes")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
     }
 
     void say(String waId, String text) throws Exception {

@@ -51,6 +51,10 @@ public class ConversationSession {
     @Column(length = 10)
     private FieldAction action;
 
+    /** The text of a Note, once typed. */
+    @Column(name = "note_text", length = 1000)
+    private String noteText;
+
     /** The page of the list on screen ("See more"); 0 is the first. */
     @Column(name = "task_page", nullable = false)
     private int page;
@@ -84,6 +88,7 @@ public class ConversationSession {
         this.phaseId = null;
         this.taskId = null;
         this.action = null;
+        this.noteText = null;
     }
 
     public void showPage(int page) {
@@ -97,12 +102,21 @@ public class ConversationSession {
         this.taskId = Objects.requireNonNull(taskId);
         this.step = SessionStep.PICK_ACTION;
         this.action = null;
+        this.noteText = null;
     }
 
-    /** Step G: the summary of the chosen action. */
+    /** Step D for a Note, which needs its text first; step G, the summary, for the others. */
     public void chooseAction(FieldAction action) {
         requireStep(SessionStep.PICK_ACTION);
         this.action = Objects.requireNonNull(action);
+        this.noteText = null;
+        this.step = action == FieldAction.NOTE ? SessionStep.WRITE_NOTE : SessionStep.CONFIRM;
+    }
+
+    /** Step G: the summary of the Note with this text, already stripped and within the limit. */
+    public void writeNote(String text) {
+        requireStep(SessionStep.WRITE_NOTE);
+        this.noteText = Objects.requireNonNull(text);
         this.step = SessionStep.CONFIRM;
     }
 
