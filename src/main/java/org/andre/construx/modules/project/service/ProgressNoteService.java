@@ -2,7 +2,6 @@ package org.andre.construx.modules.project.service;
 
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
-import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.Activity;
@@ -24,9 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -41,10 +38,6 @@ import java.util.UUID;
 @Service
 public class ProgressNoteService {
     public static final String AUDIT_ENTITY = "PROGRESS_NOTE";
-    /** Where the WhatsApp bot keeps the photos it downloaded before the person confirms. */
-    public static final String WHATSAPP_PENDING_PREFIX = "whatsapp/pending/";
-    public static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
-    public static final Set<String> PHOTO_TYPES = Set.of("image/jpeg", "image/png");
     static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
     static final Duration VIEW_TTL = Duration.ofMinutes(10);
 
@@ -86,7 +79,7 @@ public class ProgressNoteService {
     @Transactional(readOnly = true)
     public List<ProgressNoteData> list(SiteScope site, UUID goalId, UUID activityId) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.VIEW_ACTIVITY, teamMember(activity, site.membership()));
+        site.require(PermissionAction.VIEW_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
         return toData(notes.findByActivityNewestFirst(activityId));
     }
 
@@ -98,12 +91,12 @@ public class ProgressNoteService {
     public PhotoUploadData requestPhotoUpload(SiteScope site, UUID goalId, UUID activityId, String contentType,
                                               long sizeBytes) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
-        String type = contentType == null ? "" : contentType.strip().toLowerCase(Locale.ROOT);
-        if (!PHOTO_TYPES.contains(type) || sizeBytes <= 0 || sizeBytes > MAX_PHOTO_BYTES) {
+        site.require(PermissionAction.MANAGE_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
+        String type = ProgressNotePhoto.mediaType(contentType);
+        if (!ProgressNotePhoto.accepts(type, sizeBytes)) {
             throw invalidPhoto("Progress note photos must be JPEG or PNG up to 5 MB");
         }
-        String key = uploadPrefix(site, activityId) + UUID.randomUUID();
+        String key = newPhotoKey(site, activityId);
         ObjectStorage.PresignedUpload upload = storage.presignUpload(key, type, sizeBytes, UPLOAD_TTL);
         return new PhotoUploadData(key, upload.url(), upload.headers(), upload.expiresAt());
     }
@@ -113,24 +106,19 @@ public class ProgressNoteService {
      * {@code MANAGE_ACTIVITY} for this Task, 400 {@code PROGRESS_NOTE_EMPTY} with neither, 400
      * {@code PROGRESS_NOTE_TOO_MANY_PHOTOS} past five. Records {@code PROGRESS_NOTE CREATE} with the source.
      *
-     * <p>{@code photoKeys} name objects already in storage, attached in the order given (repeats count once). Where a
-     * key may come from depends on the source: an {@code APP} key must have been issued by
-     * {@link #requestPhotoUpload} for this Task; a {@code WHATSAPP} key must sit under
-     * {@link #WHATSAPP_PENDING_PREFIX}, where the bot stored it. Each must hold a JPEG or PNG of at most 5 MB that
-     * no other note uses, else 400 {@code PROGRESS_NOTE_PHOTO_INVALID}. The note keeps the key as it is: the caller
-     * must not delete the object afterwards.
+     * <p>{@code photoKeys} name objects already in storage, attached in the order given (repeats count once). Whatever
+     * the source, each key must be one of this Task's ({@link #requestPhotoUpload} issues them to the dashboard, and
+     * the bot copies its photos to {@link #newPhotoKey}) and hold a JPEG or PNG of at most 5 MB that no other note
+     * uses, else 400 {@code PROGRESS_NOTE_PHOTO_INVALID}. The note keeps the key as it is: the caller must not delete
+     * the object afterwards.
      */
     @Transactional
     public ProgressNoteData add(SiteScope site, UUID goalId, UUID activityId, String text, List<String> photoKeys,
                                 UpdateSource source) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        site.require(PermissionAction.MANAGE_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
         List<String> keys = photoKeys == null ? List.of() : new ArrayList<>(new LinkedHashSet<>(photoKeys));
-        if (keys.size() > ProgressNote.MAX_PHOTOS) {
-            throw new RuleViolationException("PROGRESS_NOTE_TOO_MANY_PHOTOS",
-                    "A progress note holds at most " + ProgressNote.MAX_PHOTOS + " photos");
-        }
-        String prefix = source == UpdateSource.WHATSAPP ? WHATSAPP_PENDING_PREFIX : uploadPrefix(site, activityId);
+        String prefix = uploadPrefix(site, activityId);
         List<StoredPhoto> stored = keys.stream().map(key -> stored(key, prefix)).toList();
         ProgressNote note = notes.save(new ProgressNote(activity, site.membership(), text, stored, source,
                 Instant.now()));
@@ -145,6 +133,14 @@ public class ProgressNoteService {
         return add(site, goalId, activityId, text, List.of(), source);
     }
 
+    /**
+     * A new, unused key for a photo of a note on this Task, for a photo the server stores itself (the bot's, copied
+     * from where it was pending). Checks nothing: {@link #add} checks the note.
+     */
+    public String newPhotoKey(SiteScope site, UUID activityId) {
+        return uploadPrefix(site, activityId) + UUID.randomUUID();
+    }
+
     private static String uploadPrefix(SiteScope site, UUID activityId) {
         return "orgs/%s/projects/%s/activities/%s/progress-notes/"
                 .formatted(site.organizationId(), site.siteId(), activityId);
@@ -157,8 +153,8 @@ public class ProgressNoteService {
         }
         ObjectStorage.StoredObject object = storage.head(key)
                 .orElseThrow(() -> invalidPhoto("The photo was not uploaded"));
-        String type = object.contentType() == null ? "" : object.contentType().toLowerCase(Locale.ROOT);
-        if (object.sizeBytes() > MAX_PHOTO_BYTES || !PHOTO_TYPES.contains(type)) {
+        String type = ProgressNotePhoto.mediaType(object.contentType());
+        if (!ProgressNotePhoto.accepts(type, object.sizeBytes())) {
             throw invalidPhoto("Progress note photos must be JPEG or PNG up to 5 MB");
         }
         return new StoredPhoto(key, type, object.sizeBytes());
@@ -166,11 +162,6 @@ public class ProgressNoteService {
 
     private static RuleViolationException invalidPhoto(String message) {
         return new RuleViolationException("PROGRESS_NOTE_PHOTO_INVALID", message);
-    }
-
-    /** The caller's membership when they are in the Task's Team, which is what OWN scope matches; null otherwise. */
-    private static UUID teamMember(Activity activity, OrganizationMembership member) {
-        return activity.isOnTeam(member.getId()) ? member.getId() : null;
     }
 
     private List<ProgressNoteData> toData(List<ProgressNote> list) {

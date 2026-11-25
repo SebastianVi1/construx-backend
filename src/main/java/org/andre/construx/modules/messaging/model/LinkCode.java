@@ -8,7 +8,6 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.andre.construx.modules.messaging.conversation.Language;
 
 import java.time.Duration;
 import java.time.Instant;

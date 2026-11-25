@@ -2,7 +2,6 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
 import org.andre.construx.modules.messaging.model.ConversationSession;
-import org.andre.construx.modules.messaging.model.FieldAction;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.access.OrgScopes;
 import org.andre.construx.modules.organization.model.PermissionAction;
@@ -17,6 +16,7 @@ import org.andre.construx.modules.project.service.ProgressNoteService;
 import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.modules.project.service.ProjectService.ProjectData;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
+import org.andre.construx.shared.exception.RuleViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -101,14 +101,13 @@ public class FieldUpdateService {
     /**
      * YES (contract §5): in one transaction, rechecks the link, the account, the membership, the Site, the permission
      * and the Task status, applies the chosen action with source {@code WHATSAPP} and ends the conversation. The
-     * pending photos go on a Progress note: the Note's, or a note of photos only after Start or Finish, so they never
-     * land on a Pin. When anything no longer holds nothing is saved and {@link Changed} is thrown.
+     * pending photos move to a Progress note: the Note's, or a note of photos only after Start or Finish, so they
+     * never land on a Pin. When anything no longer holds nothing is saved and {@link Changed} is thrown.
      */
     @Transactional
     public void apply(ConversationSession session) {
         links.find(session.getWaId()).filter(link -> session.belongsTo(link.userId())).orElseThrow(Changed::new);
         SiteScope site = site(session.getUserId(), session.getOrganizationId(), session.getSiteId());
-        List<String> photoKeys = photos.claim(session.getWaId());
         try {
             switch (session.getAction()) {
                 case START -> activities.start(site, session.getPhaseId(), session.getTaskId(), UpdateSource.WHATSAPP);
@@ -116,13 +115,16 @@ public class FieldUpdateService {
                         UpdateSource.WHATSAPP);
                 case NOTE -> requireOpen(site, session);
             }
-            if (session.getAction() == FieldAction.NOTE || !photoKeys.isEmpty()) {
+            if (session.getAction().writesNote() || photos.count(session.getWaId()) > 0) {
+                List<String> photoKeys = photos.claim(session.getWaId(),
+                        () -> notes.newPhotoKey(site, session.getTaskId()));
                 notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(), photoKeys,
                         UpdateSource.WHATSAPP);
             }
-        } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException e) {
-            // Gone, no longer allowed, or the status moved on (start needs TODO, complete anything but DONE, a note
-            // an open Task).
+        } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException
+                 | RuleViolationException e) {
+            // Gone, no longer allowed, the status moved on (start needs TODO, complete anything but DONE, a note an
+            // open Task), or the note refused what it was given (a photo no longer a JPEG or PNG of at most 5 MB).
             throw new Changed();
         }
         sessions.end(session.getWaId());

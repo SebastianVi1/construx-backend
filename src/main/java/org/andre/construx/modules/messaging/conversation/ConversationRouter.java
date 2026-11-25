@@ -7,19 +7,19 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 
 /**
- * Routes each inbound message (contract §5): a sender without a usable link, and any {@code CX-1234} code (a
- * recycled number may still be linked to its previous owner), goes to {@link UnlinkedSenderReply}; a Linked number
- * goes to the {@link LinkedSenderHandler}, except a code that links nothing while that handler awaits typed text. A number blocked for too many wrong codes is ignored before any of that. Both seams are optional beans, so linking and the menu
- * flow plug in without touching the webhook.
+ * Routes each inbound message (contract §5): a number blocked for too many wrong codes is ignored; a sender without a
+ * usable link goes to {@link UnlinkedSenderReply}; a Linked number goes to the {@link LinkedSenderHandler}, once a
+ * {@code CX-1234} code it sent has been tried as a link (a recycled number may still be linked to its previous
+ * owner).
  */
 @Component
 public class ConversationRouter {
-    private final Optional<LinkedNumbers> linkedNumbers;
-    private final Optional<LinkedSenderHandler> linkedSenders;
+    private final LinkedNumbers linkedNumbers;
+    private final LinkedSenderHandler linkedSenders;
     private final UnlinkedSenderReply unlinked;
     private final WrongCodeLimit wrongCodes;
 
-    public ConversationRouter(Optional<LinkedNumbers> linkedNumbers, Optional<LinkedSenderHandler> linkedSenders,
+    public ConversationRouter(LinkedNumbers linkedNumbers, LinkedSenderHandler linkedSenders,
             UnlinkedSenderReply unlinked, WrongCodeLimit wrongCodes) {
         this.linkedNumbers = linkedNumbers;
         this.linkedSenders = linkedSenders;
@@ -31,27 +31,17 @@ public class ConversationRouter {
         if (wrongCodes.blocks(message.from())) {
             return;
         }
-        Optional<LinkedNumber> sender = linkedNumbers.flatMap(numbers -> numbers.find(message.from()));
-        if (isLinkCode(message)) {
-            // A recycled number is still linked to its previous owner, so a code is always a link attempt. Only while
-            // a note is awaited does a code that links nothing count as the note.
-            Optional<LinkedNumber> writer = sender.filter(this::awaitsText);
-            if (writer.isEmpty()) {
-                unlinked.handle(message);
-            } else if (!unlinked.linkIfValid(message)) {
-                linkedSenders.get().handle(writer.get(), message);
-            }
-            return;
-        }
+        Optional<LinkedNumber> sender = linkedNumbers.find(message.from());
         if (sender.isEmpty()) {
             unlinked.handle(message);
             return;
         }
-        linkedSenders.ifPresent(handler -> handler.handle(sender.get(), message));
-    }
-
-    private boolean awaitsText(LinkedNumber sender) {
-        return linkedSenders.map(handler -> handler.awaitsText(sender)).orElse(false);
+        // A recycled number is still linked to its previous owner, so a valid code still links (or moves) it. A code
+        // that links nothing is counted as a wrong code and then handled like any other text from the number.
+        if (isLinkCode(message) && unlinked.linkIfValid(message)) {
+            return;
+        }
+        linkedSenders.handle(sender.get(), message);
     }
 
     private static boolean isLinkCode(InboundMessage message) {

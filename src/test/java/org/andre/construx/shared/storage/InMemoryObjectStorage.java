@@ -47,6 +47,15 @@ public class InMemoryObjectStorage implements ObjectStorage {
     }
 
     @Override
+    public void copy(String sourceKey, String targetKey) {
+        Stored stored = objects.get(sourceKey);
+        if (stored == null) {
+            throw new IllegalArgumentException("No object under " + sourceKey);
+        }
+        objects.put(targetKey, stored);
+    }
+
+    @Override
     public void delete(String key) {
         objects.remove(key);
     }

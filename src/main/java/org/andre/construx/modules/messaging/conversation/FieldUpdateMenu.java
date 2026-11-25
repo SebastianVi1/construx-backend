@@ -6,6 +6,7 @@ import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.ListRow;
 import org.andre.construx.modules.messaging.inbound.InboundMessage;
 import org.andre.construx.modules.messaging.model.ConversationSession;
 import org.andre.construx.modules.messaging.model.FieldAction;
+import org.andre.construx.modules.messaging.model.Language;
 import org.andre.construx.modules.messaging.model.SessionStep;
 import org.andre.construx.modules.messaging.service.ConversationSessions;
 import org.andre.construx.modules.messaging.service.FieldUpdateService;
@@ -19,6 +20,7 @@ import org.andre.construx.modules.project.model.ProgressNote;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -31,7 +33,7 @@ import java.util.function.Function;
  * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–G): Site → Task → action (→ note
  * text) → photos? (→ images, Done) → summary → YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
  * {@code show} (the step's menu, sent on entering it and again after {@code USE_BUTTONS}). A new step is a
- * {@link org.andre.construx.modules.messaging.model.SessionStep} plus one case in {@link #accept} and one in
+ * {@link SessionStep} plus one case in {@link #accept} and one in
  * {@link #show}; a new button is a reply id prefix below.
  *
  * <p>Nothing is trusted from a tapped row or button: every choice is looked up again among what the user may reach
@@ -54,6 +56,7 @@ public class FieldUpdateMenu {
     private static final String ACTION = "action";
     private static final String YES = "confirm:yes";
     private static final String NO = "confirm:no";
+    /** Carries the company, the Site and when it was sent (epoch seconds). */
     private static final String ANOTHER_TASK = "again";
     private static final String PHOTOS_YES = "photos:yes";
     private static final String PHOTOS_NO = "photos:no";
@@ -94,11 +97,6 @@ public class FieldUpdateMenu {
         }
     }
 
-    /** Whether the sender's conversation waits for the text of a note. */
-    public boolean awaitsText(LinkedNumber sender) {
-        return sessions.current(sender).filter(session -> session.getStep() == SessionStep.WRITE_NOTE).isPresent();
-    }
-
     private boolean accept(LinkedNumber sender, ConversationSession session, InboundMessage message) {
         return switch (session.getStep()) {
             case PICK_SITE -> acceptSite(sender, session, message);
@@ -126,13 +124,16 @@ public class FieldUpdateMenu {
     // --- no conversation yet: step A, or B for the Site of "Another task" -------------------------------------------
 
     /**
-     * Any message without a conversation (none yet, or it went idle) starts at step A. A tapped button or row other
-     * than "Another task" belongs to a conversation that is gone, so {@code EXPIRED} comes first and the tap is not
-     * taken as a choice.
+     * Any message without a conversation (none yet, or it went idle) starts at step A. A tapped button or row
+     * belongs to a conversation that is gone, so {@code EXPIRED} comes first and the tap is not taken as a choice;
+     * only "Another task", which carries when it was sent, goes straight to B while it is younger than
+     * {@link ConversationSession#IDLE_LIMIT}.
      */
     private void begin(LinkedNumber sender, InboundMessage message) {
-        ConversationSession session = new ConversationSession(sender.waId(), sender.userId(), clock.instant());
-        Optional<String[]> another = reply(message, ANOTHER_TASK, 2);
+        Instant now = clock.instant();
+        ConversationSession session = new ConversationSession(sender.waId(), sender.userId(), now);
+        Optional<String[]> another = reply(message, ANOTHER_TASK, 3)
+                .filter(ids -> now.isBefore(sentAt(ids[2]).plus(ConversationSession.IDLE_LIMIT)));
         if (another.isPresent()) {
             enterSite(sender, session, siteOf(sender, another.get()));
             return;
@@ -260,7 +261,8 @@ public class FieldUpdateMenu {
         Language language = sender.language();
         List<Button> buttons = Arrays.stream(FieldAction.values())
                 .filter(action -> action.appliesTo(task.status()))
-                .map(action -> new Button(id(ACTION, action.name()), button(action).in(language)))
+                .map(action -> new Button(id(ACTION, action.name()),
+                        ActionTexts.of(action).button().in(language)))
                 .toList();
         sessions.save(session);
         gateway.sendButtons(sender.waId(), BotText.PICK_ACTION.in(language, Map.of("task", task.taskName())),
@@ -352,7 +354,8 @@ public class FieldUpdateMenu {
         if (isReply(message, YES)) {
             fieldUpdates.apply(session);
             gateway.sendButtons(sender.waId(), BotText.SAVED.in(sender.language()), List.of(new Button(
-                    id(ANOTHER_TASK, session.getOrganizationId(), session.getSiteId()),
+                    id(ANOTHER_TASK, session.getOrganizationId(), session.getSiteId(),
+                            clock.instant().getEpochSecond()),
                     BotText.ANOTHER_TASK.in(sender.language()))));
             return true;
         }
@@ -375,7 +378,7 @@ public class FieldUpdateMenu {
                 .orElseThrow(Changed::new);
         Language language = sender.language();
         String head = BotText.SUMMARY.in(language, Map.of("site", site.siteName(), "task", task.taskName(),
-                "action", summaryLabel(session.getAction()).in(language)));
+                "action", ActionTexts.of(session.getAction()).summary().in(language)));
         int photoCount = photos.count(sender.waId());
         String photoLine = photoCount == 0 ? "" : "\n" + (photoCount == 1 ? BotText.ONE_PHOTO_LINE.in(language)
                 : BotText.PHOTOS_LINE.in(language, Map.of("n", String.valueOf(photoCount))));
@@ -395,20 +398,18 @@ public class FieldUpdateMenu {
 
     // --- labels ------------------------------------------------------------------------------------------------------
 
-    private static BotText button(FieldAction action) {
-        return switch (action) {
-            case START -> BotText.START;
-            case FINISH -> BotText.FINISH;
-            case NOTE -> BotText.NOTE;
-        };
-    }
-
-    private static BotText summaryLabel(FieldAction action) {
-        return switch (action) {
-            case START -> BotText.STARTED;
-            case FINISH -> BotText.FINISHED;
-            case NOTE -> BotText.NOTE;
-        };
+    /**
+     * What an action's button says, and how the summary names it. The texts stay here rather than on
+     * {@link FieldAction}, so the model does not depend on the conversation.
+     */
+    private record ActionTexts(BotText button, BotText summary) {
+        static ActionTexts of(FieldAction action) {
+            return switch (action) {
+                case START -> new ActionTexts(BotText.START, BotText.STARTED);
+                case FINISH -> new ActionTexts(BotText.FINISH, BotText.FINISHED);
+                case NOTE -> new ActionTexts(BotText.NOTE, BotText.NOTE);
+            };
+        }
     }
 
     private static BotText status(ActivityStatus status) {
@@ -477,6 +478,15 @@ public class FieldUpdateMenu {
             return Optional.empty();
         }
         return Optional.of(Arrays.copyOfRange(split, 1, split.length));
+    }
+
+    /** When a button was sent, from the epoch seconds its id carries; a malformed one counts as long ago. */
+    private static Instant sentAt(String epochSeconds) {
+        try {
+            return Instant.ofEpochSecond(Long.parseLong(epochSeconds));
+        } catch (NumberFormatException e) {
+            return Instant.EPOCH;
+        }
     }
 
     /** A malformed id in a reply is a choice that does not exist. */

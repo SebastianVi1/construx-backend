@@ -2,27 +2,25 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.messaging.config.WhatsAppProperties;
-import org.andre.construx.modules.messaging.conversation.Language;
 import org.andre.construx.modules.messaging.conversation.LinkedNumber;
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
+import org.andre.construx.modules.messaging.model.Language;
 import org.andre.construx.modules.messaging.model.LinkCode;
 import org.andre.construx.modules.messaging.model.WhatsAppLink;
 import org.andre.construx.modules.messaging.repository.LinkCodeRepository;
 import org.andre.construx.modules.messaging.repository.WhatsAppLinkRepository;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -42,8 +40,6 @@ public class WhatsAppLinkService implements LinkedNumbers {
     static final String AUDIT_ENTITY = "WHATSAPP_LINK";
     private static final Pattern CODE = Pattern.compile("CX-\\d{4}");
     private static final int CODE_ATTEMPTS = 20;
-
-    public enum Source { APP, WHATSAPP }
 
     /** {@code number} is the full {@code +}-prefixed number; the dashboard masks it. */
     public record LinkStatus(boolean linked, String number, Language language, Instant linkedAt,
@@ -92,9 +88,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
         String code = freshCode(userId, now);
         LinkCode stored = codes.findById(userId).orElse(null);
         if (stored == null) {
-            stored = codes.save(new LinkCode(userId, hash(code), language, now));
+            stored = codes.save(new LinkCode(userId, TokenService.sha256(code), language, now));
         } else {
-            stored.replace(hash(code), language, now);
+            stored.replace(TokenService.sha256(code), language, now);
         }
         String construx = properties.displayNumber();
         URI waMe = URI.create("https://wa.me/" + construx.replaceAll("\\D", "") + "?text=" + code);
@@ -111,14 +107,14 @@ public class WhatsAppLinkService implements LinkedNumbers {
     /** Unlinks the user's number from the dashboard; nothing happens when there is none. */
     @Transactional
     public void unlink(UUID userId) {
-        links.findByUserId(userId).ifPresent(link -> remove(link, Source.APP));
+        links.findByUserId(userId).ifPresent(link -> remove(link, UpdateSource.APP));
     }
 
     /** BAJA / STOP from the number: unlinks it and returns the language it had, empty when it was not linked. */
     @Transactional
     public Optional<Language> unlinkNumber(String waId) {
         return links.findByWaId(waId).map(link -> {
-            remove(link, Source.WHATSAPP);
+            remove(link, UpdateSource.WHATSAPP);
             return link.getLanguage();
         });
     }
@@ -135,7 +131,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     @Transactional
     public Optional<Linked> linkByCode(String waId, String code) {
         Instant now = clock.instant();
-        List<LinkCode> matching = codes.findByCodeHash(hash(normalize(code))).stream()
+        List<LinkCode> matching = codes.findByCodeHash(TokenService.sha256(normalize(code))).stream()
                 .filter(candidate -> candidate.isValidAt(now)).toList();
         if (matching.size() != 1) {
             return Optional.empty();
@@ -161,7 +157,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
             sessions.end(link.getWaId());
             link.relink(waId, used.getLanguage(), now);
         }
-        Map<String, Object> linked = auditState(link, Source.WHATSAPP);
+        Map<String, Object> linked = auditState(link, UpdateSource.WHATSAPP);
         moved.ifPresent(other -> recordMove(other, userId, linked));
         audit.record(AUDIT_ENTITY, link.getUserId(), "LINK", null, null, linked);
         return Optional.of(new Linked(nameOf(userId), link.getLanguage()));
@@ -189,13 +185,14 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private void recordMove(WhatsAppLink previous, UUID newOwner, Map<String, Object> linked) {
         Map<String, Object> after = new LinkedHashMap<>(linked);
         after.put("movedToUserId", newOwner.toString());
-        audit.record(AUDIT_ENTITY, previous.getUserId(), "MOVE", null, auditState(previous, Source.WHATSAPP), after);
+        audit.record(AUDIT_ENTITY, previous.getUserId(), "MOVE", null, auditState(previous, UpdateSource.WHATSAPP),
+                after);
         movedMailer.send(accounts.account(previous.getUserId()), lastDigits(previous.getWaId()),
                 previous.getLanguage());
     }
 
     /** Unlinking ends the number's menu session too. */
-    private void remove(WhatsAppLink link, Source source) {
+    private void remove(WhatsAppLink link, UpdateSource source) {
         sessions.end(link.getWaId());
         links.delete(link);
         audit.record(AUDIT_ENTITY, link.getUserId(), "UNLINK", null, auditState(link, source), null);
@@ -210,7 +207,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private String freshCode(UUID userId, Instant now) {
         for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
             String code = "CX-%04d".formatted(random.nextInt(10_000));
-            if (!codes.existsByCodeHashAndExpiresAtAfterAndUserIdNot(hash(code), now, userId)) {
+            if (!codes.existsByCodeHashAndExpiresAtAfterAndUserIdNot(TokenService.sha256(code), now, userId)) {
                 return code;
             }
         }
@@ -223,7 +220,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     }
 
     /** The number is kept masked in the audit trail. */
-    private static Map<String, Object> auditState(WhatsAppLink link, Source source) {
+    private static Map<String, Object> auditState(WhatsAppLink link, UpdateSource source) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("number", "…" + lastDigits(link.getWaId()));
         state.put("language", link.getLanguage().code());
@@ -241,14 +238,5 @@ public class WhatsAppLinkService implements LinkedNumbers {
 
     private static String normalize(String text) {
         return text.strip().toUpperCase(Locale.ROOT);
-    }
-
-    private static String hash(String code) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }

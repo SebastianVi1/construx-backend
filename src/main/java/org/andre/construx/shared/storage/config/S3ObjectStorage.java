@@ -4,6 +4,7 @@ import org.andre.construx.shared.storage.ObjectStorage;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -75,6 +76,13 @@ public class S3ObjectStorage implements ObjectStorage {
         client.putObject(
                 PutObjectRequest.builder().bucket(bucket).key(key).contentType(contentType).build(),
                 RequestBody.fromBytes(bytes));
+    }
+
+    /** A server-side copy in the same bucket; the content type is copied with the object. */
+    @Override
+    public void copy(String sourceKey, String targetKey) {
+        client.copyObject(CopyObjectRequest.builder()
+                .sourceBucket(bucket).sourceKey(sourceKey).destinationBucket(bucket).destinationKey(targetKey).build());
     }
 
     @Override

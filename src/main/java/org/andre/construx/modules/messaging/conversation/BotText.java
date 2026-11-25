@@ -1,5 +1,7 @@
 package org.andre.construx.modules.messaging.conversation;
 
+import org.andre.construx.modules.messaging.model.Language;
+
 import java.util.Map;
 
 /** What the bot says, in both languages (Field updates contract §6). {@code {name}}-style parts are placeholders. */

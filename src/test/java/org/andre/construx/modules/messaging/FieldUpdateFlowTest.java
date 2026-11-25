@@ -661,8 +661,34 @@ class FieldUpdateFlowTest {
                 .andExpect(jsonPath("$[0].text").doesNotExist())
                 .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
                 .andExpect(jsonPath("$[0].photos.length()").value(2));
-        // The note keeps the photos where the bot stored them.
-        assertThat(pendingObjects(waId)).hasSize(2);
+        // The photos moved to the note's own keys; nothing stays pending.
+        assertThat(pendingObjects(waId)).isEmpty();
+        assertThat(((InMemoryObjectStorage) storage).keys(noteKeys(site, pour))).hasSize(2);
+    }
+
+    @Test
+    void aPhotoTheNoteRefusesAtYesGetsChangedAndSavesNothing() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Finish");
+        tap(waId, "Yes");
+        sendImage(waId, "image/jpeg");
+        tap(waId, "Done");
+        // What storage holds is no longer a photo by the time of YES.
+        storage.put(pendingObjects(waId).iterator().next(), new byte[]{1}, "text/html");
+
+        tap(waId, "Yes");
+
+        assertThat(last(waId).body()).isEqualTo("This task changed in the meantime. Start again.");
+        assertStatus(site, phase, pour, "TODO");
+        assertNoNotes(site, phase, pour);
+        assertThat(pendingObjects(waId)).isEmpty();
+        assertThat(((InMemoryObjectStorage) storage).keys(noteKeys(site, pour))).isEmpty();
     }
 
     @Test
@@ -878,6 +904,53 @@ class FieldUpdateFlowTest {
     }
 
     @Test
+    void anotherTaskTappedThirtyOneMinutesLaterGetsExpiredAndStartsAtTheSites() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        UUID other = site("Annex");
+        members.grantSite(other, ana.membership);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Tower");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "No");
+        tap(waId, "Sí");
+        String anotherTask = last(waId).buttons().getFirst().id();
+        gateway.clear();
+
+        idle(31);
+        tapId(waId, anotherTask, "button_reply");
+
+        assertThat(bodies(waId)).containsExactly("Pasó mucho tiempo, empecemos de nuevo.", "¿En qué obra?");
+    }
+
+    @Test
+    void anotherTaskTappedTwentyNineMinutesLaterStillGoesToTheTasksOfThatSite() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        members.grantSite(site("Annex"), ana.membership);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Tower");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "No");
+        tap(waId, "Sí");
+        String anotherTask = last(waId).buttons().getFirst().id();
+        gateway.clear();
+
+        idle(29);
+        tapId(waId, anotherTask, "button_reply");
+
+        assertThat(bodies(waId)).containsExactly("Tower: ¿qué tarea?");
+    }
+
+    @Test
     void anyMessageAfterThirtyMinutesIdleStartsOverWithoutExpired() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
@@ -898,7 +971,7 @@ class FieldUpdateFlowTest {
     }
 
     @Test
-    void aCodeShapedTextAfterTheNoteWentIdleIsTakenAsACode() throws Exception {
+    void aCodeShapedTextAfterTheNoteWentIdleThatLinksNothingStartsOver() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
         Worker ana = worker(site, "WORKER");
@@ -912,8 +985,22 @@ class FieldUpdateFlowTest {
         idle(31);
         say(waId, "CX-0000");
 
-        assertThat(bodies(waId)).singleElement().asString()
-                .startsWith("Ese código no es válido o ya venció. Genera uno nuevo en tu perfil.");
+        assertThat(bodies(waId)).containsExactly("Tower: ¿qué tarea?");
+    }
+
+    @Test
+    void aCodeShapedTextThatLinksNothingDuringTheTaskListGetsUseButtonsInTheNumbersLanguage() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        gateway.clear();
+
+        say(waId, "CX-0000");
+
+        assertThat(bodies(waId)).containsExactly("Please use the buttons for now.", "Tower: which task?");
     }
 
     @Test
@@ -1044,6 +1131,11 @@ class FieldUpdateFlowTest {
         receive(envelope(waId, """
                 "type": "image", "image": {"id": "%s", "mime_type": "%s"}
                 """.formatted(mediaId, mimeType)));
+    }
+
+    /** Where the photos of the Task's Progress notes are stored. */
+    String noteKeys(UUID site, String task) {
+        return "orgs/" + orgId + "/projects/" + site + "/activities/" + task + "/progress-notes/";
     }
 
     /** What storage holds for the number's photos received before YES. */
