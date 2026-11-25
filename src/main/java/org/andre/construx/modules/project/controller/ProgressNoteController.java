@@ -1,11 +1,13 @@
 package org.andre.construx.modules.project.controller;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.ProgressNote;
 import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.service.ProgressNoteService;
+import org.andre.construx.modules.project.service.ProgressNoteService.PhotoUploadData;
 import org.andre.construx.modules.project.service.ProgressNoteService.ProgressNoteData;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,7 +31,9 @@ public class ProgressNoteController {
         this.notes = notes;
     }
 
-    public record ProgressNoteCreate(@Size(max = ProgressNote.MAX_TEXT) String text) {}
+    public record ProgressNoteCreate(@Size(max = ProgressNote.MAX_TEXT) String text, List<String> photoKeys) {}
+
+    public record PhotoUploadRequest(@NotBlank String contentType, long sizeBytes) {}
 
     @GetMapping
     public List<ProgressNoteData> list(SiteScope site, @PathVariable UUID goalId, @PathVariable UUID activityId) {
@@ -40,6 +44,14 @@ public class ProgressNoteController {
     @ResponseStatus(HttpStatus.CREATED)
     public ProgressNoteData add(SiteScope site, @PathVariable UUID goalId, @PathVariable UUID activityId,
                                 @Valid @RequestBody ProgressNoteCreate body) {
-        return notes.add(site, goalId, activityId, body.text(), UpdateSource.APP);
+        return notes.add(site, goalId, activityId, body.text(), body.photoKeys(), UpdateSource.APP);
+    }
+
+    /** Presigned upload for one photo of a note on this Task; a note then names the returned key. */
+    @PostMapping("/photo-uploads")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PhotoUploadData requestPhotoUpload(SiteScope site, @PathVariable UUID goalId, @PathVariable UUID activityId,
+                                              @Valid @RequestBody PhotoUploadRequest body) {
+        return notes.requestPhotoUpload(site, goalId, activityId, body.contentType(), body.sizeBytes());
     }
 }
