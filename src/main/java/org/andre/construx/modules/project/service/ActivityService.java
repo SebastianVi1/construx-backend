@@ -12,9 +12,11 @@ import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.Goal;
 import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.model.TeamMember;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.OpenTaskRow;
 import org.andre.construx.modules.project.repository.GoalRepository;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -34,7 +36,8 @@ import java.util.UUID;
 /**
  * Tasks. Start, complete and view pass the caller to the permission check when the caller is in the task's
  * team, so a role with OWN scope (Worker) can only move tasks it works on; every other change passes no
- * assignee, which makes OWN scope deny.
+ * assignee, which makes OWN scope deny. Start and complete are audited as {@code ACTIVITY} {@code START} and
+ * {@code COMPLETE}, with the status before and the status and source after.
  */
 @Service
 public class ActivityService {
@@ -43,15 +46,25 @@ public class ActivityService {
     private final GoalService goals;
     private final ProjectAccessService accesses;
     private final PersonDirectory directory;
+    private final AuditService audit;
 
     public ActivityService(ActivityRepository activities, GoalRepository goalRepository, GoalService goals,
-                           ProjectAccessService accesses, PersonDirectory directory) {
+                           ProjectAccessService accesses, PersonDirectory directory, AuditService audit) {
         this.activities = activities;
         this.goalRepository = goalRepository;
         this.goals = goals;
         this.accesses = accesses;
         this.directory = directory;
+        this.audit = audit;
     }
+
+    private static final String AUDIT_ENTITY = "ACTIVITY";
+
+    /** Audit before-state of a status change. */
+    record StatusBefore(ActivityStatus status) {}
+
+    /** Audit after-state of a status change. */
+    record StatusAfter(ActivityStatus status, UpdateSource source) {}
 
     public record AssigneeData(UUID accessId, UUID membershipId, String fullName, TaskRole taskRole, URI avatarUrl) {}
 
@@ -188,18 +201,22 @@ public class ActivityService {
     }
 
     @Transactional
-    public ActivityData start(SiteScope site, UUID goalId, UUID activityId) {
+    public ActivityData start(SiteScope site, UUID goalId, UUID activityId, UpdateSource source) {
         Activity activity = load(site, goalId, activityId);
         site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        StatusBefore before = new StatusBefore(activity.getStatus());
         activity.start();
+        auditStatus(site, activity, "START", before, source);
         return toData(site.org(), List.of(activity)).get(0);
     }
 
     @Transactional
-    public ActivityData complete(SiteScope site, UUID goalId, UUID activityId) {
+    public ActivityData complete(SiteScope site, UUID goalId, UUID activityId, UpdateSource source) {
         Activity activity = load(site, goalId, activityId);
         site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        StatusBefore before = new StatusBefore(activity.getStatus());
         activity.complete(Instant.now());
+        auditStatus(site, activity, "COMPLETE", before, source);
         return toData(site.org(), List.of(activity)).get(0);
     }
 
@@ -240,6 +257,12 @@ public class ActivityService {
         goals.load(site, goalId);
         return activities.findByIdAndGoalId(activityId, goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
+    }
+
+    private void auditStatus(SiteScope site, Activity activity, String action, StatusBefore before,
+                             UpdateSource source) {
+        audit.record(AUDIT_ENTITY, activity.getId(), action, site.membershipId(), before,
+                new StatusAfter(activity.getStatus(), source));
     }
 
     /** The caller's membership when they are in the team, which is what OWN scope matches; null otherwise. */
