@@ -5,12 +5,15 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.andre.construx.modules.organization.model.OrganizationMembership;
+import org.andre.construx.modules.project.model.ProgressNotePhoto.StoredPhoto;
 import org.andre.construx.shared.exception.RuleViolationException;
 import org.andre.construx.shared.validation.DomainValidation;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -23,6 +26,7 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProgressNote {
     public static final int MAX_TEXT = 1000;
+    public static final int MAX_PHOTOS = 5;
 
     @Id
     private UUID id;
@@ -48,20 +52,40 @@ public class ProgressNote {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** A note needs content: blank text is {@code PROGRESS_NOTE_EMPTY}. */
-    public ProgressNote(Activity activity, OrganizationMembership author, String text, UpdateSource source,
-                        Instant createdAt) {
+    /** In the order they were sent; saved with the note and never changed after. */
+    @OneToMany(mappedBy = "note", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @OrderBy("position asc")
+    private List<ProgressNotePhoto> photos = new ArrayList<>();
+
+    /**
+     * A note needs text, photos or both: neither is {@code PROGRESS_NOTE_EMPTY}, more than {@value #MAX_PHOTOS}
+     * photos is {@code PROGRESS_NOTE_TOO_MANY_PHOTOS}. Photos take positions 0 to 4 in the order given.
+     */
+    public ProgressNote(Activity activity, OrganizationMembership author, String text, List<StoredPhoto> photos,
+                        UpdateSource source, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.activity = DomainValidation.required(activity, "Task is required");
         this.author = DomainValidation.required(author, "Author is required");
         this.source = DomainValidation.required(source, "Source is required");
         this.createdAt = DomainValidation.required(createdAt, "Creation time is required");
         this.text = text == null || text.isBlank() ? null : text.strip();
-        if (this.text == null) {
-            throw new RuleViolationException("PROGRESS_NOTE_EMPTY", "A progress note needs text");
+        List<StoredPhoto> sent = photos == null ? List.of() : photos;
+        if (this.text == null && sent.isEmpty()) {
+            throw new RuleViolationException("PROGRESS_NOTE_EMPTY", "A progress note needs text or photos");
         }
-        if (this.text.length() > MAX_TEXT) {
+        if (this.text != null && this.text.length() > MAX_TEXT) {
             throw new IllegalArgumentException("A progress note is at most " + MAX_TEXT + " characters");
         }
+        if (sent.size() > MAX_PHOTOS) {
+            throw new RuleViolationException("PROGRESS_NOTE_TOO_MANY_PHOTOS",
+                    "A progress note holds at most " + MAX_PHOTOS + " photos");
+        }
+        for (StoredPhoto photo : sent) {
+            this.photos.add(new ProgressNotePhoto(this, photo, this.photos.size()));
+        }
+    }
+
+    public List<ProgressNotePhoto> getPhotos() {
+        return List.copyOf(photos);
     }
 }
