@@ -207,7 +207,7 @@ class WhatsAppWebhookFlowTest {
     }
 
     @Test
-    void theDailyCleanupForgetsMessageIdsAfterAWeek() throws Exception {
+    void theCleanupForgetsMessageIdsAfterAWeek() throws Exception {
         String waId = links.link(newSender());
         receive(textMessage(waId, "wamid.old", "hola"));
 

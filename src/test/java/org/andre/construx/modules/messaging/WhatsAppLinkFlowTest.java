@@ -422,7 +422,7 @@ class WhatsAppLinkFlowTest {
     }
 
     @Test
-    void theDailyCleanupNeverLiftsABlock() throws Exception {
+    void theCleanupNeverLiftsABlock() throws Exception {
         String waId = newSender();
         for (int i = 0; i < 10; i++) {
             clock.set(START.plus(Duration.ofMinutes(5 * i)).toString());

@@ -34,6 +34,8 @@ public enum BotText {
     CANCELLED("Cancelado. Escribe de nuevo cuando quieras.", "Cancelled. Send a message to start again."),
     CHANGED("Esta tarea cambió mientras tanto. Empieza de nuevo.", "This task changed in the meantime. Start again."),
     USE_BUTTONS("Por ahora usa los botones.", "Please use the buttons for now."),
+    /** Sent before the new menu when a button of a conversation that is gone (idle 30 minutes) is tapped. */
+    EXPIRED("Pasó mucho tiempo, empecemos de nuevo.", "That took a while, let's start again."),
 
     // Labels: buttons (at most 20 characters), the button that opens a list, Task statuses, summary actions.
     CHOOSE("Elegir", "Choose"),

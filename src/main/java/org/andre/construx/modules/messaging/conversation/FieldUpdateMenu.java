@@ -125,12 +125,20 @@ public class FieldUpdateMenu {
 
     // --- no conversation yet: step A, or B for the Site of "Another task" -------------------------------------------
 
+    /**
+     * Any message without a conversation (none yet, or it went idle) starts at step A. A tapped button or row other
+     * than "Another task" belongs to a conversation that is gone, so {@code EXPIRED} comes first and the tap is not
+     * taken as a choice.
+     */
     private void begin(LinkedNumber sender, InboundMessage message) {
         ConversationSession session = new ConversationSession(sender.waId(), sender.userId(), clock.instant());
         Optional<String[]> another = reply(message, ANOTHER_TASK, 2);
         if (another.isPresent()) {
             enterSite(sender, session, siteOf(sender, another.get()));
             return;
+        }
+        if (message.kind() == InboundMessage.Kind.REPLY) {
+            say(sender, BotText.EXPIRED);
         }
         List<SiteChoice> sites = fieldUpdates.sites(sender.userId());
         if (sites.isEmpty()) {

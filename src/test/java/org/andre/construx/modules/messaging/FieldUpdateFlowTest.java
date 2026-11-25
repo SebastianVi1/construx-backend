@@ -5,6 +5,7 @@ import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.Button;
 import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.ListRow;
+import org.andre.construx.modules.messaging.service.WhatsAppDataCleanup;
 import org.andre.construx.modules.organization.repository.OrganizationMembershipRepository;
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
@@ -84,6 +85,7 @@ class FieldUpdateFlowTest {
     @Autowired ProjectAccessRepository accesses;
     @Autowired AuditService audit;
     @Autowired ObjectStorage storage;
+    @Autowired WhatsAppDataCleanup cleanup;
 
     Api api;
     Members members;
@@ -847,7 +849,106 @@ class FieldUpdateFlowTest {
         assertThat(last(waId).body()).hasSize(1024).endsWith("yyy…\"\n1 photo\n\nSave it?");
     }
 
+    // --- idle expiry and cleanup (contract §5 rule 4, §2 cleanup, §8 case 11) -----------------------------------
+
+    @Test
+    void anOldTapAfterThirtyOneMinutesIdleGetsExpiredANewMenuAndThePhotosAreGone() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "Sí");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/png");
+        tap(waId, "Listo");
+        InMemoryWhatsAppGateway.Sent summary = last(waId);
+        gateway.clear();
+
+        idle(31);
+        tapId(waId, summary.buttons().getFirst().id(), "button_reply");
+
+        assertThat(bodies(waId)).containsExactly("Pasó mucho tiempo, empecemos de nuevo.", "Tower: ¿qué tarea?");
+        assertStatus(site, phase, pour, "TODO");
+        assertNoNotes(site, phase, pour);
+        assertThat(pendingObjects(waId)).isEmpty();
+    }
+
+    @Test
+    void anyMessageAfterThirtyMinutesIdleStartsOverWithoutExpired() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        idle(29);
+        tap(waId, "Start");
+        assertThat(last(waId).body()).isEqualTo("Want to add photos?");
+        gateway.clear();
+
+        idle(30);
+        say(waId, "hi");
+
+        assertThat(bodies(waId)).containsExactly("Tower: which task?");
+    }
+
+    @Test
+    void aCodeShapedTextAfterTheNoteWentIdleIsTakenAsACode() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+        gateway.clear();
+
+        idle(31);
+        say(waId, "CX-0000");
+
+        assertThat(bodies(waId)).singleElement().asString()
+                .startsWith("Ese código no es válido o ya venció. Genera uno nuevo en tu perfil.");
+    }
+
+    @Test
+    void theCleanupEndsSessionsIdleThirtyMinutesWithTheirPendingPhotos() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Terminar");
+        tap(waId, "Sí");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/jpeg");
+        InMemoryWhatsAppGateway.Sent photoStep = last(waId);
+
+        idle(29);
+        cleanup.purge();
+        assertThat(pendingObjects(waId)).hasSize(2);
+
+        idle(1);
+        cleanup.purge();
+        assertThat(pendingObjects(waId)).isEmpty();
+        gateway.clear();
+        tapId(waId, photoStep.buttons().getFirst().id(), "button_reply");
+        assertThat(bodies(waId)).containsExactly("Pasó mucho tiempo, empecemos de nuevo.", "Tower: ¿qué tarea?");
+    }
+
     // --- fixture -------------------------------------------------------------------------------------------------
+
+    /** Moves the clock on by this many minutes without a message. */
+    void idle(long minutes) {
+        clock.set(clock.instant().plus(minutes, ChronoUnit.MINUTES).toString());
+    }
 
     record Worker(Session session, UUID membership, UUID access) {}
 
