@@ -21,3 +21,14 @@ The profile has an optional photo stored in the private bucket under `users/<acc
 3. `PUT /api/profile/avatar` with `{key}` → the profile. The key must start with the caller's own prefix (`AVATAR_KEY_INVALID`) and exist in storage (`AVATAR_UPLOAD_MISSING`); the stored type and size are checked again. The previous photo is deleted.
 
 `DELETE /api/profile/avatar` → `204`, removes the photo. Both writes need a saved profile (`PROFILE_REQUIRED`). A presigned upload that is never confirmed leaves an orphan object; there is no cleanup job yet.
+
+## WhatsApp (Linked number)
+
+A user links one WhatsApp number so they can send Field updates (contract `.agents/contracts/field-updates.md` §2, §4.1, §5). Code: `modules/messaging` (`WhatsAppLinkService`, `WhatsAppProfileController`); migration `V45__whatsapp_link.sql` (`whatsapp_link`, `whatsapp_link_code`).
+
+- `GET /api/profile/whatsapp` → `{linked, number, language, linkedAt, construxNumber}`. `number` is the full `+`-prefixed number (the dashboard masks it); `number`, `language` and `linkedAt` are `null` when not linked. `construxNumber` is `WHATSAPP_DISPLAY_NUMBER`.
+- `POST /api/profile/whatsapp/link-code` with `{language: "es"|"en"}` → `201 {code, expiresAt, construxNumber, waMeUrl}`. The code is `CX-` plus 4 digits, valid 10 minutes and once; only its SHA-256 is stored, and a new code replaces the old one. No two users hold the same active code. `waMeUrl` is `https://wa.me/<construx digits>?text=<code>`.
+- `PUT /api/profile/whatsapp/language` with `{language}` → same body as `GET`; `404 WHATSAPP_NOT_LINKED` when not linked.
+- `DELETE /api/profile/whatsapp` → `204`, also when nothing is linked.
+
+From WhatsApp, a sender without a usable link who sends a code (trimmed, any case) is linked: the bot replies `LINKED` with the person's name in the code's language, and a number the user had before is replaced. A wrong, used or expired code, or a disabled owner, gets `CODE_INVALID` in both languages. `BAJA` or `STOP` (any case) from a Linked number unlinks it and replies `UNLINKED`; the next message gets `NOT_LINKED`. A disabled account's number is treated as unlinked. Audit: entity `WHATSAPP_LINK`, entity id = the user's account id, actions `LINK` / `UNLINK`, state `{number: "…1234", language, source: "WHATSAPP"|"APP"}`. Expired codes are purged by the daily WhatsApp cleanup.
