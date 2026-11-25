@@ -17,6 +17,7 @@ import org.andre.construx.modules.project.service.ProgressNoteService;
 import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.modules.project.service.ProjectService.ProjectData;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
+import org.andre.construx.shared.exception.RuleViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,9 +122,10 @@ public class FieldUpdateService {
                 notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(), photoKeys,
                         UpdateSource.WHATSAPP);
             }
-        } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException e) {
-            // Gone, no longer allowed, or the status moved on (start needs TODO, complete anything but DONE, a note
-            // an open Task).
+        } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException
+                 | RuleViolationException e) {
+            // Gone, no longer allowed, the status moved on (start needs TODO, complete anything but DONE, a note an
+            // open Task), or the note refused what it was given (a photo no longer a JPEG or PNG of at most 5 MB).
             throw new Changed();
         }
         sessions.end(session.getWaId());

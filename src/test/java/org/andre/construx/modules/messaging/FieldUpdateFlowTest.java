@@ -667,6 +667,31 @@ class FieldUpdateFlowTest {
     }
 
     @Test
+    void aPhotoTheNoteRefusesAtYesGetsChangedAndSavesNothing() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Finish");
+        tap(waId, "Yes");
+        sendImage(waId, "image/jpeg");
+        tap(waId, "Done");
+        // What storage holds is no longer a photo by the time of YES.
+        storage.put(pendingObjects(waId).iterator().next(), new byte[]{1}, "text/html");
+
+        tap(waId, "Yes");
+
+        assertThat(last(waId).body()).isEqualTo("This task changed in the meantime. Start again.");
+        assertStatus(site, phase, pour, "TODO");
+        assertNoNotes(site, phase, pour);
+        assertThat(pendingObjects(waId)).isEmpty();
+        assertThat(((InMemoryObjectStorage) storage).keys(noteKeys(site, pour))).isEmpty();
+    }
+
+    @Test
     void aNoteWithThreePhotosThenNoLeavesNoNoteAndNoStoredPhotos() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
