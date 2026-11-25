@@ -11,14 +11,16 @@ import java.util.Optional;
 /**
  * The menu conversation of each Linked number (contract §2 {@code whatsapp_session}). {@link #end} is the one way a
  * conversation stops, whatever the reason (YES, NO, a change found, unlinking, expiry), so whatever hangs off it goes
- * with it.
+ * with it: the pending photos, rows and stored objects, unless YES already gave them to a Progress note.
  */
 @Component
 public class ConversationSessions {
     private final ConversationSessionRepository sessions;
+    private final PendingPhotos photos;
 
-    public ConversationSessions(ConversationSessionRepository sessions) {
+    public ConversationSessions(ConversationSessionRepository sessions, PendingPhotos photos) {
         this.sessions = sessions;
+        this.photos = photos;
     }
 
     /** The sender's conversation; one another account left behind on this number is ended instead. */
@@ -37,9 +39,10 @@ public class ConversationSessions {
         return sessions.save(session);
     }
 
-    /** Ends the number's conversation; nothing happens when there is none. */
+    /** Ends the number's conversation and deletes its pending photos; nothing happens when there is none. */
     @Transactional
     public void end(String waId) {
+        photos.discard(waId);
         sessions.findById(waId).ifPresent(sessions::delete);
     }
 }

@@ -13,6 +13,10 @@ public enum SessionStep {
     PICK_ACTION,
     /** D: waiting for the text of a Note. */
     WRITE_NOTE,
+    /** E: whether to add photos, Yes / No. */
+    ASK_PHOTOS,
+    /** F: taking images until Done. */
+    ADD_PHOTOS,
     /** G: the summary, with Yes / No. */
     CONFIRM
 }

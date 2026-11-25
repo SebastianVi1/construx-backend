@@ -2,6 +2,7 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
 import org.andre.construx.modules.messaging.model.ConversationSession;
+import org.andre.construx.modules.messaging.model.FieldAction;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.access.OrgScopes;
 import org.andre.construx.modules.organization.model.PermissionAction;
@@ -56,10 +57,11 @@ public class FieldUpdateService {
     private final ProgressNoteService notes;
     private final LinkedNumbers links;
     private final ConversationSessions sessions;
+    private final PendingPhotos photos;
 
     public FieldUpdateService(OrganizationService organizations, OrgScopes orgScopes, ProjectService projects,
             SiteScopes siteScopes, ActivityService activities, ProgressNoteService notes, LinkedNumbers links,
-            ConversationSessions sessions) {
+            ConversationSessions sessions, PendingPhotos photos) {
         this.organizations = organizations;
         this.orgScopes = orgScopes;
         this.projects = projects;
@@ -68,6 +70,7 @@ public class FieldUpdateService {
         this.notes = notes;
         this.links = links;
         this.sessions = sessions;
+        this.photos = photos;
     }
 
     /** The Sites the user sees in the app, across their active memberships, by company and then by name. */
@@ -97,23 +100,25 @@ public class FieldUpdateService {
 
     /**
      * YES (contract §5): in one transaction, rechecks the link, the account, the membership, the Site, the permission
-     * and the Task status, applies the chosen action with source {@code WHATSAPP} and ends the conversation. When
-     * anything no longer holds nothing is saved and {@link Changed} is thrown.
+     * and the Task status, applies the chosen action with source {@code WHATSAPP} and ends the conversation. The
+     * pending photos go on a Progress note: the Note's, or a note of photos only after Start or Finish, so they never
+     * land on a Pin. When anything no longer holds nothing is saved and {@link Changed} is thrown.
      */
     @Transactional
     public void apply(ConversationSession session) {
         links.find(session.getWaId()).filter(link -> session.belongsTo(link.userId())).orElseThrow(Changed::new);
         SiteScope site = site(session.getUserId(), session.getOrganizationId(), session.getSiteId());
+        List<String> photoKeys = photos.claim(session.getWaId());
         try {
             switch (session.getAction()) {
                 case START -> activities.start(site, session.getPhaseId(), session.getTaskId(), UpdateSource.WHATSAPP);
                 case FINISH -> activities.complete(site, session.getPhaseId(), session.getTaskId(),
                         UpdateSource.WHATSAPP);
-                case NOTE -> {
-                    requireOpen(site, session);
-                    notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(),
-                            UpdateSource.WHATSAPP);
-                }
+                case NOTE -> requireOpen(site, session);
+            }
+            if (session.getAction() == FieldAction.NOTE || !photoKeys.isEmpty()) {
+                notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(), photoKeys,
+                        UpdateSource.WHATSAPP);
             }
         } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException e) {
             // Gone, no longer allowed, or the status moved on (start needs TODO, complete anything but DONE, a note
