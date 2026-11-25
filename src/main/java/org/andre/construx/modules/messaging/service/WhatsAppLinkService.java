@@ -2,6 +2,7 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.identity.service.AccountService;
 import org.andre.construx.modules.identity.service.PersonDirectory;
+import org.andre.construx.modules.identity.service.TokenService;
 import org.andre.construx.modules.messaging.config.WhatsAppProperties;
 import org.andre.construx.modules.messaging.conversation.LinkedNumber;
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
@@ -17,13 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -91,9 +88,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
         String code = freshCode(userId, now);
         LinkCode stored = codes.findById(userId).orElse(null);
         if (stored == null) {
-            stored = codes.save(new LinkCode(userId, hash(code), language, now));
+            stored = codes.save(new LinkCode(userId, TokenService.sha256(code), language, now));
         } else {
-            stored.replace(hash(code), language, now);
+            stored.replace(TokenService.sha256(code), language, now);
         }
         String construx = properties.displayNumber();
         URI waMe = URI.create("https://wa.me/" + construx.replaceAll("\\D", "") + "?text=" + code);
@@ -134,7 +131,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     @Transactional
     public Optional<Linked> linkByCode(String waId, String code) {
         Instant now = clock.instant();
-        List<LinkCode> matching = codes.findByCodeHash(hash(normalize(code))).stream()
+        List<LinkCode> matching = codes.findByCodeHash(TokenService.sha256(normalize(code))).stream()
                 .filter(candidate -> candidate.isValidAt(now)).toList();
         if (matching.size() != 1) {
             return Optional.empty();
@@ -210,7 +207,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private String freshCode(UUID userId, Instant now) {
         for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
             String code = "CX-%04d".formatted(random.nextInt(10_000));
-            if (!codes.existsByCodeHashAndExpiresAtAfterAndUserIdNot(hash(code), now, userId)) {
+            if (!codes.existsByCodeHashAndExpiresAtAfterAndUserIdNot(TokenService.sha256(code), now, userId)) {
                 return code;
             }
         }
@@ -241,14 +238,5 @@ public class WhatsAppLinkService implements LinkedNumbers {
 
     private static String normalize(String text) {
         return text.strip().toUpperCase(Locale.ROOT);
-    }
-
-    private static String hash(String code) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }
