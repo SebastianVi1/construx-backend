@@ -84,6 +84,17 @@ Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt,
 
 Task budget: `PUT .../{activityId}/budget` with `{ "allocatedBudget" }` carves the task budget out of its phase budget (same rules one level down: the tasks of a phase cannot hold more than its budget, `400 BUDGET_EXCEEDED`; the phase needs a budget first, `400 BUDGET_PARENT_MISSING`). Responses include `allocatedBudget`, `null` when unset or without `VIEW_BUDGET`. Deleting a task frees its budget. Phase and task budgets live in `goal.allocated_budget` and `activity.allocated_budget` (`V16__phase_activity_budget.sql`).
 
+### Progress notes
+
+A Progress note is a dated entry on one task, written in the app or by WhatsApp (`.agents/contracts/field-updates.md` in the umbrella repo). Notes are never edited or deleted: there is no `PUT` or `DELETE`, and they go only when their task is deleted.
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `.../{activityId}/progress-notes` | `VIEW_ACTIVITY`; `OWN` passes for any team member |
+| POST | `.../{activityId}/progress-notes` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
+
+POST body: `{ "text" }`, trimmed, at most 1,000 characters (`400 VALIDATION_FAILED`); blank or missing text is `400 PROGRESS_NOTE_EMPTY`. The app always writes `source: APP`; WhatsApp writes through `ProgressNoteService.add` with `WHATSAPP`. Each note records audit `PROGRESS_NOTE` / `CREATE` with `{ activityId, text, source }`. Response (GET lists newest first): `{ id, text, source, author: { membershipId, name }, createdAt }`; `name` is null without a profile. Stored in `progress_note` (`V42__progress_note.sql`).
+
 
 ## Gantt bar colors
 

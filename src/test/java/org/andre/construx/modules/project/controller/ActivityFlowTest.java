@@ -9,6 +9,8 @@ import org.andre.construx.modules.organization.repository.OrganizationMembership
 import org.andre.construx.modules.organization.repository.OrganizationRepository;
 import org.andre.construx.modules.project.repository.ProjectAccessRepository;
 import org.andre.construx.modules.project.repository.ProjectRepository;
+import org.andre.construx.shared.audit.AuditService;
+import org.andre.construx.shared.audit.AuditService.AuditEventData;
 import org.andre.construx.support.Api;
 import org.andre.construx.support.Api.Session;
 import org.andre.construx.support.Members;
@@ -22,6 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,6 +48,7 @@ class ActivityFlowTest {
     @Autowired ProjectAccessRepository accesses;
     @Autowired PlatformTransactionManager txm;
     @Autowired JdbcTemplate jdbc;
+    @Autowired AuditService audit;
 
     private Api api;
     private Members members;
@@ -196,6 +200,69 @@ class ActivityFlowTest {
         api.put(ana, tasks + "/" + mine + "/assignees", "{\"assignees\":" + team(anaAccess, "LEAD", bobAccess, "CREW") + "}")
                 .andExpect(status().isForbidden());
         api.delete(ana, tasks + "/" + theirs).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void startingATaskIsAuditedWithTheActorAndTheAppSource() throws Exception {
+        String task = create(member, "Pour", anaAccess);
+        api.post(ana, tasks + "/" + task + "/start", null).andExpect(status().isOk());
+
+        AuditEventData event = onlyEvent(task, "START");
+        assertEquals(membershipOf(ana), event.actorMembershipId());
+        assertEquals("TODO", JsonPath.read(event.beforeState(), "$.status"));
+        assertEquals("IN_PROGRESS", JsonPath.read(event.afterState(), "$.status"));
+        assertEquals("APP", JsonPath.read(event.afterState(), "$.source"));
+    }
+
+    @Test
+    void finishingATaskIsAuditedWhetherItWasStartedOrNot() throws Exception {
+        String started = create(member, "Started", anaAccess);
+        api.post(ana, tasks + "/" + started + "/start", null).andExpect(status().isOk());
+        api.post(ana, tasks + "/" + started + "/complete", null).andExpect(status().isOk());
+        String straight = create(member, "Straight", anaAccess);
+        api.post(ana, tasks + "/" + straight + "/complete", null).andExpect(status().isOk());
+
+        AuditEventData fromProgress = onlyEvent(started, "COMPLETE");
+        assertEquals(membershipOf(ana), fromProgress.actorMembershipId());
+        assertEquals("IN_PROGRESS", JsonPath.read(fromProgress.beforeState(), "$.status"));
+        assertEquals("DONE", JsonPath.read(fromProgress.afterState(), "$.status"));
+        assertEquals("APP", JsonPath.read(fromProgress.afterState(), "$.source"));
+        AuditEventData fromTodo = onlyEvent(straight, "COMPLETE");
+        assertEquals(membershipOf(ana), fromTodo.actorMembershipId());
+        assertEquals("TODO", JsonPath.read(fromTodo.beforeState(), "$.status"));
+        assertEquals("DONE", JsonPath.read(fromTodo.afterState(), "$.status"));
+        assertEquals("APP", JsonPath.read(fromTodo.afterState(), "$.source"));
+        assertEquals(List.of("COMPLETE"), audit.listForEntity("ACTIVITY", UUID.fromString(straight)).stream()
+                .map(AuditEventData::action).toList());
+    }
+
+    @Test
+    void aRejectedStartOrFinishIsNotAudited() throws Exception {
+        String theirs = create(member, "Bob's", bobAccess);
+        api.post(ana, tasks + "/" + theirs + "/start", null).andExpect(status().isForbidden());
+        api.post(ana, tasks + "/" + theirs + "/complete", null).andExpect(status().isForbidden());
+        Session finance = api.signUp();
+        members.add(orgId, finance.user(), "FINANCE");
+        api.post(finance, tasks + "/" + theirs + "/start", null).andExpect(status().isForbidden());
+        assertEquals(List.of(), audit.listForEntity("ACTIVITY", UUID.fromString(theirs)));
+
+        String mine = create(member, "Ana's", anaAccess);
+        api.post(ana, tasks + "/" + mine + "/complete", null).andExpect(status().isOk());
+        api.post(ana, tasks + "/" + mine + "/start", null).andExpect(status().isConflict());
+        api.post(ana, tasks + "/" + mine + "/complete", null).andExpect(status().isConflict());
+        assertEquals(List.of("COMPLETE"), audit.listForEntity("ACTIVITY", UUID.fromString(mine)).stream()
+                .map(AuditEventData::action).toList());
+    }
+
+    private AuditEventData onlyEvent(String task, String action) {
+        List<AuditEventData> events = audit.listForEntity("ACTIVITY", UUID.fromString(task)).stream()
+                .filter(e -> e.action().equals(action)).toList();
+        assertEquals(1, events.size());
+        return events.getFirst();
+    }
+
+    private UUID membershipOf(Session session) {
+        return memberships.findByOrganizationIdAndUserAccountId(orgId, session.user().getId()).orElseThrow().getId();
     }
 
     @Test

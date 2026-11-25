@@ -11,6 +11,7 @@ import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.access.SiteScopes;
 import org.andre.construx.modules.project.model.ProjectStatus;
 import org.andre.construx.modules.project.model.TaskRole;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.TeamInput;
 import org.andre.construx.modules.project.service.GoalService;
@@ -248,13 +249,13 @@ public class DemoSeeder {
         }
 
         private void inProgress(String name, String lead, Instant startAt, Instant dueAt) {
-            activities.start(site, goal, task(name, lead, startAt, dueAt));
+            activities.start(site, goal, task(name, lead, startAt, dueAt), UpdateSource.APP);
         }
 
         private void done(String name, String lead, Instant startAt, Instant dueAt) {
             UUID activity = task(name, lead, startAt, dueAt);
-            activities.start(site, goal, activity);
-            activities.complete(site, goal, activity);
+            activities.start(site, goal, activity, UpdateSource.APP);
+            activities.complete(site, goal, activity, UpdateSource.APP);
         }
 
         private void expense(String amount, LocalDate spentOn, String description, ExpenseCategory category) {
