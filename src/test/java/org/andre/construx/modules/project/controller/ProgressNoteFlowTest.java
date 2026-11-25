@@ -239,6 +239,19 @@ class ProgressNoteFlowTest {
     }
 
     @Test
+    void deletingTheTaskDeletesItsNotesPhotosFromStorage() throws Exception {
+        String first = upload(ana, anaTask, "image/jpeg");
+        String second = upload(ana, anaTask, "image/png");
+        api.post(ana, anaTask + "/progress-notes", "{\"photoKeys\":" + keys(first, second) + "}")
+                .andExpect(status().isCreated());
+
+        api.delete(owner, anaTask).andExpect(status().isNoContent());
+
+        assertTrue(storage.head(first).isEmpty());
+        assertTrue(storage.head(second).isEmpty());
+    }
+
+    @Test
     void aNoteCanBeJustPhotosAndTheListLinksEachInOrder() throws Exception {
         String first = upload(ana, anaTask, "image/jpeg");
         String second = upload(ana, anaTask, "image/png");

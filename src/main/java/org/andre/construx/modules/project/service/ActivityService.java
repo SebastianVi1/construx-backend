@@ -16,11 +16,17 @@ import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.OpenTaskRow;
 import org.andre.construx.modules.project.repository.GoalRepository;
+import org.andre.construx.modules.project.repository.ProgressNotePhotoRepository;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
+import org.andre.construx.shared.storage.ObjectStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -41,21 +47,27 @@ import java.util.UUID;
  */
 @Service
 public class ActivityService {
+    private static final Logger log = LoggerFactory.getLogger(ActivityService.class);
     private final ActivityRepository activities;
     private final GoalRepository goalRepository;
     private final GoalService goals;
     private final ProjectAccessService accesses;
     private final PersonDirectory directory;
     private final AuditService audit;
+    private final ProgressNotePhotoRepository notePhotos;
+    private final ObjectStorage storage;
 
     public ActivityService(ActivityRepository activities, GoalRepository goalRepository, GoalService goals,
-                           ProjectAccessService accesses, PersonDirectory directory, AuditService audit) {
+                           ProjectAccessService accesses, PersonDirectory directory, AuditService audit,
+                           ProgressNotePhotoRepository notePhotos, ObjectStorage storage) {
         this.activities = activities;
         this.goalRepository = goalRepository;
         this.goals = goals;
         this.accesses = accesses;
         this.directory = directory;
         this.audit = audit;
+        this.notePhotos = notePhotos;
+        this.storage = storage;
     }
 
     private static final String AUDIT_ENTITY = "ACTIVITY";
@@ -257,7 +269,31 @@ public class ActivityService {
         if (activities.hasExpenses(activityId)) {
             throw new IllegalStateException("Remove this task's expenses before deleting it");
         }
+        // The database cascades to the Progress notes; their photo files go once that is committed.
+        List<String> photoKeys = notePhotos.findStorageKeysByActivityId(activityId);
         activities.delete(activity);
+        afterCommit(() -> photoKeys.forEach(this::deleteObject));
+    }
+
+    private void deleteObject(String key) {
+        try {
+            storage.delete(key);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete a progress note photo from storage", e);
+        }
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     /** Home screen for anyone with a task permission: their own tasks in this organization. */
