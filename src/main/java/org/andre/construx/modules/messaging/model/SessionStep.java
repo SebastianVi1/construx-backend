@@ -11,6 +11,8 @@ public enum SessionStep {
     PICK_TASK,
     /** C: buttons with what can be done to the chosen Task. */
     PICK_ACTION,
+    /** D: waiting for the text of a Note. */
+    WRITE_NOTE,
     /** G: the summary, with Yes / No. */
     CONFIRM
 }

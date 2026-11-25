@@ -12,6 +12,7 @@ import org.andre.construx.modules.project.access.SiteScopes;
 import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.service.ActivityService;
+import org.andre.construx.modules.project.service.ProgressNoteService;
 import org.andre.construx.modules.project.service.ProjectService;
 import org.andre.construx.modules.project.service.ProjectService.ProjectData;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
@@ -52,16 +53,19 @@ public class FieldUpdateService {
     private final ProjectService projects;
     private final SiteScopes siteScopes;
     private final ActivityService activities;
+    private final ProgressNoteService notes;
     private final LinkedNumbers links;
     private final ConversationSessions sessions;
 
     public FieldUpdateService(OrganizationService organizations, OrgScopes orgScopes, ProjectService projects,
-            SiteScopes siteScopes, ActivityService activities, LinkedNumbers links, ConversationSessions sessions) {
+            SiteScopes siteScopes, ActivityService activities, ProgressNoteService notes, LinkedNumbers links,
+            ConversationSessions sessions) {
         this.organizations = organizations;
         this.orgScopes = orgScopes;
         this.projects = projects;
         this.siteScopes = siteScopes;
         this.activities = activities;
+        this.notes = notes;
         this.links = links;
         this.sessions = sessions;
     }
@@ -105,12 +109,28 @@ public class FieldUpdateService {
                 case START -> activities.start(site, session.getPhaseId(), session.getTaskId(), UpdateSource.WHATSAPP);
                 case FINISH -> activities.complete(site, session.getPhaseId(), session.getTaskId(),
                         UpdateSource.WHATSAPP);
+                case NOTE -> {
+                    requireOpen(site, session);
+                    notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(),
+                            UpdateSource.WHATSAPP);
+                }
             }
         } catch (ResourceNotFoundException | AccessDeniedException | IllegalStateException e) {
-            // Gone, no longer allowed, or the status moved on (start needs TODO, complete anything but DONE).
+            // Gone, no longer allowed, or the status moved on (start needs TODO, complete anything but DONE, a note
+            // an open Task).
             throw new Changed();
         }
         sessions.end(session.getWaId());
+    }
+
+    /** Adding a note checks the permission but not the status, so the Task must still be open and changeable here. */
+    private void requireOpen(SiteScope site, ConversationSession session) {
+        boolean open = activities.changeableOpenTasks(site).stream().anyMatch(task -> task.id().equals(
+                session.getTaskId()) && task.goalId().equals(session.getPhaseId())
+                && session.getAction().appliesTo(task.status()));
+        if (!open) {
+            throw new Changed();
+        }
     }
 
     private SiteScope site(UUID userId, UUID organizationId, UUID siteId) {

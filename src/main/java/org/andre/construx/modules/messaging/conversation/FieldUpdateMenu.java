@@ -6,6 +6,7 @@ import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.ListRow;
 import org.andre.construx.modules.messaging.inbound.InboundMessage;
 import org.andre.construx.modules.messaging.model.ConversationSession;
 import org.andre.construx.modules.messaging.model.FieldAction;
+import org.andre.construx.modules.messaging.model.SessionStep;
 import org.andre.construx.modules.messaging.service.ConversationSessions;
 import org.andre.construx.modules.messaging.service.FieldUpdateService;
 import org.andre.construx.modules.messaging.service.FieldUpdateService.Changed;
@@ -13,6 +14,7 @@ import org.andre.construx.modules.messaging.service.FieldUpdateService.SiteChoic
 import org.andre.construx.modules.messaging.service.FieldUpdateService.SiteTasks;
 import org.andre.construx.modules.messaging.service.FieldUpdateService.TaskChoice;
 import org.andre.construx.modules.project.model.ActivityStatus;
+import org.andre.construx.modules.project.model.ProgressNote;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -25,8 +27,8 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–C and G): Site → Task → action → summary →
- * YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
+ * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–D and G): Site → Task → action (→ note
+ * text) → summary → YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
  * {@code show} (the step's menu, sent on entering it and again after {@code USE_BUTTONS}). A new step is a
  * {@link org.andre.construx.modules.messaging.model.SessionStep} plus one case in {@link #accept} and one in
  * {@link #show}; a new button is a reply id prefix below.
@@ -41,6 +43,8 @@ public class FieldUpdateMenu {
     private static final int MAX_ROWS = 10;
     private static final int ROW_TITLE_MAX = 24;
     private static final int ROW_DESCRIPTION_MAX = 72;
+    /** The most WhatsApp shows in the text above buttons. */
+    private static final int BODY_MAX = 1024;
 
     // Reply ids of rows and buttons: a prefix, then the ids it carries, separated by ':'.
     private static final String SITE = "site";
@@ -84,11 +88,17 @@ public class FieldUpdateMenu {
         }
     }
 
+    /** Whether the sender's conversation waits for the text of a note. */
+    public boolean awaitsText(LinkedNumber sender) {
+        return sessions.current(sender).filter(session -> session.getStep() == SessionStep.WRITE_NOTE).isPresent();
+    }
+
     private boolean accept(LinkedNumber sender, ConversationSession session, InboundMessage message) {
         return switch (session.getStep()) {
             case PICK_SITE -> acceptSite(sender, session, message);
             case PICK_TASK -> acceptTask(sender, session, message);
             case PICK_ACTION -> acceptAction(sender, session, message);
+            case WRITE_NOTE -> acceptNote(sender, session, message);
             case CONFIRM -> acceptConfirmation(sender, session, message);
         };
     }
@@ -98,6 +108,7 @@ public class FieldUpdateMenu {
             case PICK_SITE -> showSites(sender, session);
             case PICK_TASK -> showTasks(sender, session);
             case PICK_ACTION -> showActions(sender, session);
+            case WRITE_NOTE -> askNote(sender, session);
             case CONFIRM -> showSummary(sender, session);
         }
     }
@@ -221,11 +232,11 @@ public class FieldUpdateMenu {
             throw new Changed();
         }
         session.chooseAction(action.get());
-        showSummary(sender, session);
+        show(sender, session);
         return true;
     }
 
-    /** The actions the Task's status allows: {@code TODO} → Start / Finish, {@code IN_PROGRESS} → Finish. */
+    /** The actions the Task's status allows: {@code TODO} → Start / Finish / Note, {@code IN_PROGRESS} → Finish / Note. */
     private void showActions(LinkedNumber sender, ConversationSession session) {
         TaskChoice task = taskOf(sender, session, session.getPhaseId(), session.getTaskId());
         Language language = sender.language();
@@ -236,6 +247,29 @@ public class FieldUpdateMenu {
         sessions.save(session);
         gateway.sendButtons(sender.waId(), BotText.PICK_ACTION.in(language, Map.of("task", task.taskName())),
                 buttons);
+    }
+
+    // --- D. WRITE_NOTE -----------------------------------------------------------------------------------------------
+
+    /** Typed text of 1–1,000 characters (spaces around do not count); longer is {@code NOTE_TOO_LONG}, ask again. */
+    private boolean acceptNote(LinkedNumber sender, ConversationSession session, InboundMessage message) {
+        if (message.kind() != InboundMessage.Kind.TEXT || message.text() == null || message.text().isBlank()) {
+            return false;
+        }
+        String text = message.text().strip();
+        if (text.length() > ProgressNote.MAX_TEXT) {
+            sessions.save(session);
+            say(sender, BotText.NOTE_TOO_LONG);
+            return true;
+        }
+        session.writeNote(text);
+        showSummary(sender, session);
+        return true;
+    }
+
+    private void askNote(LinkedNumber sender, ConversationSession session) {
+        sessions.save(session);
+        say(sender, BotText.WRITE_NOTE);
     }
 
     // --- G. CONFIRM --------------------------------------------------------------------------------------------------
@@ -256,19 +290,28 @@ public class FieldUpdateMenu {
         return false;
     }
 
-    /** The summary names the Site and the Task as stored now, never as the person typed or saw them. */
+    /**
+     * The summary names the Site and the Task as stored now, never as the person typed or saw them. A note too long
+     * for the 1,024 characters WhatsApp shows above buttons is shortened here only; YES saves all of it.
+     */
     private void showSummary(LinkedNumber sender, ConversationSession session) {
         SiteTasks site = fieldUpdates.tasks(sender.userId(), session.getOrganizationId(), session.getSiteId());
         TaskChoice task = site.tasks().stream().filter(t -> t.taskId().equals(session.getTaskId())).findFirst()
                 .orElseThrow(Changed::new);
         Language language = sender.language();
-        List<String> lines = new ArrayList<>();
-        lines.add(BotText.SUMMARY.in(language, Map.of("site", site.siteName(), "task", task.taskName(),
-                "action", summaryLabel(session.getAction()).in(language))));
-        lines.add("");
-        lines.add(BotText.SAVE_IT.in(language));
+        String head = BotText.SUMMARY.in(language, Map.of("site", site.siteName(), "task", task.taskName(),
+                "action", summaryLabel(session.getAction()).in(language)));
+        String tail = "\n\n" + BotText.SAVE_IT.in(language);
+        StringBuilder body = new StringBuilder(head);
+        if (session.getNoteText() != null) {
+            int room = BODY_MAX - head.length() - tail.length() - 1
+                    - BotText.NOTE_LINE.in(language, Map.of("note", "")).length();
+            body.append('\n').append(BotText.NOTE_LINE.in(language,
+                    Map.of("note", cut(session.getNoteText(), Math.max(room, 1)))));
+        }
+        body.append(tail);
         sessions.save(session);
-        gateway.sendButtons(sender.waId(), String.join("\n", lines), List.of(
+        gateway.sendButtons(sender.waId(), body.toString(), List.of(
                 new Button(YES, BotText.YES.in(language)), new Button(NO, BotText.NO.in(language))));
     }
 
@@ -278,6 +321,7 @@ public class FieldUpdateMenu {
         return switch (action) {
             case START -> BotText.START;
             case FINISH -> BotText.FINISH;
+            case NOTE -> BotText.NOTE;
         };
     }
 
@@ -285,6 +329,7 @@ public class FieldUpdateMenu {
         return switch (action) {
             case START -> BotText.STARTED;
             case FINISH -> BotText.FINISHED;
+            case NOTE -> BotText.NOTE;
         };
     }
 
