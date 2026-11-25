@@ -14,10 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Contract §5 rule 1, for a sender without a usable link (and for any {@code CX-1234} code, see
- * {@link ConversationRouter}): a code links the number ({@code LINKED} in the code's language, or
- * {@code CODE_INVALID}, counted by {@link WrongCodeLimit}); anything else is told how to link, at most once per 24 hours, and is
- * not processed.
+ * Contract §5 rule 1, for a sender without a usable link: a code links the number ({@code LINKED} in the code's
+ * language, or {@code CODE_INVALID}, counted by {@link WrongCodeLimit}); anything else is told how to link, at most
+ * once per 24 hours, and is not processed. A Linked number's code goes to {@link #linkIfValid} instead.
  */
 @Component
 public class UnlinkedSenderReply {
@@ -56,9 +55,9 @@ public class UnlinkedSenderReply {
     }
 
     /**
-     * For a code typed where free text is expected (a note): a valid code links the number as usual and answers
-     * {@code LINKED}; a wrong one is counted by {@link WrongCodeLimit} but not answered, and false lets the caller
-     * take the text as typed. A valid code always wins, so a number that changed hands still moves.
+     * For a code from a Linked number: a valid code links the number as usual and answers {@code LINKED}, so a number
+     * that changed hands still moves; a wrong one is counted by {@link WrongCodeLimit} but not answered, and false
+     * lets the caller handle the text like any other (in a note it is the note, elsewhere the menu's answer).
      */
     @Transactional
     public boolean linkIfValid(InboundMessage message) {

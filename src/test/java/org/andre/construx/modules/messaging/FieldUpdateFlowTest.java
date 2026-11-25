@@ -924,7 +924,7 @@ class FieldUpdateFlowTest {
     }
 
     @Test
-    void aCodeShapedTextAfterTheNoteWentIdleIsTakenAsACode() throws Exception {
+    void aCodeShapedTextAfterTheNoteWentIdleThatLinksNothingStartsOver() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
         Worker ana = worker(site, "WORKER");
@@ -938,8 +938,22 @@ class FieldUpdateFlowTest {
         idle(31);
         say(waId, "CX-0000");
 
-        assertThat(bodies(waId)).singleElement().asString()
-                .startsWith("Ese código no es válido o ya venció. Genera uno nuevo en tu perfil.");
+        assertThat(bodies(waId)).containsExactly("Tower: ¿qué tarea?");
+    }
+
+    @Test
+    void aCodeShapedTextThatLinksNothingDuringTheTaskListGetsUseButtonsInTheNumbersLanguage() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        gateway.clear();
+
+        say(waId, "CX-0000");
+
+        assertThat(bodies(waId)).containsExactly("Please use the buttons for now.", "Tower: which task?");
     }
 
     @Test
