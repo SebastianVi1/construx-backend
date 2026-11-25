@@ -80,6 +80,11 @@ public class UserAccount {
         this.emailVerified = true;
     }
 
+    /** Not disabled; a disabled account's Linked number is treated as unlinked. */
+    public boolean isEnabled() {
+        return status == UserStatus.ACTIVE;
+    }
+
     public void disable() {
         this.status = UserStatus.DISABLED;
     }
