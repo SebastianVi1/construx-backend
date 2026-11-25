@@ -1,15 +1,21 @@
 package org.andre.construx.modules.messaging;
 
 import com.jayway.jsonpath.JsonPath;
+import jakarta.mail.Address;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.internet.MimeMessage;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.service.TokenService;
+import org.andre.construx.modules.messaging.service.WhatsAppDataCleanup;
 import org.andre.construx.support.Api;
 import org.andre.construx.support.Api.Session;
 import org.andre.construx.support.MutableClock;
 import org.andre.construx.shared.audit.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -17,7 +23,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Duration;
@@ -29,6 +37,11 @@ import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.newSe
 import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.sign;
 import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.textMessage;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,6 +75,8 @@ class WhatsAppLinkFlowTest {
     @Autowired InMemoryWhatsAppGateway gateway;
     @Autowired MutableClock clock;
     @Autowired AuditService audit;
+    @Autowired WhatsAppDataCleanup cleanup;
+    @MockitoBean JavaMailSender mail;
 
     Api api;
 
@@ -70,6 +85,7 @@ class WhatsAppLinkFlowTest {
         api = new Api(mvc, users, tokens);
         clock.set(START.toString());
         gateway.clear();
+        when(mail.createMimeMessage()).thenAnswer(invocation -> new MimeMessage((jakarta.mail.Session) null));
     }
 
     @Test
@@ -310,11 +326,156 @@ class WhatsAppLinkFlowTest {
         assertThat(replies(waId)).containsExactly(CODE_INVALID);
     }
 
+    @Test
+    void aCodeFromANumberLinkedToSomeoneElseMovesItAndEmailsThePreviousOwner() throws Exception {
+        Session previous = named("Ana");
+        Session next = named("Beto");
+        String waId = newSender();
+        say(waId, code(previous, "es"));
+        gateway.clear();
+        clearInvocations(mail);
+
+        say(waId, code(next, "en"));
+
+        assertThat(replies(waId)).containsExactly(
+                "Done, Beto! Your WhatsApp is linked. Send any message to update your tasks. Send STOP to unlink.");
+        api.get(previous, PROFILE).andExpect(jsonPath("$.linked").value(false));
+        api.get(next, PROFILE).andExpect(jsonPath("$.number").value("+" + waId));
+        MimeMessage sent = sentMail();
+        assertThat(sent.getAllRecipients()).extracting(Address::toString).containsExactly(previous.user().getEmail());
+        assertThat(sent.getSubject()).isEqualTo("Tu WhatsApp se desvinculó de Construx");
+        assertThat(plainText(sent)).contains("terminado en " + waId.substring(waId.length() - 4))
+                .doesNotContain(waId);
+        assertThat(audit.listForEntity("WHATSAPP_LINK", previous.user().getId()).getFirst())
+                .satisfies(event -> {
+                    assertThat(event.action()).isEqualTo("MOVE");
+                    assertThat(event.afterState()).contains("\"source\":\"WHATSAPP\"").doesNotContain(waId);
+                });
+        assertThat(audit.listForEntity("WHATSAPP_LINK", next.user().getId()))
+                .extracting(AuditService.AuditEventData::action).containsExactly("LINK");
+    }
+
+    @Test
+    void thePreviousOwnerIsEmailedInTheLanguageOfTheirLink() throws Exception {
+        Session previous = named("Ana");
+        Session next = named("Beto");
+        String waId = newSender();
+        say(waId, code(previous, "en"));
+        clearInvocations(mail);
+
+        say(waId, code(next, "es"));
+
+        MimeMessage sent = sentMail();
+        assertThat(sent.getSubject()).isEqualTo("Your WhatsApp was unlinked from Construx");
+        assertThat(plainText(sent)).contains("ending in " + waId.substring(waId.length() - 4));
+    }
+
+    @Test
+    void relinkingYourOwnNumberSendsNoEmail() throws Exception {
+        Session user = named("Ana");
+        String waId = newSender();
+        say(waId, code(user, "es"));
+
+        say(waId, code(user, "en"));
+
+        api.get(user, PROFILE).andExpect(jsonPath("$.language").value("en"));
+        verify(mail, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void afterTenWrongCodesInAnHourTheNumberIsIgnoredForAnHour() throws Exception {
+        Session user = named("Ana");
+        String waId = newSender();
+        for (int i = 0; i < 10; i++) {
+            clock.set(START.plus(Duration.ofMinutes(5 * i)).toString());
+            say(waId, "CX-0000");
+        }
+        assertThat(replies(waId)).hasSize(10).containsOnly(CODE_INVALID);
+        gateway.clear();
+        String code = code(user, "es");
+
+        say(waId, "hola");
+        say(waId, code);
+        clock.set(START.plus(Duration.ofMinutes(45 + 59)).toString());
+        say(waId, "hola");
+
+        assertThat(replies(waId)).isEmpty();
+        api.get(user, PROFILE).andExpect(jsonPath("$.linked").value(false));
+
+        clock.set(START.plus(Duration.ofMinutes(45 + 60)).toString());
+        say(waId, "hola");
+        assertThat(replies(waId)).containsExactly(WhatsAppWebhookFlowTest.NOT_LINKED);
+    }
+
+    @Test
+    void wrongCodesSpreadOverMoreThanAnHourAreNotBlocked() throws Exception {
+        String waId = newSender();
+        for (int i = 0; i < 9; i++) {
+            say(waId, "CX-0000");
+        }
+        clock.set(START.plus(Duration.ofHours(1)).toString());
+        for (int i = 0; i < 9; i++) {
+            say(waId, "CX-0000");
+        }
+
+        assertThat(replies(waId)).hasSize(18).containsOnly(CODE_INVALID);
+    }
+
+    @Test
+    void theDailyCleanupNeverLiftsABlock() throws Exception {
+        String waId = newSender();
+        for (int i = 0; i < 10; i++) {
+            clock.set(START.plus(Duration.ofMinutes(5 * i)).toString());
+            say(waId, "CX-0000");
+        }
+        gateway.clear();
+
+        clock.set(START.plus(Duration.ofMinutes(100)).toString());
+        cleanup.purge();
+        say(waId, "hola");
+
+        assertThat(replies(waId)).isEmpty();
+    }
+
+    @Test
+    void aLinkedNumberSendingWrongCodesIsAlsoIgnoredForAnHour() throws Exception {
+        Session user = named("Ana");
+        String waId = newSender();
+        say(waId, code(user, "es"));
+        for (int i = 0; i < 10; i++) {
+            say(waId, "CX-0000");
+        }
+        gateway.clear();
+
+        say(waId, "STOP");
+
+        assertThat(replies(waId)).isEmpty();
+        api.get(user, PROFILE).andExpect(jsonPath("$.linked").value(true));
+    }
+
     void say(String waId, String text) throws Exception {
         String body = textMessage(waId, "wamid." + java.util.UUID.randomUUID(), text);
         mvc.perform(post("/api/webhooks/whatsapp").contentType("application/json").content(body)
                         .header("X-Hub-Signature-256", sign(body)))
                 .andExpect(status().isOk());
+    }
+
+    MimeMessage sentMail() {
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mail).send(captor.capture());
+        return captor.getValue();
+    }
+
+    static String plainText(Part part) throws Exception {
+        Object content = part.getContent();
+        if (content instanceof Multipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String text = plainText(multipart.getBodyPart(i));
+                if (text != null) return text;
+            }
+            return null;
+        }
+        return part.getDataHandler().getContentType().startsWith("text/plain") ? (String) content : null;
     }
 
     List<String> replies(String waId) {

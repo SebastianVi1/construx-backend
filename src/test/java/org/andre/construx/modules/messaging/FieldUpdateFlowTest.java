@@ -393,6 +393,27 @@ class FieldUpdateFlowTest {
     }
 
     @Test
+    void aNumberMovingToAnotherAccountLeavesThePreviousOwnersSessionBehind() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        Worker bob = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        task(site, phase, "Rebar", "2027-01-10T00:00:00Z", bob.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        String yes = last(waId).buttons().getFirst().id();
+
+        relink(bob.session, waId);
+        tapId(waId, yes, "button_reply");
+
+        assertStatus(site, phase, pour, "TODO");
+        assertThat(last(waId).rows()).extracting(ListRow::title).containsExactly("Rebar");
+    }
+
+    @Test
     void unlinkingFromTheProfileEndsTheSession() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
