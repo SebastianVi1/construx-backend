@@ -60,17 +60,20 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private final PersonDirectory people;
     private final AuditService audit;
     private final WhatsAppProperties properties;
+    private final ConversationSessions sessions;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
     public WhatsAppLinkService(WhatsAppLinkRepository links, LinkCodeRepository codes, AccountService accounts,
-            PersonDirectory people, AuditService audit, WhatsAppProperties properties, Clock clock) {
+            PersonDirectory people, AuditService audit, WhatsAppProperties properties, ConversationSessions sessions,
+            Clock clock) {
         this.links = links;
         this.codes = codes;
         this.accounts = accounts;
         this.people = people;
         this.audit = audit;
         this.properties = properties;
+        this.sessions = sessions;
         this.clock = clock;
     }
 
@@ -171,7 +174,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
         return codes.deleteExpired(clock.instant());
     }
 
+    /** Unlinking ends the number's menu session too. */
     private void remove(WhatsAppLink link, Source source) {
+        sessions.end(link.getWaId());
         links.delete(link);
         audit.record(AUDIT_ENTITY, link.getUserId(), "UNLINK", null, auditState(link, source), null);
     }
