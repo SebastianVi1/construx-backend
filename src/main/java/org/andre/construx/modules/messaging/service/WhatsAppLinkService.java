@@ -60,17 +60,20 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private final PersonDirectory people;
     private final AuditService audit;
     private final WhatsAppProperties properties;
+    private final NumberMovedMailer movedMailer;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
     public WhatsAppLinkService(WhatsAppLinkRepository links, LinkCodeRepository codes, AccountService accounts,
-            PersonDirectory people, AuditService audit, WhatsAppProperties properties, Clock clock) {
+            PersonDirectory people, AuditService audit, WhatsAppProperties properties, NumberMovedMailer movedMailer,
+            Clock clock) {
         this.links = links;
         this.codes = codes;
         this.accounts = accounts;
         this.people = people;
         this.audit = audit;
         this.properties = properties;
+        this.movedMailer = movedMailer;
         this.clock = clock;
     }
 
@@ -141,8 +144,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
         if (!accounts.isEnabled(userId)) {
             return Optional.empty();
         }
-        links.findByWaId(waId).filter(other -> !other.getUserId().equals(userId)).ifPresent(other -> {
-            // #119: moving a number from another account also emails that account and audits MOVE.
+        Optional<WhatsAppLink> moved = links.findByWaId(waId).filter(other -> !other.getUserId().equals(userId));
+        moved.ifPresent(other -> {
+            // #120: the previous owner's menu session on this number (and its pending photos) goes with it.
             links.delete(other);
             links.flush();
         });
@@ -152,7 +156,9 @@ public class WhatsAppLinkService implements LinkedNumbers {
         } else {
             link.relink(waId, used.getLanguage(), now);
         }
-        audit.record(AUDIT_ENTITY, link.getUserId(), "LINK", null, null, auditState(link, Source.WHATSAPP));
+        Map<String, Object> linked = auditState(link, Source.WHATSAPP);
+        moved.ifPresent(other -> recordMove(other, userId, linked));
+        audit.record(AUDIT_ENTITY, link.getUserId(), "LINK", null, null, linked);
         return Optional.of(new Linked(nameOf(userId), link.getLanguage()));
     }
 
@@ -169,6 +175,18 @@ public class WhatsAppLinkService implements LinkedNumbers {
     @Transactional
     public int deleteExpiredCodes() {
         return codes.deleteExpired(clock.instant());
+    }
+
+    /**
+     * A recycled number linked by someone else: the previous owner's audit trail records {@code MOVE} (to whom, never
+     * the full number) and they are emailed in the language of the link they lost.
+     */
+    private void recordMove(WhatsAppLink previous, UUID newOwner, Map<String, Object> linked) {
+        Map<String, Object> after = new LinkedHashMap<>(linked);
+        after.put("movedToUserId", newOwner.toString());
+        audit.record(AUDIT_ENTITY, previous.getUserId(), "MOVE", null, auditState(previous, Source.WHATSAPP), after);
+        movedMailer.send(accounts.account(previous.getUserId()), lastDigits(previous.getWaId()),
+                previous.getLanguage());
     }
 
     private void remove(WhatsAppLink link, Source source) {
@@ -200,10 +218,14 @@ public class WhatsAppLinkService implements LinkedNumbers {
     /** The number is kept masked in the audit trail. */
     private static Map<String, Object> auditState(WhatsAppLink link, Source source) {
         Map<String, Object> state = new LinkedHashMap<>();
-        state.put("number", "…" + link.getWaId().substring(Math.max(0, link.getWaId().length() - 4)));
+        state.put("number", "…" + lastDigits(link.getWaId()));
         state.put("language", link.getLanguage().code());
         state.put("source", source.name());
         return state;
+    }
+
+    private static String lastDigits(String waId) {
+        return waId.substring(Math.max(0, waId.length() - 4));
     }
 
     private static ResourceNotFoundException notLinked() {
