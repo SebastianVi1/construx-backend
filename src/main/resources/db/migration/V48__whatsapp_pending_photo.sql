@@ -1,6 +1,7 @@
 -- Photos a Linked number sent during a Field update, before YES (Field updates contract §2, §5 step F). The bytes are
--- in private storage under whatsapp/pending/{wa_id}/; YES hands the keys to a Progress note and drops these rows, any
--- other end of the conversation deletes the rows and the stored objects. position is the order they arrived (0-4).
+-- in private storage under whatsapp/pending/{wa_id}/; YES copies each object to a key of the Progress note, drops
+-- these rows and deletes the pending objects after commit; any other end of the conversation deletes the rows and the
+-- stored objects. position is the order they arrived (0-4).
 create table whatsapp_pending_photo (
     id uuid primary key,
     wa_id varchar(20) not null,
