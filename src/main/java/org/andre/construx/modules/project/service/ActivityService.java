@@ -321,8 +321,11 @@ public class ActivityService {
                 new StatusAfter(activity.getStatus(), source));
     }
 
-    /** The caller's membership when they are in the team, which is what OWN scope matches; null otherwise. */
-    private static UUID teamMember(Activity activity, OrganizationMembership member) {
+    /**
+     * The caller's membership when they are in the team, which is what OWN scope matches; null otherwise. Progress
+     * notes use it too.
+     */
+    static UUID teamMember(Activity activity, OrganizationMembership member) {
         return activity.isOnTeam(member.getId()) ? member.getId() : null;
     }
 

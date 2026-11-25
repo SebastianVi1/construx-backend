@@ -5,7 +5,7 @@ import org.andre.construx.modules.messaging.gateway.WhatsAppGateway.Media;
 import org.andre.construx.modules.messaging.model.PendingPhoto;
 import org.andre.construx.modules.messaging.repository.PendingPhotoRepository;
 import org.andre.construx.modules.project.model.ProgressNote;
-import org.andre.construx.modules.project.service.ProgressNoteService;
+import org.andre.construx.modules.project.model.ProgressNotePhoto;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +16,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -62,14 +61,13 @@ public class PendingPhotos {
         if (count >= ProgressNote.MAX_PHOTOS) {
             return Added.LIMIT;
         }
-        if (!ProgressNoteService.PHOTO_TYPES.contains(type(declaredType))) {
+        if (!ProgressNotePhoto.acceptsType(ProgressNotePhoto.mediaType(declaredType))) {
             return Added.REFUSED;
         }
         Media media = gateway.downloadMedia(mediaId);
-        String type = type(media.contentType());
+        String type = ProgressNotePhoto.mediaType(media.contentType());
         long size = media.bytes().length;
-        if (!ProgressNoteService.PHOTO_TYPES.contains(type) || size == 0
-                || size > ProgressNoteService.MAX_PHOTO_BYTES) {
+        if (!ProgressNotePhoto.accepts(type, size)) {
             return Added.REFUSED;
         }
         String key = PREFIX + waId + "/" + UUID.randomUUID();
@@ -148,10 +146,5 @@ public class PendingPhotos {
                 log.warn("Could not delete a WhatsApp photo from storage", e);
             }
         }
-    }
-
-    /** The bare media type, without parameters, in lower case; empty when unknown. */
-    private static String type(String contentType) {
-        return contentType == null ? "" : contentType.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
     }
 }

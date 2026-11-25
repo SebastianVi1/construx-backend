@@ -2,7 +2,6 @@ package org.andre.construx.modules.project.service;
 
 import org.andre.construx.modules.identity.service.PersonDirectory;
 import org.andre.construx.modules.identity.service.PersonDirectory.Person;
-import org.andre.construx.modules.organization.model.OrganizationMembership;
 import org.andre.construx.modules.organization.model.PermissionAction;
 import org.andre.construx.modules.project.access.SiteScope;
 import org.andre.construx.modules.project.model.Activity;
@@ -24,9 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -41,8 +38,6 @@ import java.util.UUID;
 @Service
 public class ProgressNoteService {
     public static final String AUDIT_ENTITY = "PROGRESS_NOTE";
-    public static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
-    public static final Set<String> PHOTO_TYPES = Set.of("image/jpeg", "image/png");
     static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
     static final Duration VIEW_TTL = Duration.ofMinutes(10);
 
@@ -84,7 +79,7 @@ public class ProgressNoteService {
     @Transactional(readOnly = true)
     public List<ProgressNoteData> list(SiteScope site, UUID goalId, UUID activityId) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.VIEW_ACTIVITY, teamMember(activity, site.membership()));
+        site.require(PermissionAction.VIEW_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
         return toData(notes.findByActivityNewestFirst(activityId));
     }
 
@@ -96,9 +91,9 @@ public class ProgressNoteService {
     public PhotoUploadData requestPhotoUpload(SiteScope site, UUID goalId, UUID activityId, String contentType,
                                               long sizeBytes) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
-        String type = contentType == null ? "" : contentType.strip().toLowerCase(Locale.ROOT);
-        if (!PHOTO_TYPES.contains(type) || sizeBytes <= 0 || sizeBytes > MAX_PHOTO_BYTES) {
+        site.require(PermissionAction.MANAGE_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
+        String type = ProgressNotePhoto.mediaType(contentType);
+        if (!ProgressNotePhoto.accepts(type, sizeBytes)) {
             throw invalidPhoto("Progress note photos must be JPEG or PNG up to 5 MB");
         }
         String key = newPhotoKey(site, activityId);
@@ -121,12 +116,8 @@ public class ProgressNoteService {
     public ProgressNoteData add(SiteScope site, UUID goalId, UUID activityId, String text, List<String> photoKeys,
                                 UpdateSource source) {
         Activity activity = activities.load(site, goalId, activityId);
-        site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        site.require(PermissionAction.MANAGE_ACTIVITY, ActivityService.teamMember(activity, site.membership()));
         List<String> keys = photoKeys == null ? List.of() : new ArrayList<>(new LinkedHashSet<>(photoKeys));
-        if (keys.size() > ProgressNote.MAX_PHOTOS) {
-            throw new RuleViolationException("PROGRESS_NOTE_TOO_MANY_PHOTOS",
-                    "A progress note holds at most " + ProgressNote.MAX_PHOTOS + " photos");
-        }
         String prefix = uploadPrefix(site, activityId);
         List<StoredPhoto> stored = keys.stream().map(key -> stored(key, prefix)).toList();
         ProgressNote note = notes.save(new ProgressNote(activity, site.membership(), text, stored, source,
@@ -162,8 +153,8 @@ public class ProgressNoteService {
         }
         ObjectStorage.StoredObject object = storage.head(key)
                 .orElseThrow(() -> invalidPhoto("The photo was not uploaded"));
-        String type = object.contentType() == null ? "" : object.contentType().toLowerCase(Locale.ROOT);
-        if (object.sizeBytes() > MAX_PHOTO_BYTES || !PHOTO_TYPES.contains(type)) {
+        String type = ProgressNotePhoto.mediaType(object.contentType());
+        if (!ProgressNotePhoto.accepts(type, object.sizeBytes())) {
             throw invalidPhoto("Progress note photos must be JPEG or PNG up to 5 MB");
         }
         return new StoredPhoto(key, type, object.sizeBytes());
@@ -171,11 +162,6 @@ public class ProgressNoteService {
 
     private static RuleViolationException invalidPhoto(String message) {
         return new RuleViolationException("PROGRESS_NOTE_PHOTO_INVALID", message);
-    }
-
-    /** The caller's membership when they are in the Task's Team, which is what OWN scope matches; null otherwise. */
-    private static UUID teamMember(Activity activity, OrganizationMembership member) {
-        return activity.isOnTeam(member.getId()) ? member.getId() : null;
     }
 
     private List<ProgressNoteData> toData(List<ProgressNote> list) {
