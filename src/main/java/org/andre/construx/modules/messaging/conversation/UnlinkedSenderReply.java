@@ -14,8 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Contract §5 rule 1, for a sender without a usable link: a {@code CX-1234} code links the number ({@code LINKED} in
- * the code's language, or {@code CODE_INVALID}); anything else is told how to link, at most once per 24 hours, and is
+ * Contract §5 rule 1, for a sender without a usable link (and for any {@code CX-1234} code, see
+ * {@link ConversationRouter}): a code links the number ({@code LINKED} in the code's language, or
+ * {@code CODE_INVALID}, counted by {@link WrongCodeLimit}); anything else is told how to link, at most once per 24 hours, and is
  * not processed.
  */
 @Component
@@ -23,13 +24,15 @@ public class UnlinkedSenderReply {
     private final WhatsAppGateway gateway;
     private final UnlinkedReplyRepository replies;
     private final WhatsAppLinkService links;
+    private final WrongCodeLimit wrongCodes;
     private final Clock clock;
 
     public UnlinkedSenderReply(WhatsAppGateway gateway, UnlinkedReplyRepository replies, WhatsAppLinkService links,
-            Clock clock) {
+            WrongCodeLimit wrongCodes, Clock clock) {
         this.gateway = gateway;
         this.replies = replies;
         this.links = links;
+        this.wrongCodes = wrongCodes;
         this.clock = clock;
     }
 
@@ -56,7 +59,7 @@ public class UnlinkedSenderReply {
     private void link(InboundMessage message) {
         Optional<WhatsAppLinkService.Linked> linked = links.linkByCode(message.from(), message.text());
         if (linked.isEmpty()) {
-            // #119: count wrong codes per number here (10 per hour, then ignore the number for an hour).
+            wrongCodes.countWrongCode(message.from());
             gateway.sendText(message.from(), BotText.CODE_INVALID.bilingual());
             return;
         }
