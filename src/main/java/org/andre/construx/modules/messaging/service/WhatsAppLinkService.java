@@ -10,6 +10,7 @@ import org.andre.construx.modules.messaging.model.LinkCode;
 import org.andre.construx.modules.messaging.model.WhatsAppLink;
 import org.andre.construx.modules.messaging.repository.LinkCodeRepository;
 import org.andre.construx.modules.messaging.repository.WhatsAppLinkRepository;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
@@ -42,8 +43,6 @@ public class WhatsAppLinkService implements LinkedNumbers {
     static final String AUDIT_ENTITY = "WHATSAPP_LINK";
     private static final Pattern CODE = Pattern.compile("CX-\\d{4}");
     private static final int CODE_ATTEMPTS = 20;
-
-    public enum Source { APP, WHATSAPP }
 
     /** {@code number} is the full {@code +}-prefixed number; the dashboard masks it. */
     public record LinkStatus(boolean linked, String number, Language language, Instant linkedAt,
@@ -111,14 +110,14 @@ public class WhatsAppLinkService implements LinkedNumbers {
     /** Unlinks the user's number from the dashboard; nothing happens when there is none. */
     @Transactional
     public void unlink(UUID userId) {
-        links.findByUserId(userId).ifPresent(link -> remove(link, Source.APP));
+        links.findByUserId(userId).ifPresent(link -> remove(link, UpdateSource.APP));
     }
 
     /** BAJA / STOP from the number: unlinks it and returns the language it had, empty when it was not linked. */
     @Transactional
     public Optional<Language> unlinkNumber(String waId) {
         return links.findByWaId(waId).map(link -> {
-            remove(link, Source.WHATSAPP);
+            remove(link, UpdateSource.WHATSAPP);
             return link.getLanguage();
         });
     }
@@ -161,7 +160,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
             sessions.end(link.getWaId());
             link.relink(waId, used.getLanguage(), now);
         }
-        Map<String, Object> linked = auditState(link, Source.WHATSAPP);
+        Map<String, Object> linked = auditState(link, UpdateSource.WHATSAPP);
         moved.ifPresent(other -> recordMove(other, userId, linked));
         audit.record(AUDIT_ENTITY, link.getUserId(), "LINK", null, null, linked);
         return Optional.of(new Linked(nameOf(userId), link.getLanguage()));
@@ -189,13 +188,14 @@ public class WhatsAppLinkService implements LinkedNumbers {
     private void recordMove(WhatsAppLink previous, UUID newOwner, Map<String, Object> linked) {
         Map<String, Object> after = new LinkedHashMap<>(linked);
         after.put("movedToUserId", newOwner.toString());
-        audit.record(AUDIT_ENTITY, previous.getUserId(), "MOVE", null, auditState(previous, Source.WHATSAPP), after);
+        audit.record(AUDIT_ENTITY, previous.getUserId(), "MOVE", null, auditState(previous, UpdateSource.WHATSAPP),
+                after);
         movedMailer.send(accounts.account(previous.getUserId()), lastDigits(previous.getWaId()),
                 previous.getLanguage());
     }
 
     /** Unlinking ends the number's menu session too. */
-    private void remove(WhatsAppLink link, Source source) {
+    private void remove(WhatsAppLink link, UpdateSource source) {
         sessions.end(link.getWaId());
         links.delete(link);
         audit.record(AUDIT_ENTITY, link.getUserId(), "UNLINK", null, auditState(link, source), null);
@@ -223,7 +223,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
     }
 
     /** The number is kept masked in the audit trail. */
-    private static Map<String, Object> auditState(WhatsAppLink link, Source source) {
+    private static Map<String, Object> auditState(WhatsAppLink link, UpdateSource source) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("number", "…" + lastDigits(link.getWaId()));
         state.put("language", link.getLanguage().code());
