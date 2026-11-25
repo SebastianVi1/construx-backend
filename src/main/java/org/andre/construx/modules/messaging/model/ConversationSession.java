@@ -10,6 +10,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,6 +25,9 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ConversationSession {
+    /** A conversation without a message for this long is over (contract D7). */
+    public static final Duration IDLE_LIMIT = Duration.ofMinutes(30);
+
     @Id
     @Column(name = "wa_id", length = 20)
     private String waId;
@@ -72,6 +76,11 @@ public class ConversationSession {
 
     public boolean belongsTo(UUID userId) {
         return this.userId.equals(userId);
+    }
+
+    /** Whether {@link #IDLE_LIMIT} or more has passed since the last message. */
+    public boolean isIdle(Instant now) {
+        return !now.isBefore(updatedAt.plus(IDLE_LIMIT));
     }
 
     /** Another message arrived. */

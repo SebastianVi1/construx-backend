@@ -176,7 +176,7 @@ public class WhatsAppLinkService implements LinkedNumbers {
                 .map(link -> new LinkedNumber(link.getWaId(), link.getUserId(), link.getLanguage()));
     }
 
-    /** Daily cleanup: codes past their ten minutes. */
+    /** The cleanup job: codes past their ten minutes. */
     @Transactional
     public int deleteExpiredCodes() {
         return codes.deleteExpired(clock.instant());

@@ -16,8 +16,11 @@ import java.time.Clock;
 import java.time.Instant;
 
 /**
- * Daily removal of WhatsApp data that no longer matters: old message ids, expired NOT_LINKED marks, expired link
- * codes (an expired code already fails; this only clears the row) and wrong-code counts that no longer count.
+ * Removes WhatsApp data that no longer matters, every 5 minutes (contract §2 cleanup, D7, D12): conversations idle 30
+ * minutes or more with their pending photos (rows and stored objects), expired link codes (an expired code already
+ * fails; this only clears the row), and the webhook bookkeeping, none of which holds message content and all of which
+ * goes well within the 30 days the contract allows: handled message ids after 7 days, NOT_LINKED marks after 24 hours
+ * and wrong-code counts once their hour is over. Only saved data and audit events stay.
  */
 @Component
 public class WhatsAppDataCleanup {
@@ -27,26 +30,32 @@ public class WhatsAppDataCleanup {
     private final UnlinkedReplyRepository unlinkedReplies;
     private final WrongCodesRepository wrongCodes;
     private final WhatsAppLinkService links;
+    private final ConversationSessions sessions;
     private final Clock clock;
 
     public WhatsAppDataCleanup(ProcessedMessageRepository processed, UnlinkedReplyRepository unlinkedReplies,
-            WrongCodesRepository wrongCodes, WhatsAppLinkService links, Clock clock) {
+            WrongCodesRepository wrongCodes, WhatsAppLinkService links, ConversationSessions sessions, Clock clock) {
         this.processed = processed;
         this.unlinkedReplies = unlinkedReplies;
         this.wrongCodes = wrongCodes;
         this.links = links;
+        this.sessions = sessions;
         this.clock = clock;
     }
 
-    @Scheduled(cron = "0 45 3 * * *")
+    @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT1M")
     @Transactional
     public void purge() {
         Instant now = clock.instant();
-        log.info("Removed {} old WhatsApp message ids, {} expired not-linked replies, {} expired link codes and {} "
-                        + "expired wrong-code counts",
-                processed.deleteReceivedBefore(now.minus(ProcessedMessage.RETENTION)),
-                unlinkedReplies.deleteRepliedBefore(now.minus(UnlinkedReply.QUIET_PERIOD)),
-                links.deleteExpiredCodes(),
-                wrongCodes.deleteExpired(now.minus(WrongCodes.WINDOW), now));
+        int idleSessions = sessions.endIdle();
+        int codes = links.deleteExpiredCodes();
+        int messageIds = processed.deleteReceivedBefore(now.minus(ProcessedMessage.RETENTION));
+        int replies = unlinkedReplies.deleteRepliedBefore(now.minus(UnlinkedReply.QUIET_PERIOD));
+        int counts = wrongCodes.deleteExpired(now.minus(WrongCodes.WINDOW), now);
+        if (idleSessions + codes + messageIds + replies + counts > 0) {
+            log.info("Removed {} idle WhatsApp conversations, {} expired link codes, {} old message ids, {} expired "
+                    + "not-linked replies and {} expired wrong-code counts", idleSessions, codes, messageIds, replies,
+                    counts);
+        }
     }
 }
