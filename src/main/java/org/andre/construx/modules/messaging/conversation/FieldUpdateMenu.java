@@ -261,7 +261,8 @@ public class FieldUpdateMenu {
         Language language = sender.language();
         List<Button> buttons = Arrays.stream(FieldAction.values())
                 .filter(action -> action.appliesTo(task.status()))
-                .map(action -> new Button(id(ACTION, action.name()), button(action).in(language)))
+                .map(action -> new Button(id(ACTION, action.name()),
+                        ActionTexts.of(action).button().in(language)))
                 .toList();
         sessions.save(session);
         gateway.sendButtons(sender.waId(), BotText.PICK_ACTION.in(language, Map.of("task", task.taskName())),
@@ -377,7 +378,7 @@ public class FieldUpdateMenu {
                 .orElseThrow(Changed::new);
         Language language = sender.language();
         String head = BotText.SUMMARY.in(language, Map.of("site", site.siteName(), "task", task.taskName(),
-                "action", summaryLabel(session.getAction()).in(language)));
+                "action", ActionTexts.of(session.getAction()).summary().in(language)));
         int photoCount = photos.count(sender.waId());
         String photoLine = photoCount == 0 ? "" : "\n" + (photoCount == 1 ? BotText.ONE_PHOTO_LINE.in(language)
                 : BotText.PHOTOS_LINE.in(language, Map.of("n", String.valueOf(photoCount))));
@@ -397,20 +398,18 @@ public class FieldUpdateMenu {
 
     // --- labels ------------------------------------------------------------------------------------------------------
 
-    private static BotText button(FieldAction action) {
-        return switch (action) {
-            case START -> BotText.START;
-            case FINISH -> BotText.FINISH;
-            case NOTE -> BotText.NOTE;
-        };
-    }
-
-    private static BotText summaryLabel(FieldAction action) {
-        return switch (action) {
-            case START -> BotText.STARTED;
-            case FINISH -> BotText.FINISHED;
-            case NOTE -> BotText.NOTE;
-        };
+    /**
+     * What an action's button says, and how the summary names it. The texts stay here rather than on
+     * {@link FieldAction}, so the model does not depend on the conversation.
+     */
+    private record ActionTexts(BotText button, BotText summary) {
+        static ActionTexts of(FieldAction action) {
+            return switch (action) {
+                case START -> new ActionTexts(BotText.START, BotText.STARTED);
+                case FINISH -> new ActionTexts(BotText.FINISH, BotText.FINISHED);
+                case NOTE -> new ActionTexts(BotText.NOTE, BotText.NOTE);
+            };
+        }
     }
 
     private static BotText status(ActivityStatus status) {

@@ -2,7 +2,6 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
 import org.andre.construx.modules.messaging.model.ConversationSession;
-import org.andre.construx.modules.messaging.model.FieldAction;
 import org.andre.construx.modules.organization.access.OrgScope;
 import org.andre.construx.modules.organization.access.OrgScopes;
 import org.andre.construx.modules.organization.model.PermissionAction;
@@ -116,7 +115,7 @@ public class FieldUpdateService {
                         UpdateSource.WHATSAPP);
                 case NOTE -> requireOpen(site, session);
             }
-            if (session.getAction() == FieldAction.NOTE || photos.count(session.getWaId()) > 0) {
+            if (session.getAction().writesNote() || photos.count(session.getWaId()) > 0) {
                 List<String> photoKeys = photos.claim(session.getWaId(),
                         () -> notes.newPhotoKey(site, session.getTaskId()));
                 notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(), photoKeys,
