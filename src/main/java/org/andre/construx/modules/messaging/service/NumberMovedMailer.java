@@ -2,7 +2,7 @@ package org.andre.construx.modules.messaging.service;
 
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.service.AuthMailer;
-import org.andre.construx.modules.messaging.conversation.Language;
+import org.andre.construx.modules.messaging.model.Language;
 import org.andre.construx.shared.mail.BrandedEmail;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

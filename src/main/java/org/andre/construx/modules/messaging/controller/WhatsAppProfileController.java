@@ -3,7 +3,7 @@ package org.andre.construx.modules.messaging.controller;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
-import org.andre.construx.modules.messaging.conversation.Language;
+import org.andre.construx.modules.messaging.model.Language;
 import org.andre.construx.modules.messaging.service.WhatsAppLinkService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;

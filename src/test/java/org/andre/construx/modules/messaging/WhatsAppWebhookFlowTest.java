@@ -1,11 +1,11 @@
 package org.andre.construx.modules.messaging;
 
 import jakarta.servlet.http.Cookie;
-import org.andre.construx.modules.messaging.conversation.Language;
 import org.andre.construx.modules.messaging.conversation.LinkedNumber;
 import org.andre.construx.modules.messaging.conversation.LinkedNumbers;
 import org.andre.construx.modules.messaging.conversation.LinkedSenderHandler;
 import org.andre.construx.modules.messaging.inbound.InboundMessage;
+import org.andre.construx.modules.messaging.model.Language;
 import org.andre.construx.modules.messaging.service.WhatsAppDataCleanup;
 import org.andre.construx.support.MutableClock;
 import org.junit.jupiter.api.BeforeEach;

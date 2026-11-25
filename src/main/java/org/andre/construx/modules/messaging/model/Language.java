@@ -1,4 +1,4 @@
-package org.andre.construx.modules.messaging.conversation;
+package org.andre.construx.modules.messaging.model;
 
 import java.util.Locale;
 
