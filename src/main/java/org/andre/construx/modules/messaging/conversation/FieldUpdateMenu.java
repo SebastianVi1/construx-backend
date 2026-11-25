@@ -19,6 +19,7 @@ import org.andre.construx.modules.project.model.ProgressNote;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -54,6 +55,7 @@ public class FieldUpdateMenu {
     private static final String ACTION = "action";
     private static final String YES = "confirm:yes";
     private static final String NO = "confirm:no";
+    /** Carries the company, the Site and when it was sent (epoch seconds). */
     private static final String ANOTHER_TASK = "again";
     private static final String PHOTOS_YES = "photos:yes";
     private static final String PHOTOS_NO = "photos:no";
@@ -126,13 +128,16 @@ public class FieldUpdateMenu {
     // --- no conversation yet: step A, or B for the Site of "Another task" -------------------------------------------
 
     /**
-     * Any message without a conversation (none yet, or it went idle) starts at step A. A tapped button or row other
-     * than "Another task" belongs to a conversation that is gone, so {@code EXPIRED} comes first and the tap is not
-     * taken as a choice.
+     * Any message without a conversation (none yet, or it went idle) starts at step A. A tapped button or row
+     * belongs to a conversation that is gone, so {@code EXPIRED} comes first and the tap is not taken as a choice;
+     * only "Another task", which carries when it was sent, goes straight to B while it is younger than
+     * {@link ConversationSession#IDLE_LIMIT}.
      */
     private void begin(LinkedNumber sender, InboundMessage message) {
-        ConversationSession session = new ConversationSession(sender.waId(), sender.userId(), clock.instant());
-        Optional<String[]> another = reply(message, ANOTHER_TASK, 2);
+        Instant now = clock.instant();
+        ConversationSession session = new ConversationSession(sender.waId(), sender.userId(), now);
+        Optional<String[]> another = reply(message, ANOTHER_TASK, 3)
+                .filter(ids -> now.isBefore(sentAt(ids[2]).plus(ConversationSession.IDLE_LIMIT)));
         if (another.isPresent()) {
             enterSite(sender, session, siteOf(sender, another.get()));
             return;
@@ -352,7 +357,8 @@ public class FieldUpdateMenu {
         if (isReply(message, YES)) {
             fieldUpdates.apply(session);
             gateway.sendButtons(sender.waId(), BotText.SAVED.in(sender.language()), List.of(new Button(
-                    id(ANOTHER_TASK, session.getOrganizationId(), session.getSiteId()),
+                    id(ANOTHER_TASK, session.getOrganizationId(), session.getSiteId(),
+                            clock.instant().getEpochSecond()),
                     BotText.ANOTHER_TASK.in(sender.language()))));
             return true;
         }
@@ -477,6 +483,15 @@ public class FieldUpdateMenu {
             return Optional.empty();
         }
         return Optional.of(Arrays.copyOfRange(split, 1, split.length));
+    }
+
+    /** When a button was sent, from the epoch seconds its id carries; a malformed one counts as long ago. */
+    private static Instant sentAt(String epochSeconds) {
+        try {
+            return Instant.ofEpochSecond(Long.parseLong(epochSeconds));
+        } catch (NumberFormatException e) {
+            return Instant.EPOCH;
+        }
     }
 
     /** A malformed id in a reply is a choice that does not exist. */

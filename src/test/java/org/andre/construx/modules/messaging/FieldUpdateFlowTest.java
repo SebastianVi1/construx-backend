@@ -904,6 +904,53 @@ class FieldUpdateFlowTest {
     }
 
     @Test
+    void anotherTaskTappedThirtyOneMinutesLaterGetsExpiredAndStartsAtTheSites() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        UUID other = site("Annex");
+        members.grantSite(other, ana.membership);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Tower");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "No");
+        tap(waId, "Sí");
+        String anotherTask = last(waId).buttons().getFirst().id();
+        gateway.clear();
+
+        idle(31);
+        tapId(waId, anotherTask, "button_reply");
+
+        assertThat(bodies(waId)).containsExactly("Pasó mucho tiempo, empecemos de nuevo.", "¿En qué obra?");
+    }
+
+    @Test
+    void anotherTaskTappedTwentyNineMinutesLaterStillGoesToTheTasksOfThatSite() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        members.grantSite(site("Annex"), ana.membership);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Tower");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "No");
+        tap(waId, "Sí");
+        String anotherTask = last(waId).buttons().getFirst().id();
+        gateway.clear();
+
+        idle(29);
+        tapId(waId, anotherTask, "button_reply");
+
+        assertThat(bodies(waId)).containsExactly("Tower: ¿qué tarea?");
+    }
+
+    @Test
     void anyMessageAfterThirtyMinutesIdleStartsOverWithoutExpired() throws Exception {
         UUID site = site("Tower");
         UUID phase = phase(site, "Structure");
