@@ -37,6 +37,9 @@ public interface ObjectStorage {
         return new ByteArrayInputStream(getBytes(key));
     }
 
+    /** Copies what {@code sourceKey} holds, content type included, to {@code targetKey}; the source stays. */
+    void copy(String sourceKey, String targetKey);
+
     /** Deleting a missing key is not an error. */
     void delete(String key);
 }

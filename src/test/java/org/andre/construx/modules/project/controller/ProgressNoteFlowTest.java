@@ -13,6 +13,7 @@ import org.andre.construx.modules.project.repository.ProjectRepository;
 import org.andre.construx.modules.project.service.ProgressNoteService;
 import org.andre.construx.shared.audit.AuditEvent;
 import org.andre.construx.shared.audit.AuditEventRepository;
+import org.andre.construx.shared.exception.RuleViolationException;
 import org.andre.construx.shared.storage.InMemoryObjectStorage;
 import org.andre.construx.shared.storage.ObjectStorage;
 import org.andre.construx.support.Api;
@@ -325,21 +326,33 @@ class ProgressNoteFlowTest {
     }
 
     @Test
-    void theBotAttachesPhotosItStoredAsANoteWithoutHttp() throws Exception {
-        String pending = "whatsapp/pending/5215512345678/" + UUID.randomUUID();
-        storage.put(pending, new byte[]{1, 2}, "image/jpeg");
+    void theBotAttachesPhotosStoredUnderTheTasksOwnKeysWithoutHttp() throws Exception {
+        var site = siteScopes.site(ana.user().getId(), orgId, projectId);
+        String key = progressNotes.newPhotoKey(site, UUID.fromString(anaTaskId));
+        storage.put(key, new byte[]{1, 2}, "image/jpeg");
 
-        var added = progressNotes.add(siteScopes.site(ana.user().getId(), orgId, projectId), goalId,
-                UUID.fromString(anaTaskId), null, List.of(pending), UpdateSource.WHATSAPP);
+        var added = progressNotes.add(site, goalId, UUID.fromString(anaTaskId), null, List.of(key),
+                UpdateSource.WHATSAPP);
 
         assertEquals(1, added.photos().size());
         api.get(owner, anaTask + "/progress-notes")
                 .andExpect(jsonPath("$[0].text").value(nullValue()))
                 .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
-                .andExpect(jsonPath("$[0].photos[0].url").value("memory://download/" + pending));
+                .andExpect(jsonPath("$[0].photos[0].url").value("memory://download/" + key));
         AuditEvent created = auditEvents.findByEntityTypeAndEntityIdOrderByOccurredAtDesc("PROGRESS_NOTE",
                 added.id()).get(0);
         assertTrue(created.getAfterState().contains("\"photoCount\":1"));
-        assertTrue(storage.head(pending).isPresent());
+    }
+
+    @Test
+    void theBotCannotAttachAPhotoStillPendingForSomeNumber() {
+        String pending = "whatsapp/pending/5215512345678/" + UUID.randomUUID();
+        storage.put(pending, new byte[]{1, 2}, "image/jpeg");
+        var site = siteScopes.site(ana.user().getId(), orgId, projectId);
+
+        RuleViolationException refused = assertThrows(RuleViolationException.class, () -> progressNotes.add(site,
+                goalId, UUID.fromString(anaTaskId), null, List.of(pending), UpdateSource.WHATSAPP));
+
+        assertEquals("PROGRESS_NOTE_PHOTO_INVALID", refused.getCode());
     }
 }

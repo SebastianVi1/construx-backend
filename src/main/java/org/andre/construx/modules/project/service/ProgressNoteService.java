@@ -41,8 +41,6 @@ import java.util.UUID;
 @Service
 public class ProgressNoteService {
     public static final String AUDIT_ENTITY = "PROGRESS_NOTE";
-    /** Where the WhatsApp bot keeps the photos it downloaded before the person confirms. */
-    public static final String WHATSAPP_PENDING_PREFIX = "whatsapp/pending/";
     public static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
     public static final Set<String> PHOTO_TYPES = Set.of("image/jpeg", "image/png");
     static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
@@ -103,7 +101,7 @@ public class ProgressNoteService {
         if (!PHOTO_TYPES.contains(type) || sizeBytes <= 0 || sizeBytes > MAX_PHOTO_BYTES) {
             throw invalidPhoto("Progress note photos must be JPEG or PNG up to 5 MB");
         }
-        String key = uploadPrefix(site, activityId) + UUID.randomUUID();
+        String key = newPhotoKey(site, activityId);
         ObjectStorage.PresignedUpload upload = storage.presignUpload(key, type, sizeBytes, UPLOAD_TTL);
         return new PhotoUploadData(key, upload.url(), upload.headers(), upload.expiresAt());
     }
@@ -113,12 +111,11 @@ public class ProgressNoteService {
      * {@code MANAGE_ACTIVITY} for this Task, 400 {@code PROGRESS_NOTE_EMPTY} with neither, 400
      * {@code PROGRESS_NOTE_TOO_MANY_PHOTOS} past five. Records {@code PROGRESS_NOTE CREATE} with the source.
      *
-     * <p>{@code photoKeys} name objects already in storage, attached in the order given (repeats count once). Where a
-     * key may come from depends on the source: an {@code APP} key must have been issued by
-     * {@link #requestPhotoUpload} for this Task; a {@code WHATSAPP} key must sit under
-     * {@link #WHATSAPP_PENDING_PREFIX}, where the bot stored it. Each must hold a JPEG or PNG of at most 5 MB that
-     * no other note uses, else 400 {@code PROGRESS_NOTE_PHOTO_INVALID}. The note keeps the key as it is: the caller
-     * must not delete the object afterwards.
+     * <p>{@code photoKeys} name objects already in storage, attached in the order given (repeats count once). Whatever
+     * the source, each key must be one of this Task's ({@link #requestPhotoUpload} issues them to the dashboard, and
+     * the bot copies its photos to {@link #newPhotoKey}) and hold a JPEG or PNG of at most 5 MB that no other note
+     * uses, else 400 {@code PROGRESS_NOTE_PHOTO_INVALID}. The note keeps the key as it is: the caller must not delete
+     * the object afterwards.
      */
     @Transactional
     public ProgressNoteData add(SiteScope site, UUID goalId, UUID activityId, String text, List<String> photoKeys,
@@ -130,7 +127,7 @@ public class ProgressNoteService {
             throw new RuleViolationException("PROGRESS_NOTE_TOO_MANY_PHOTOS",
                     "A progress note holds at most " + ProgressNote.MAX_PHOTOS + " photos");
         }
-        String prefix = source == UpdateSource.WHATSAPP ? WHATSAPP_PENDING_PREFIX : uploadPrefix(site, activityId);
+        String prefix = uploadPrefix(site, activityId);
         List<StoredPhoto> stored = keys.stream().map(key -> stored(key, prefix)).toList();
         ProgressNote note = notes.save(new ProgressNote(activity, site.membership(), text, stored, source,
                 Instant.now()));
@@ -143,6 +140,14 @@ public class ProgressNoteService {
     @Transactional
     public ProgressNoteData add(SiteScope site, UUID goalId, UUID activityId, String text, UpdateSource source) {
         return add(site, goalId, activityId, text, List.of(), source);
+    }
+
+    /**
+     * A new, unused key for a photo of a note on this Task, for a photo the server stores itself (the bot's, copied
+     * from where it was pending). Checks nothing: {@link #add} checks the note.
+     */
+    public String newPhotoKey(SiteScope site, UUID activityId) {
+        return uploadPrefix(site, activityId) + UUID.randomUUID();
     }
 
     private static String uploadPrefix(SiteScope site, UUID activityId) {

@@ -661,8 +661,9 @@ class FieldUpdateFlowTest {
                 .andExpect(jsonPath("$[0].text").doesNotExist())
                 .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
                 .andExpect(jsonPath("$[0].photos.length()").value(2));
-        // The note keeps the photos where the bot stored them.
-        assertThat(pendingObjects(waId)).hasSize(2);
+        // The photos moved to the note's own keys; nothing stays pending.
+        assertThat(pendingObjects(waId)).isEmpty();
+        assertThat(((InMemoryObjectStorage) storage).keys(noteKeys(site, pour))).hasSize(2);
     }
 
     @Test
@@ -1044,6 +1045,11 @@ class FieldUpdateFlowTest {
         receive(envelope(waId, """
                 "type": "image", "image": {"id": "%s", "mime_type": "%s"}
                 """.formatted(mediaId, mimeType)));
+    }
+
+    /** Where the photos of the Task's Progress notes are stored. */
+    String noteKeys(UUID site, String task) {
+        return "orgs/" + orgId + "/projects/" + site + "/activities/" + task + "/progress-notes/";
     }
 
     /** What storage holds for the number's photos received before YES. */

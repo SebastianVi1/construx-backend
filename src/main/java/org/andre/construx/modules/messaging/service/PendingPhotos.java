@@ -14,19 +14,24 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * The photos a Linked number sends during a Field update, before YES (contract §2 {@code whatsapp_pending_photo}, §5
  * step F). Each is downloaded from Meta as it arrives and stored privately under
- * {@code whatsapp/pending/{waId}/}. YES {@link #claim claims} them for a Progress note, which keeps the stored
- * objects; every other end of the conversation {@link #discard discards} them, rows and objects.
+ * {@code whatsapp/pending/{waId}/}. YES {@link #claim claims} them for a Progress note, moving each object to a key
+ * of the note; every other end of the conversation {@link #discard discards} them, rows and objects.
  */
 @Component
 public class PendingPhotos {
     private static final Logger log = LoggerFactory.getLogger(PendingPhotos.class);
+    /** Where the photos of each number wait for YES. */
+    static final String PREFIX = "whatsapp/pending/";
 
     /** What became of one image the number sent. */
     public enum Added {
@@ -67,7 +72,7 @@ public class PendingPhotos {
                 || size > ProgressNoteService.MAX_PHOTO_BYTES) {
             return Added.REFUSED;
         }
-        String key = ProgressNoteService.WHATSAPP_PENDING_PREFIX + waId + "/" + UUID.randomUUID();
+        String key = PREFIX + waId + "/" + UUID.randomUUID();
         PendingPhoto photo = photos.save(new PendingPhoto(waId, key, type, size, (int) count));
         try {
             storage.put(key, media.bytes(), type);
@@ -83,14 +88,23 @@ public class PendingPhotos {
     }
 
     /**
-     * YES: the keys of the number's pending photos in the order they arrived, which a Progress note takes over. The
-     * rows go; the stored objects stay, since the note now uses them.
+     * YES: moves the number's pending photos, in the order they arrived, to keys of the Progress note that takes them
+     * ({@code noteKey} hands out a new one per photo) and returns those keys. The rows go at once. The pending objects
+     * are deleted once that is committed; on a rollback the copies are deleted instead, and the rows come back.
      */
     @Transactional
-    public List<String> claim(String waId) {
+    public List<String> claim(String waId, Supplier<String> noteKey) {
         List<PendingPhoto> pending = photos.findByWaIdOrderByPosition(waId);
         photos.deleteAll(pending);
-        return pending.stream().map(PendingPhoto::getStorageKey).toList();
+        List<String> from = pending.stream().map(PendingPhoto::getStorageKey).toList();
+        List<String> to = new ArrayList<>();
+        afterCompletion(committed -> deleteObjects(committed ? from : to));
+        for (String key : from) {
+            String target = noteKey.get();
+            storage.copy(key, target);
+            to.add(target);
+        }
+        return List.copyOf(to);
     }
 
     /**
@@ -105,16 +119,25 @@ public class PendingPhotos {
         }
         photos.deleteAll(pending);
         List<String> keys = pending.stream().map(PendingPhoto::getStorageKey).toList();
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    deleteObjects(keys);
-                }
-            });
-        } else {
-            deleteObjects(keys);
+        afterCompletion(committed -> {
+            if (committed) {
+                deleteObjects(keys);
+            }
+        });
+    }
+
+    /** Runs once the surrounding transaction ends, told whether it committed; at once (as committed) without one. */
+    private static void afterCompletion(Consumer<Boolean> action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.accept(true);
+            return;
         }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                action.accept(status == STATUS_COMMITTED);
+            }
+        });
     }
 
     private void deleteObjects(List<String> keys) {
@@ -122,7 +145,7 @@ public class PendingPhotos {
             try {
                 storage.delete(key);
             } catch (RuntimeException e) {
-                log.warn("Could not delete a pending WhatsApp photo from storage", e);
+                log.warn("Could not delete a WhatsApp photo from storage", e);
             }
         }
     }

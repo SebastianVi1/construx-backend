@@ -101,14 +101,13 @@ public class FieldUpdateService {
     /**
      * YES (contract §5): in one transaction, rechecks the link, the account, the membership, the Site, the permission
      * and the Task status, applies the chosen action with source {@code WHATSAPP} and ends the conversation. The
-     * pending photos go on a Progress note: the Note's, or a note of photos only after Start or Finish, so they never
-     * land on a Pin. When anything no longer holds nothing is saved and {@link Changed} is thrown.
+     * pending photos move to a Progress note: the Note's, or a note of photos only after Start or Finish, so they
+     * never land on a Pin. When anything no longer holds nothing is saved and {@link Changed} is thrown.
      */
     @Transactional
     public void apply(ConversationSession session) {
         links.find(session.getWaId()).filter(link -> session.belongsTo(link.userId())).orElseThrow(Changed::new);
         SiteScope site = site(session.getUserId(), session.getOrganizationId(), session.getSiteId());
-        List<String> photoKeys = photos.claim(session.getWaId());
         try {
             switch (session.getAction()) {
                 case START -> activities.start(site, session.getPhaseId(), session.getTaskId(), UpdateSource.WHATSAPP);
@@ -116,7 +115,9 @@ public class FieldUpdateService {
                         UpdateSource.WHATSAPP);
                 case NOTE -> requireOpen(site, session);
             }
-            if (session.getAction() == FieldAction.NOTE || !photoKeys.isEmpty()) {
+            if (session.getAction() == FieldAction.NOTE || photos.count(session.getWaId()) > 0) {
+                List<String> photoKeys = photos.claim(session.getWaId(),
+                        () -> notes.newPhotoKey(site, session.getTaskId()));
                 notes.add(site, session.getPhaseId(), session.getTaskId(), session.getNoteText(), photoKeys,
                         UpdateSource.WHATSAPP);
             }
