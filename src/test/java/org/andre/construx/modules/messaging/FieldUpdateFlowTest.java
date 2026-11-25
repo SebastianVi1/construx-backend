@@ -14,6 +14,8 @@ import org.andre.construx.support.Api.Session;
 import org.andre.construx.support.Members;
 import org.andre.construx.support.MutableClock;
 import org.andre.construx.shared.audit.AuditService;
+import org.andre.construx.shared.storage.InMemoryObjectStorage;
+import org.andre.construx.shared.storage.ObjectStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.andre.construx.modules.messaging.WhatsAppWebhookFlowTest.newSender;
@@ -63,6 +66,10 @@ class FieldUpdateFlowTest {
         @Bean @Primary MutableClock whatsAppClock() {
             return new MutableClock(NOW);
         }
+
+        @Bean @Primary ObjectStorage inMemoryStorage() {
+            return new InMemoryObjectStorage();
+        }
     }
 
     @Autowired MockMvc mvc;
@@ -76,6 +83,7 @@ class FieldUpdateFlowTest {
     @Autowired ProjectRepository projects;
     @Autowired ProjectAccessRepository accesses;
     @Autowired AuditService audit;
+    @Autowired ObjectStorage storage;
 
     Api api;
     Members members;
@@ -194,6 +202,9 @@ class FieldUpdateFlowTest {
         assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Iniciar", "Terminar", "Nota");
 
         tap(waId, "Iniciar");
+        assertThat(last(waId).body()).isEqualTo("¿Quieres agregar fotos?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Sí", "No");
+        tap(waId, "No");
         assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Iniciada\n\n¿Lo guardo?");
         assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Sí", "No");
         assertStatus(site, phase, pour, "TODO");
@@ -227,6 +238,9 @@ class FieldUpdateFlowTest {
         assertThat(last(waId).body()).isEqualTo("Pour slab: what did you do?");
         assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Finish", "Note");
         tap(waId, "Finish");
+        assertThat(last(waId).body()).isEqualTo("Want to add photos?");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Yes", "No");
+        tap(waId, "No");
         assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Finished\n\nSave it?");
         assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Yes", "No");
         tap(waId, "Yes");
@@ -255,6 +269,8 @@ class FieldUpdateFlowTest {
         tap(waId, "Nota");
         assertThat(last(waId).body()).isEqualTo("Escribe la nota (máx. 1000 caracteres).");
         say(waId, "  Slab poured on the east side  ");
+        assertThat(last(waId).body()).isEqualTo("¿Quieres agregar fotos?");
+        tap(waId, "No");
 
         assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Nota\n"
                 + "Nota: \"Slab poured on the east side\"\n\n¿Lo guardo?");
@@ -273,6 +289,7 @@ class FieldUpdateFlowTest {
         tap(waId, "Pour slab");
         tap(waId, "Note");
         say(waId, "Slab poured on the east side");
+        tap(waId, "No");
 
         tap(waId, "Yes");
 
@@ -304,6 +321,7 @@ class FieldUpdateFlowTest {
         assertThat(last(waId).buttons()).isEmpty();
 
         say(waId, "y".repeat(1000));
+        tap(waId, "No");
         // WhatsApp takes at most 1,024 characters in the text above buttons.
         assertThat(last(waId).body()).hasSize(1024)
                 .startsWith("📋 Field update · Tower\nPour slab → Note\nNote: \"yyyy")
@@ -347,6 +365,7 @@ class FieldUpdateFlowTest {
         tap(waId, "Nota");
 
         say(waId, "CX-0000");
+        tap(waId, "No");
 
         assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Nota\n"
                 + "Nota: \"CX-0000\"\n\n¿Lo guardo?");
@@ -384,6 +403,7 @@ class FieldUpdateFlowTest {
         tap(waId, "Pour slab");
         tap(waId, "Nota");
         say(waId, "Falta cemento");
+        tap(waId, "No");
 
         tap(waId, "No");
 
@@ -403,6 +423,7 @@ class FieldUpdateFlowTest {
         tap(waId, "Pour slab");
         tap(waId, "Nota");
         say(waId, "Falta cemento");
+        tap(waId, "No");
 
         api.post(bob.session, tasks(site, phase) + "/" + pour + "/complete", null).andExpect(status().isOk());
         tap(waId, "Sí");
@@ -421,6 +442,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Terminar");
+        tap(waId, "No");
         InMemoryWhatsAppGateway.Sent summary = last(waId);
 
         tap(waId, "No");
@@ -444,6 +466,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Terminar");
+        tap(waId, "No");
 
         api.post(bob.session, tasks(site, phase) + "/" + pour + "/complete", null).andExpect(status().isOk());
         tap(waId, "Sí");
@@ -463,6 +486,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Iniciar");
+        tap(waId, "No");
 
         api.delete(owner, org + "/members/" + ana.membership).andExpect(status().isNoContent());
         tap(waId, "Sí");
@@ -518,6 +542,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Iniciar");
+        tap(waId, "No");
         InMemoryWhatsAppGateway.Sent summary = last(waId);
         gateway.clear();
 
@@ -551,6 +576,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Iniciar");
+        tap(waId, "No");
         String yes = last(waId).buttons().getFirst().id();
 
         say(waId, "BAJA");
@@ -573,6 +599,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Iniciar");
+        tap(waId, "No");
         String yes = last(waId).buttons().getFirst().id();
 
         relink(bob.session, waId);
@@ -592,6 +619,7 @@ class FieldUpdateFlowTest {
         say(waId, "hola");
         tap(waId, "Pour slab");
         tap(waId, "Iniciar");
+        tap(waId, "No");
         String yes = last(waId).buttons().getFirst().id();
 
         api.delete(ana.session, "/api/profile/whatsapp").andExpect(status().isNoContent());
@@ -600,6 +628,223 @@ class FieldUpdateFlowTest {
 
         assertStatus(site, phase, pour, "TODO");
         assertThat(last(waId).body()).isEqualTo("Tower: ¿qué tarea?");
+    }
+
+    @Test
+    void finishingWithTwoPhotosFinishesTheTaskAndAddsAPhotoOnlyNote() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Finish");
+
+        tap(waId, "Yes");
+        assertThat(last(waId).body()).isEqualTo("Send up to 5 photos, then tap Done.");
+        assertThat(last(waId).buttons()).extracting(Button::title).containsExactly("Done");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/png");
+        assertThat(pendingObjects(waId)).hasSize(2);
+        tap(waId, "Done");
+        assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Finished\n2 photos\n\nSave it?");
+
+        tap(waId, "Yes");
+
+        assertThat(last(waId).body()).isEqualTo("✅ Saved to Construx.");
+        assertStatus(site, phase, pour, "DONE");
+        api.get(owner, tasks(site, phase) + "/" + pour + "/progress-notes")
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].text").doesNotExist())
+                .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
+                .andExpect(jsonPath("$[0].photos.length()").value(2));
+        // The note keeps the photos where the bot stored them.
+        assertThat(pendingObjects(waId)).hasSize(2);
+    }
+
+    @Test
+    void aNoteWithThreePhotosThenNoLeavesNoNoteAndNoStoredPhotos() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Nota");
+        say(waId, "Falta cemento");
+        tap(waId, "Sí");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/png");
+        assertThat(pendingObjects(waId)).hasSize(3);
+        tap(waId, "Listo");
+        assertThat(last(waId).body()).isEqualTo("📋 Avance de campo · Tower\nPour slab → Nota\n"
+                + "Nota: \"Falta cemento\"\n3 fotos\n\n¿Lo guardo?");
+
+        tap(waId, "No");
+
+        assertThat(last(waId).body()).isEqualTo("Cancelado. Escribe de nuevo cuando quieras.");
+        assertNoNotes(site, phase, pour);
+        assertThat(pendingObjects(waId)).isEmpty();
+    }
+
+    @Test
+    void aNoteWithThreePhotosThenYesSavesTheTextAndThePhotosInOrder() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Note");
+        say(waId, "Slab poured");
+        tap(waId, "Yes");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/png");
+        sendImage(waId, "image/jpeg");
+        tap(waId, "Done");
+
+        tap(waId, "Yes");
+
+        api.get(owner, tasks(site, phase) + "/" + pour + "/progress-notes")
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].text").value("Slab poured"))
+                .andExpect(jsonPath("$[0].source").value("WHATSAPP"))
+                .andExpect(jsonPath("$[0].photos.length()").value(3));
+        assertStatus(site, phase, pour, "TODO");
+    }
+
+    @Test
+    void theSixthPhotoGetsPhotoLimitAndIsNotKept() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Start");
+        tap(waId, "Yes");
+        for (int i = 0; i < 5; i++) {
+            sendImage(waId, "image/jpeg");
+        }
+        gateway.clear();
+
+        sendImage(waId, "image/jpeg");
+
+        assertThat(bodies(waId)).containsExactly("You already have 5 photos. Tap Done to continue.");
+        assertThat(pendingObjects(waId)).hasSize(5);
+        tap(waId, "Done");
+        assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Started\n5 photos\n\nSave it?");
+        tap(waId, "Yes");
+        assertStatus(site, phase, pour, "IN_PROGRESS");
+        api.get(owner, tasks(site, phase) + "/" + pour + "/progress-notes")
+                .andExpect(jsonPath("$[0].photos.length()").value(5));
+    }
+
+    @Test
+    void imagesOutsideThePhotoStepGetUseButtonsAndAreNotStored() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Terminar");
+        gateway.clear();
+
+        sendImage(waId, "image/jpeg");
+        tap(waId, "No");
+        sendImage(waId, "image/jpeg");
+
+        assertThat(bodies(waId)).containsExactly("Por ahora usa los botones.", "¿Quieres agregar fotos?",
+                "📋 Avance de campo · Tower\nPour slab → Terminada\n\n¿Lo guardo?", "Por ahora usa los botones.",
+                "📋 Avance de campo · Tower\nPour slab → Terminada\n\n¿Lo guardo?");
+        assertThat(pendingObjects(waId)).isEmpty();
+    }
+
+    @Test
+    void doneWithoutPhotosIsTheSameAsNoAndSavesNoNote() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        String pour = task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Finish");
+        tap(waId, "Yes");
+
+        tap(waId, "Done");
+        assertThat(last(waId).body()).isEqualTo("📋 Field update · Tower\nPour slab → Finished\n\nSave it?");
+        tap(waId, "Yes");
+
+        assertStatus(site, phase, pour, "DONE");
+        assertNoNotes(site, phase, pour);
+    }
+
+    @Test
+    void anImageThatIsNotJpegOrPngGetsUseButtonsAndTheRequestAgain() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Start");
+        tap(waId, "Yes");
+        gateway.clear();
+
+        sendImage(waId, "image/webp");
+        say(waId, "done");
+
+        assertThat(bodies(waId)).containsExactly("Please use the buttons for now.",
+                "Send up to 5 photos, then tap Done.", "Please use the buttons for now.",
+                "Send up to 5 photos, then tap Done.");
+        assertThat(pendingObjects(waId)).isEmpty();
+    }
+
+    @Test
+    void stopWhilePhotosArePendingDeletesThem() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "es");
+        say(waId, "hola");
+        tap(waId, "Pour slab");
+        tap(waId, "Iniciar");
+        tap(waId, "Sí");
+        sendImage(waId, "image/jpeg");
+        sendImage(waId, "image/jpeg");
+
+        say(waId, "BAJA");
+
+        assertThat(pendingObjects(waId)).isEmpty();
+    }
+
+    @Test
+    void aFullNoteWithPhotosStillFitsTheSummary() throws Exception {
+        UUID site = site("Tower");
+        UUID phase = phase(site, "Structure");
+        Worker ana = worker(site, "WORKER");
+        task(site, phase, "Pour slab", "2027-02-01T00:00:00Z", ana.access);
+        String waId = link(ana.session, "en");
+        say(waId, "hi");
+        tap(waId, "Pour slab");
+        tap(waId, "Note");
+        say(waId, "y".repeat(1000));
+        tap(waId, "Yes");
+        sendImage(waId, "image/png");
+
+        tap(waId, "Done");
+
+        assertThat(last(waId).body()).hasSize(1024).endsWith("yyy…\"\n1 photo\n\nSave it?");
     }
 
     // --- fixture -------------------------------------------------------------------------------------------------
@@ -689,6 +934,20 @@ class FieldUpdateFlowTest {
         receive(envelope(waId, """
                 "type": "audio", "audio": {"id": "media-1", "mime_type": "audio/ogg"}
                 """));
+    }
+
+    /** An image the number sends: the gateway serves its bytes under a new media id. */
+    void sendImage(String waId, String mimeType) throws Exception {
+        String mediaId = "media-" + UUID.randomUUID();
+        gateway.addMedia(mediaId, ("bytes of " + mediaId).getBytes(), mimeType);
+        receive(envelope(waId, """
+                "type": "image", "image": {"id": "%s", "mime_type": "%s"}
+                """.formatted(mediaId, mimeType)));
+    }
+
+    /** What storage holds for the number's photos received before YES. */
+    Set<String> pendingObjects(String waId) {
+        return ((InMemoryObjectStorage) storage).keys("whatsapp/pending/" + waId + "/");
     }
 
     InMemoryWhatsAppGateway.Sent last(String waId) {

@@ -13,6 +13,7 @@ import org.andre.construx.modules.messaging.service.FieldUpdateService.Changed;
 import org.andre.construx.modules.messaging.service.FieldUpdateService.SiteChoice;
 import org.andre.construx.modules.messaging.service.FieldUpdateService.SiteTasks;
 import org.andre.construx.modules.messaging.service.FieldUpdateService.TaskChoice;
+import org.andre.construx.modules.messaging.service.PendingPhotos;
 import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.ProgressNote;
 import org.springframework.stereotype.Component;
@@ -27,8 +28,8 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–D and G): Site → Task → action (→ note
- * text) → summary → YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
+ * The menu conversation of a Linked number (contract §5 rules 4–5, steps A–G): Site → Task → action (→ note
+ * text) → photos? (→ images, Done) → summary → YES / NO. Each step has an {@code accept} (is this the input the step waits for, and what it leads to) and a
  * {@code show} (the step's menu, sent on entering it and again after {@code USE_BUTTONS}). A new step is a
  * {@link org.andre.construx.modules.messaging.model.SessionStep} plus one case in {@link #accept} and one in
  * {@link #show}; a new button is a reply id prefix below.
@@ -54,17 +55,22 @@ public class FieldUpdateMenu {
     private static final String YES = "confirm:yes";
     private static final String NO = "confirm:no";
     private static final String ANOTHER_TASK = "again";
+    private static final String PHOTOS_YES = "photos:yes";
+    private static final String PHOTOS_NO = "photos:no";
+    private static final String PHOTOS_DONE = "photos:done";
 
     private final WhatsAppGateway gateway;
     private final FieldUpdateService fieldUpdates;
     private final ConversationSessions sessions;
+    private final PendingPhotos photos;
     private final Clock clock;
 
     public FieldUpdateMenu(WhatsAppGateway gateway, FieldUpdateService fieldUpdates, ConversationSessions sessions,
-            Clock clock) {
+            PendingPhotos photos, Clock clock) {
         this.gateway = gateway;
         this.fieldUpdates = fieldUpdates;
         this.sessions = sessions;
+        this.photos = photos;
         this.clock = clock;
     }
 
@@ -99,6 +105,8 @@ public class FieldUpdateMenu {
             case PICK_TASK -> acceptTask(sender, session, message);
             case PICK_ACTION -> acceptAction(sender, session, message);
             case WRITE_NOTE -> acceptNote(sender, session, message);
+            case ASK_PHOTOS -> acceptPhotoChoice(sender, session, message);
+            case ADD_PHOTOS -> acceptPhoto(sender, session, message);
             case CONFIRM -> acceptConfirmation(sender, session, message);
         };
     }
@@ -109,6 +117,8 @@ public class FieldUpdateMenu {
             case PICK_TASK -> showTasks(sender, session);
             case PICK_ACTION -> showActions(sender, session);
             case WRITE_NOTE -> askNote(sender, session);
+            case ASK_PHOTOS -> askPhotos(sender, session);
+            case ADD_PHOTOS -> askForPhotos(sender, session);
             case CONFIRM -> showSummary(sender, session);
         }
     }
@@ -263,13 +273,69 @@ public class FieldUpdateMenu {
             return true;
         }
         session.writeNote(text);
-        showSummary(sender, session);
+        show(sender, session);
         return true;
     }
 
     private void askNote(LinkedNumber sender, ConversationSession session) {
         sessions.save(session);
         say(sender, BotText.WRITE_NOTE);
+    }
+
+    // --- E. ASK_PHOTOS -----------------------------------------------------------------------------------------------
+
+    private boolean acceptPhotoChoice(LinkedNumber sender, ConversationSession session, InboundMessage message) {
+        if (isReply(message, PHOTOS_YES)) {
+            session.addPhotos();
+        } else if (isReply(message, PHOTOS_NO)) {
+            session.review();
+        } else {
+            return false;
+        }
+        show(sender, session);
+        return true;
+    }
+
+    private void askPhotos(LinkedNumber sender, ConversationSession session) {
+        Language language = sender.language();
+        sessions.save(session);
+        gateway.sendButtons(sender.waId(), BotText.ASK_PHOTOS.in(language), List.of(
+                new Button(PHOTOS_YES, BotText.YES.in(language)), new Button(PHOTOS_NO, BotText.NO.in(language))));
+    }
+
+    // --- F. ADD_PHOTOS -----------------------------------------------------------------------------------------------
+
+    /**
+     * A JPEG or PNG is stored at once and needs no answer; past five it is {@code PHOTO_LIMIT} and not kept. Done
+     * goes to the summary, with or without photos.
+     */
+    private boolean acceptPhoto(LinkedNumber sender, ConversationSession session, InboundMessage message) {
+        if (isReply(message, PHOTOS_DONE)) {
+            session.review();
+            show(sender, session);
+            return true;
+        }
+        if (message.kind() != InboundMessage.Kind.IMAGE || message.mediaId() == null) {
+            return false;
+        }
+        PendingPhotos.Added added = photos.add(sender.waId(), message.mediaId(), message.mimeType());
+        if (added == PendingPhotos.Added.REFUSED) {
+            return false;
+        }
+        sessions.save(session);
+        if (added == PendingPhotos.Added.LIMIT) {
+            gateway.sendButtons(sender.waId(), BotText.PHOTO_LIMIT.in(sender.language()), List.of(done(sender)));
+        }
+        return true;
+    }
+
+    private void askForPhotos(LinkedNumber sender, ConversationSession session) {
+        sessions.save(session);
+        gateway.sendButtons(sender.waId(), BotText.SEND_PHOTOS.in(sender.language()), List.of(done(sender)));
+    }
+
+    private static Button done(LinkedNumber sender) {
+        return new Button(PHOTOS_DONE, BotText.DONE.in(sender.language()));
     }
 
     // --- G. CONFIRM --------------------------------------------------------------------------------------------------
@@ -291,8 +357,9 @@ public class FieldUpdateMenu {
     }
 
     /**
-     * The summary names the Site and the Task as stored now, never as the person typed or saw them. A note too long
-     * for the 1,024 characters WhatsApp shows above buttons is shortened here only; YES saves all of it.
+     * The summary names the Site and the Task as stored now, never as the person typed or saw them, and counts the
+     * pending photos. A note too long for the 1,024 characters WhatsApp shows above buttons is shortened here only;
+     * YES saves all of it.
      */
     private void showSummary(LinkedNumber sender, ConversationSession session) {
         SiteTasks site = fieldUpdates.tasks(sender.userId(), session.getOrganizationId(), session.getSiteId());
@@ -301,7 +368,10 @@ public class FieldUpdateMenu {
         Language language = sender.language();
         String head = BotText.SUMMARY.in(language, Map.of("site", site.siteName(), "task", task.taskName(),
                 "action", summaryLabel(session.getAction()).in(language)));
-        String tail = "\n\n" + BotText.SAVE_IT.in(language);
+        int photoCount = photos.count(sender.waId());
+        String photoLine = photoCount == 0 ? "" : "\n" + (photoCount == 1 ? BotText.ONE_PHOTO_LINE.in(language)
+                : BotText.PHOTOS_LINE.in(language, Map.of("n", String.valueOf(photoCount))));
+        String tail = photoLine + "\n\n" + BotText.SAVE_IT.in(language);
         StringBuilder body = new StringBuilder(head);
         if (session.getNoteText() != null) {
             int room = BODY_MAX - head.length() - tail.length() - 1

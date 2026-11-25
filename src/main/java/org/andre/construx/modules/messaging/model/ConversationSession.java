@@ -105,18 +105,32 @@ public class ConversationSession {
         this.noteText = null;
     }
 
-    /** Step D for a Note, which needs its text first; step G, the summary, for the others. */
+    /** Step D for a Note, which needs its text first; step E, whether to add photos, for the others. */
     public void chooseAction(FieldAction action) {
         requireStep(SessionStep.PICK_ACTION);
         this.action = Objects.requireNonNull(action);
         this.noteText = null;
-        this.step = action == FieldAction.NOTE ? SessionStep.WRITE_NOTE : SessionStep.CONFIRM;
+        this.step = action == FieldAction.NOTE ? SessionStep.WRITE_NOTE : SessionStep.ASK_PHOTOS;
     }
 
-    /** Step G: the summary of the Note with this text, already stripped and within the limit. */
+    /** Step E for the Note with this text, already stripped and within the limit. */
     public void writeNote(String text) {
         requireStep(SessionStep.WRITE_NOTE);
         this.noteText = Objects.requireNonNull(text);
+        this.step = SessionStep.ASK_PHOTOS;
+    }
+
+    /** Step F: Yes to photos. */
+    public void addPhotos() {
+        requireStep(SessionStep.ASK_PHOTOS);
+        this.step = SessionStep.ADD_PHOTOS;
+    }
+
+    /** Step G, the summary: No to photos, or Done with them. */
+    public void review() {
+        if (step != SessionStep.ASK_PHOTOS && step != SessionStep.ADD_PHOTOS) {
+            throw new IllegalStateException("Session is at " + step + ", not at the photos");
+        }
         this.step = SessionStep.CONFIRM;
     }
 
