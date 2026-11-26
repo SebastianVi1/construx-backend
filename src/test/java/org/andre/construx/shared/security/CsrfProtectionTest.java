@@ -26,11 +26,11 @@ class CsrfProtectionTest {
     @Autowired MockMvc mvc;
 
     @Test
-    void missingTokenIsRejectedWithTheJsonForbiddenBody() throws Exception {
+    void missingTokenIsRejectedWithTheJsonCsrfBody() throws Exception {
         mvc.perform(post("/api/auth/logout"))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
     }
 
     @Test
@@ -39,7 +39,7 @@ class CsrfProtectionTest {
                         .cookie(new Cookie("XSRF-TOKEN", "cookie-value"))
                         .header("X-XSRF-TOKEN", "other-value"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
     }
 
     @Test
@@ -57,7 +57,7 @@ class CsrfProtectionTest {
         for (String path : new String[] {"/api/auth/password/forgot", "/api/auth/password/reset"}) {
             mvc.perform(post(path).contentType("application/json").content("{}"))
                     .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                    .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
         }
     }
 }

@@ -64,8 +64,10 @@ public class SecurityConfig {
         CookieCsrfTokenRepository csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfTokens.setCookieCustomizer(cookie -> cookie.secure(true).sameSite("Lax"));
         CsrfFilter csrfFilter = new CsrfFilter(csrfTokens);
+        // A failed CSRF check gets its own code so the SPA can refetch the token and retry once,
+        // while a permission denial (FORBIDDEN) is never retried.
         csrfFilter.setAccessDeniedHandler(
-                (req, res, ex) -> writeProblem(res, HttpStatus.FORBIDDEN, "Access denied", "FORBIDDEN"));
+                (req, res, ex) -> writeProblem(res, HttpStatus.FORBIDDEN, "Invalid CSRF token", "CSRF_INVALID"));
         csrfFilter.setRequireCsrfProtectionMatcher(request -> !java.util.Set.of("GET", "HEAD", "OPTIONS", "TRACE")
                 .contains(request.getMethod()));
         csrfFilter.setRequestHandler(new CsrfTokenRequestAttributeHandler());
