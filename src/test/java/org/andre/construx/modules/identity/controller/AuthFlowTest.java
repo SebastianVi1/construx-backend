@@ -1,17 +1,22 @@
 package org.andre.construx.modules.identity.controller;
 
 import com.jayway.jsonpath.JsonPath;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import jakarta.servlet.http.Cookie;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -20,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -40,6 +47,11 @@ class AuthFlowTest {
     @Autowired PasswordResetRepository resets;
     @Autowired UserProfileRepository profiles;
     @MockitoBean JavaMailSender sender;
+
+    @BeforeEach
+    void mailSenderBuildsMessages() {
+        when(sender.createMimeMessage()).thenAnswer(invocation -> new MimeMessage((Session) null));
+    }
 
     @Test
     void registrationRejectsPasswordShorterThanTwelveCharacters() throws Exception {
@@ -93,9 +105,9 @@ class AuthFlowTest {
                 .andExpect(status().isAccepted());
         UserAccount user = users.findByEmail(email).orElseThrow();
         assertFalse(user.isEmailVerified());
-        var mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+        var mail = ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender).send(mail.capture());
-        String verificationToken = mail.getValue().getText().split("token=")[1];
+        String verificationToken = tokenFrom(mail.getValue());
 
         mvc.perform(post("/api/auth/verify").cookie(csrfCookie)
                         .header(headerName, csrf)
@@ -202,10 +214,29 @@ class AuthFlowTest {
                 .andExpect(status().isNoContent()).andReturn().getResponse().getCookie("access_token");
     }
 
-    private List<String> mailedTokens(int expectedMails) {
-        var mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+    private List<String> mailedTokens(int expectedMails) throws Exception {
+        var mail = ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender, times(expectedMails)).send(mail.capture());
-        return mail.getAllValues().stream().map(m -> m.getText().split("token=")[1].split("\\s")[0]).toList();
+        List<String> tokens = new ArrayList<>();
+        for (MimeMessage message : mail.getAllValues()) tokens.add(tokenFrom(message));
+        return tokens;
+    }
+
+    /** The token from the link in the plain-text part of a branded email (text and HTML alternatives). */
+    private static String tokenFrom(MimeMessage message) throws Exception {
+        return plainText(message).split("token=")[1].split("\\s")[0];
+    }
+
+    private static String plainText(Part part) throws Exception {
+        Object content = part.getContent();
+        if (content instanceof Multipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String text = plainText(multipart.getBodyPart(i));
+                if (text != null) return text;
+            }
+            return null;
+        }
+        return part.isMimeType("text/plain") && content instanceof String text ? text : null;
     }
 
     private void ageResetTokens(String email) {
