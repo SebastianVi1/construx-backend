@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.TaskRole;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.service.ActivityService;
 import org.andre.construx.modules.project.service.ActivityService.ActivityData;
 import org.andre.construx.shared.validation.BudgetUpdate;
@@ -106,13 +107,13 @@ public class ActivityController {
     @PostMapping(TASK + "/start")
     public ActivityData start(SiteScope site,
                               @PathVariable UUID goalId, @PathVariable UUID activityId) {
-        return activities.start(site, goalId, activityId);
+        return activities.start(site, goalId, activityId, UpdateSource.APP);
     }
 
     @PostMapping(TASK + "/complete")
     public ActivityData complete(SiteScope site,
                                  @PathVariable UUID goalId, @PathVariable UUID activityId) {
-        return activities.complete(site, goalId, activityId);
+        return activities.complete(site, goalId, activityId, UpdateSource.APP);
     }
 
     @DeleteMapping(TASK)

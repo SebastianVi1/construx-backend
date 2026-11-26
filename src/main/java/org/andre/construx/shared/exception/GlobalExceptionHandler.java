@@ -34,7 +34,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
-        return respond(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage(), "NOT_FOUND", request);
+        return respond(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage(), ex.getCode(), request);
     }
 
     @ExceptionHandler(RuleViolationException.class)

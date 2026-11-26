@@ -12,13 +12,21 @@ import org.andre.construx.modules.project.model.ActivityStatus;
 import org.andre.construx.modules.project.model.Goal;
 import org.andre.construx.modules.project.model.TaskRole;
 import org.andre.construx.modules.project.model.TeamMember;
+import org.andre.construx.modules.project.model.UpdateSource;
 import org.andre.construx.modules.project.repository.ActivityRepository;
 import org.andre.construx.modules.project.repository.OpenTaskRow;
 import org.andre.construx.modules.project.repository.GoalRepository;
+import org.andre.construx.modules.project.repository.ProgressNotePhotoRepository;
+import org.andre.construx.shared.audit.AuditService;
 import org.andre.construx.shared.exception.ResourceNotFoundException;
+import org.andre.construx.shared.storage.ObjectStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -34,24 +42,41 @@ import java.util.UUID;
 /**
  * Tasks. Start, complete and view pass the caller to the permission check when the caller is in the task's
  * team, so a role with OWN scope (Worker) can only move tasks it works on; every other change passes no
- * assignee, which makes OWN scope deny.
+ * assignee, which makes OWN scope deny. Start and complete are audited as {@code ACTIVITY} {@code START} and
+ * {@code COMPLETE}, with the status before and the status and source after.
  */
 @Service
 public class ActivityService {
+    private static final Logger log = LoggerFactory.getLogger(ActivityService.class);
     private final ActivityRepository activities;
     private final GoalRepository goalRepository;
     private final GoalService goals;
     private final ProjectAccessService accesses;
     private final PersonDirectory directory;
+    private final AuditService audit;
+    private final ProgressNotePhotoRepository notePhotos;
+    private final ObjectStorage storage;
 
     public ActivityService(ActivityRepository activities, GoalRepository goalRepository, GoalService goals,
-                           ProjectAccessService accesses, PersonDirectory directory) {
+                           ProjectAccessService accesses, PersonDirectory directory, AuditService audit,
+                           ProgressNotePhotoRepository notePhotos, ObjectStorage storage) {
         this.activities = activities;
         this.goalRepository = goalRepository;
         this.goals = goals;
         this.accesses = accesses;
         this.directory = directory;
+        this.audit = audit;
+        this.notePhotos = notePhotos;
+        this.storage = storage;
     }
+
+    private static final String AUDIT_ENTITY = "ACTIVITY";
+
+    /** Audit before-state of a status change. */
+    record StatusBefore(ActivityStatus status) {}
+
+    /** Audit after-state of a status change. */
+    record StatusAfter(ActivityStatus status, UpdateSource source) {}
 
     public record AssigneeData(UUID accessId, UUID membershipId, String fullName, TaskRole taskRole, URI avatarUrl) {}
 
@@ -84,6 +109,26 @@ public class ActivityService {
                     row.dueAt()));
         }
         return byMembership;
+    }
+
+    /** An unfinished task the caller may start or finish, and whether the caller is in its team. */
+    public record ChangeableTask(UUID id, UUID goalId, String goalName, String name, ActivityStatus status,
+                                 Instant dueAt, boolean onMyTeam) {}
+
+    /**
+     * The unfinished tasks of the site the caller may start or finish, with the same check as {@link #start}: their
+     * own team's tasks first, then soonest due, then by name.
+     */
+    @Transactional(readOnly = true)
+    public List<ChangeableTask> changeableOpenTasks(SiteScope site) {
+        OrganizationMembership me = site.membership();
+        return activities.findOpenInProject(site.siteId()).stream()
+                .filter(a -> site.can(PermissionAction.MANAGE_ACTIVITY, teamMember(a, me)))
+                .map(a -> new ChangeableTask(a.getId(), a.getGoal().getId(), a.getGoal().getName(), a.getName(),
+                        a.getStatus(), a.getDueAt(), a.isOnTeam(me.getId())))
+                .sorted(Comparator.comparing((ChangeableTask t) -> !t.onMyTeam())
+                        .thenComparing(ChangeableTask::dueAt).thenComparing(ChangeableTask::name))
+                .toList();
     }
 
     /** A phase with its tasks, for printed summaries. */
@@ -188,18 +233,22 @@ public class ActivityService {
     }
 
     @Transactional
-    public ActivityData start(SiteScope site, UUID goalId, UUID activityId) {
+    public ActivityData start(SiteScope site, UUID goalId, UUID activityId, UpdateSource source) {
         Activity activity = load(site, goalId, activityId);
         site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        StatusBefore before = new StatusBefore(activity.getStatus());
         activity.start();
+        auditStatus(site, activity, "START", before, source);
         return toData(site.org(), List.of(activity)).get(0);
     }
 
     @Transactional
-    public ActivityData complete(SiteScope site, UUID goalId, UUID activityId) {
+    public ActivityData complete(SiteScope site, UUID goalId, UUID activityId, UpdateSource source) {
         Activity activity = load(site, goalId, activityId);
         site.require(PermissionAction.MANAGE_ACTIVITY, teamMember(activity, site.membership()));
+        StatusBefore before = new StatusBefore(activity.getStatus());
         activity.complete(Instant.now());
+        auditStatus(site, activity, "COMPLETE", before, source);
         return toData(site.org(), List.of(activity)).get(0);
     }
 
@@ -220,7 +269,31 @@ public class ActivityService {
         if (activities.hasExpenses(activityId)) {
             throw new IllegalStateException("Remove this task's expenses before deleting it");
         }
+        // The database cascades to the Progress notes; their photo files go once that is committed.
+        List<String> photoKeys = notePhotos.findStorageKeysByActivityId(activityId);
         activities.delete(activity);
+        afterCommit(() -> photoKeys.forEach(this::deleteObject));
+    }
+
+    private void deleteObject(String key) {
+        try {
+            storage.delete(key);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete a progress note photo from storage", e);
+        }
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     /** Home screen for anyone with a task permission: their own tasks in this organization. */
@@ -242,8 +315,17 @@ public class ActivityService {
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
     }
 
-    /** The caller's membership when they are in the team, which is what OWN scope matches; null otherwise. */
-    private static UUID teamMember(Activity activity, OrganizationMembership member) {
+    private void auditStatus(SiteScope site, Activity activity, String action, StatusBefore before,
+                             UpdateSource source) {
+        audit.record(AUDIT_ENTITY, activity.getId(), action, site.membershipId(), before,
+                new StatusAfter(activity.getStatus(), source));
+    }
+
+    /**
+     * The caller's membership when they are in the team, which is what OWN scope matches; null otherwise. Progress
+     * notes use it too.
+     */
+    static UUID teamMember(Activity activity, OrganizationMembership member) {
         return activity.isOnTeam(member.getId()) ? member.getId() : null;
     }
 

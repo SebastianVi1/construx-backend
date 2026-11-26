@@ -1,17 +1,21 @@
 package org.andre.construx.modules.identity.controller;
 
 import com.jayway.jsonpath.JsonPath;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import jakarta.servlet.http.Cookie;
 import org.andre.construx.modules.identity.model.UserAccount;
 import org.andre.construx.modules.identity.model.PasswordReset;
 import org.andre.construx.modules.identity.repository.PasswordResetRepository;
 import org.andre.construx.modules.identity.repository.UserAccountRepository;
 import org.andre.construx.modules.identity.repository.UserProfileRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -27,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -40,6 +45,32 @@ class AuthFlowTest {
     @Autowired PasswordResetRepository resets;
     @Autowired UserProfileRepository profiles;
     @MockitoBean JavaMailSender sender;
+
+    @BeforeEach
+    void stubMimeMessages() {
+        when(sender.createMimeMessage()).thenAnswer(invocation -> new MimeMessage((Session) null));
+    }
+
+    /** The token the branded email links to, read from its text/plain part. */
+    private static String mailedToken(MimeMessage message) {
+        try {
+            return plainText(message).split("token=")[1].split("\\s")[0];
+        } catch (Exception ex) {
+            throw new AssertionError("Unreadable mail", ex);
+        }
+    }
+
+    private static String plainText(Part part) throws Exception {
+        Object content = part.getContent();
+        if (content instanceof Multipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String text = plainText(multipart.getBodyPart(i));
+                if (text != null) return text;
+            }
+            return null;
+        }
+        return part.getDataHandler().getContentType().startsWith("text/plain") ? (String) content : null;
+    }
 
     @Test
     void registrationRejectsPasswordShorterThanTwelveCharacters() throws Exception {
@@ -93,9 +124,9 @@ class AuthFlowTest {
                 .andExpect(status().isAccepted());
         UserAccount user = users.findByEmail(email).orElseThrow();
         assertFalse(user.isEmailVerified());
-        var mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+        var mail = org.mockito.ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender).send(mail.capture());
-        String verificationToken = mail.getValue().getText().split("token=")[1];
+        String verificationToken = mailedToken(mail.getValue());
 
         mvc.perform(post("/api/auth/verify").cookie(csrfCookie)
                         .header(headerName, csrf)
@@ -203,9 +234,9 @@ class AuthFlowTest {
     }
 
     private List<String> mailedTokens(int expectedMails) {
-        var mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+        var mail = org.mockito.ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender, times(expectedMails)).send(mail.capture());
-        return mail.getAllValues().stream().map(m -> m.getText().split("token=")[1].split("\\s")[0]).toList();
+        return mail.getAllValues().stream().map(AuthFlowTest::mailedToken).toList();
     }
 
     private void ageResetTokens(String email) {

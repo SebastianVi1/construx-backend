@@ -65,6 +65,12 @@ public class AccountService {
         return users.findById(userId).orElseThrow(() -> new BadCredentialsException("Account unavailable"));
     }
 
+    /** False when the account is disabled or no longer exists. */
+    @Transactional(readOnly = true)
+    public boolean isEnabled(UUID userId) {
+        return users.findById(userId).map(UserAccount::isEnabled).orElse(false);
+    }
+
     @Transactional
     public void register(String email, String password) {
         register(email, password, null);

@@ -84,6 +84,20 @@ Response: `{ id, goalId, goalName, projectId, projectName, name, startAt, dueAt,
 
 Task budget: `PUT .../{activityId}/budget` with `{ "allocatedBudget" }` carves the task budget out of its phase budget (same rules one level down: the tasks of a phase cannot hold more than its budget, `400 BUDGET_EXCEEDED`; the phase needs a budget first, `400 BUDGET_PARENT_MISSING`). Responses include `allocatedBudget`, `null` when unset or without `VIEW_BUDGET`. Deleting a task frees its budget. Phase and task budgets live in `goal.allocated_budget` and `activity.allocated_budget` (`V16__phase_activity_budget.sql`).
 
+### Progress notes
+
+A Progress note is a dated entry on one task, written in the app or by WhatsApp (`.agents/contracts/field-updates.md` in the umbrella repo). Notes are never edited or deleted: there is no `PUT` or `DELETE`, and they go only when their task is deleted.
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `.../{activityId}/progress-notes` | `VIEW_ACTIVITY`; `OWN` passes for any team member |
+| POST | `.../{activityId}/progress-notes/photo-uploads` | same as POST below |
+| POST | `.../{activityId}/progress-notes` | `MANAGE_ACTIVITY`; `OWN` passes for any team member |
+
+Photos follow the Pin photo pattern. `photo-uploads` takes `{ "contentType", "sizeBytes" }` (JPEG or PNG, at most 5 MB, else `400 PROGRESS_NOTE_PHOTO_INVALID`) and answers `201 { key, uploadUrl, headers, expiresAt }`; the client PUTs the bytes to `uploadUrl` with `headers` within 10 minutes, then names `key` in a note.
+
+POST body: `{ "text"?, "photoKeys"?[] }`. Text is trimmed, at most 1,000 characters (`400 VALIDATION_FAILED`). A note needs text, photos or both (`400 PROGRESS_NOTE_EMPTY`) and holds at most 5 photos (`400 PROGRESS_NOTE_TOO_MANY_PHOTOS`; repeated keys count once). A key must have been issued for this task, hold a JPEG or PNG of at most 5 MB and not be used by another note, else `400 PROGRESS_NOTE_PHOTO_INVALID`. The app always writes `source: APP`; WhatsApp writes through `ProgressNoteService.add(site, goalId, activityId, text, photoKeys, WHATSAPP)` with the same key rule: on YES the bot copies each photo it held under `whatsapp/pending/{waId}/` to a new key of the task (`ProgressNoteService.newPhotoKey`), hands those keys to the note and deletes the pending objects after commit (on a rollback it deletes the copies instead). A note keeps its keys as they are, so nobody may delete those objects afterwards. Each note records audit `PROGRESS_NOTE` / `CREATE` with `{ activityId, text, photoCount, source }`. Response (GET lists newest first): `{ id, text, source, author: { membershipId, name }, createdAt, photos: [{ id, url }] }`; `text` is null for a photo-only note, `name` is null without a profile, `photos` are in the order sent and `url` is a presigned download that expires after 10 minutes. Stored in `progress_note` (`V42__progress_note.sql`) and `progress_note_photo` (`V43__progress_note_photo.sql`, positions 0 to 4).
+
 
 ## Gantt bar colors
 

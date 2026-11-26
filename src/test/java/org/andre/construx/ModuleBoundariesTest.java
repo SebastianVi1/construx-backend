@@ -23,7 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Module seams of the modular monolith ({@code modules/<name>} + {@code shared}):
  * <ul>
  *   <li>a module never reads another module's {@code repository} package; it calls that module's services;</li>
- *   <li>{@code shared} depends on no module.</li>
+ *   <li>{@code shared} depends on no module;</li>
+ *   <li>{@code messaging} (WhatsApp) is a leaf: it calls other modules' services, and nothing depends on it.</li>
  * </ul>
  * {@link #ALLOWED} lists the known violations as {@code Origin -> Target} (top-level classes, relative to {@code org.andre.construx}). It may only
  * shrink: a new violation fails the build, and so does an entry that no longer occurs.
@@ -54,6 +55,23 @@ class ModuleBoundariesTest {
         Set<String> stale = new TreeSet<>(ALLOWED);
         stale.removeAll(violations());
         assertTrue(stale.isEmpty(), "Fixed violations, remove them from ALLOWED:\n" + String.join("\n", stale));
+    }
+
+    @Test
+    void noOtherCodeDependsOnTheMessagingModule() {
+        String messaging = ROOT + ".modules.messaging.";
+        Set<String> found = new TreeSet<>();
+        for (JavaClass origin : classes) {
+            if (origin.getName().startsWith(messaging)) {
+                continue;
+            }
+            for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
+                if (dependency.getTargetClass().getName().startsWith(messaging)) {
+                    found.add(shortName(topLevel(origin)) + " -> " + shortName(topLevel(dependency.getTargetClass())));
+                }
+            }
+        }
+        assertTrue(found.isEmpty(), "Dependencies on the messaging module:\n" + String.join("\n", found));
     }
 
     @Test

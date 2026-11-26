@@ -6,6 +6,8 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 /** Keeps files in a map and hands out {@code memory://} links, for tests that need storage without S3. */
 public class InMemoryObjectStorage implements ObjectStorage {
@@ -45,7 +47,21 @@ public class InMemoryObjectStorage implements ObjectStorage {
     }
 
     @Override
+    public void copy(String sourceKey, String targetKey) {
+        Stored stored = objects.get(sourceKey);
+        if (stored == null) {
+            throw new IllegalArgumentException("No object under " + sourceKey);
+        }
+        objects.put(targetKey, stored);
+    }
+
+    @Override
     public void delete(String key) {
         objects.remove(key);
+    }
+
+    /** The keys stored now under {@code prefix}, sorted. */
+    public Set<String> keys(String prefix) {
+        return new TreeSet<>(objects.keySet().stream().filter(key -> key.startsWith(prefix)).toList());
     }
 }

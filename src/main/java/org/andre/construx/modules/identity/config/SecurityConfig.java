@@ -54,6 +54,22 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Meta's WhatsApp webhook: no cookie session, no JWT and no CSRF. Its only trust is the {@code X-Hub-Signature-256}
+     * signature, checked by the controller. A stray {@code access_token} cookie is never read here.
+     */
+    @Bean
+    @Order(0)
+    SecurityFilterChain whatsAppWebhookChain(HttpSecurity http) throws Exception {
+        http.securityMatcher("/api/webhooks/whatsapp")
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(csrf -> csrf.disable())
+                .requestCache(cache -> cache.disable())
+                .securityContext(context -> context.disable());
+        return http.build();
+    }
+
     @Bean
     @Order(2)
     SecurityFilterChain apiChain(HttpSecurity http,
