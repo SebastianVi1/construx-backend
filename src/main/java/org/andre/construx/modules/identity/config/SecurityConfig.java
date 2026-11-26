@@ -32,6 +32,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.util.WebUtils;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
@@ -39,6 +40,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 @Configuration
 @EnableMethodSecurity
@@ -56,7 +58,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain apiChain(HttpSecurity http,
+    SecurityFilterChain apiChain(HttpSecurity http, ObjectMapper json,
             @Value("${app.security.rate-limit.max-requests:10}") int rateLimitMax,
             @Value("${app.security.rate-limit.window-seconds:60}") long rateLimitWindowSeconds) throws Exception {
         // Resource Server normally exempts bearer tokens from CSRF. Our bearer token
@@ -67,7 +69,7 @@ public class SecurityConfig {
         // A failed CSRF check gets its own code so the SPA can refetch the token and retry once,
         // while a permission denial (FORBIDDEN) is never retried.
         csrfFilter.setAccessDeniedHandler(
-                (req, res, ex) -> writeProblem(res, HttpStatus.FORBIDDEN, "Invalid CSRF token", "CSRF_INVALID"));
+                (req, res, ex) -> writeProblem(json, res, HttpStatus.FORBIDDEN, "Invalid CSRF token", "CSRF_INVALID"));
         csrfFilter.setRequireCsrfProtectionMatcher(request -> !java.util.Set.of("GET", "HEAD", "OPTIONS", "TRACE")
                 .contains(request.getMethod()));
         csrfFilter.setRequestHandler(new CsrfTokenRequestAttributeHandler());
@@ -86,18 +88,17 @@ public class SecurityConfig {
                 .oauth2ResourceServer(o -> o.bearerTokenResolver(cookieBearerTokenResolver()).jwt(j -> {}))
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((req, res, ex) ->
-                                writeProblem(res, HttpStatus.UNAUTHORIZED, "Authentication required", "UNAUTHORIZED"))
+                                writeProblem(json, res, HttpStatus.UNAUTHORIZED, "Authentication required", "UNAUTHORIZED"))
                         .accessDeniedHandler((req, res, ex) ->
-                                writeProblem(res, HttpStatus.FORBIDDEN, "Access denied", "FORBIDDEN")));
+                                writeProblem(json, res, HttpStatus.FORBIDDEN, "Access denied", "FORBIDDEN")));
         return http.build();
     }
 
-    private static void writeProblem(HttpServletResponse res, HttpStatus status, String title, String code)
-            throws IOException {
+    private static void writeProblem(ObjectMapper json, HttpServletResponse res, HttpStatus status, String title,
+            String code) throws IOException {
         res.setStatus(status.value());
         res.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        res.getWriter().write("{\"title\":\"" + title + "\",\"status\":" + status.value()
-                + ",\"code\":\"" + code + "\"}");
+        res.getWriter().write(json.writeValueAsString(Map.of("title", title, "status", status.value(), "code", code)));
     }
 
     @Bean
